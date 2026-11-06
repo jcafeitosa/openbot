@@ -69,7 +69,7 @@ const SELECTION_REVISIONS_SQL = "SELECT memory_id, revision FROM agent_memory_se
 const SOURCE_KINDS_SQL = "SELECT memory_id, source_kind FROM projection_agent_memories";
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 62 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 63 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
 }
@@ -170,7 +170,7 @@ describe("memory provenance migration", () => {
     seed(db);
     db.exec("UPDATE projection_agent_memories SET source_kind = 'reflection' WHERE memory_id = 'turn'");
     const columns = db.prepare(MEMORY_COLUMNS_SQL).all();
-    db.exec("DELETE FROM schema_migrations WHERE version IN (61, 62)");
+    db.exec("DELETE FROM schema_migrations WHERE version IN (61, 62, 63)");
 
     expect(() => migrateOpenBotDatabase(db)).not.toThrow();
 

@@ -238,6 +238,7 @@ export class AgentRoster {
         ).run(...sensitiveParameters);
         db.prepare(`DELETE FROM orchestration_events WHERE ${sensitiveFilter}`).run(...sensitiveParameters);
         db.prepare("DELETE FROM projection_agents WHERE agent_id = ?").run(agentId);
+        db.prepare("DELETE FROM agent_goals WHERE agent_id = ?").run(agentId);
         db.prepare("DELETE FROM projection_agent_memories WHERE agent_id = ?").run(agentId);
         revokeRoutineWebhooks(db, "agent", routineIds, { forget: true });
         db.prepare("DELETE FROM projection_agent_routines WHERE agent_id = ?").run(agentId);

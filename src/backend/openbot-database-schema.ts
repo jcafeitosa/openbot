@@ -642,6 +642,26 @@ const AGENT_MEMORY_REVISIONS_SCHEMA_SQL = `
   );
 `;
 
+// Migration 63 keeps one goal per row: an objective an agent works toward, with a run budget and an optional deadline.
+// The routine scheduler counts each run against the agent's governing goal and refuses it once that goal is exhausted
+// or past its deadline. Only creates a table and an index, so no foreign-key pause and no vacuum. No foreign key to the
+// agent: the roster is rewritten by deleting and reinserting its rows, and a cascade would clear every goal on each write.
+// IF NOT EXISTS throughout, because this text is both migration 63 and the tail of the latest schema.
+const AGENT_GOALS_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_goals (
+    goal_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    objective TEXT NOT NULL CHECK(length(objective) BETWEEN 1 AND 500),
+    status TEXT NOT NULL CHECK(status IN ('open', 'paused', 'done', 'exhausted', 'failed')),
+    max_runs INTEGER NOT NULL CHECK(max_runs > 0),
+    runs_used INTEGER NOT NULL DEFAULT 0 CHECK(runs_used >= 0),
+    deadline_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS agent_goals_agent ON agent_goals(agent_id, created_at);
+`;
+
 // Migration 61 records where each memory came from: a turn, a background review, a reflection or the user.
 // Frozen with the migration. ADD COLUMN puts the declaration after the last column and before the UNIQUE
 // constraint that ends the table, so the latest schema puts it there as well.
@@ -714,7 +734,8 @@ const LATEST_SCHEMA_SQL =
   AGENT_SKILL_LOADS_SCHEMA_SQL +
   TURN_OUTCOMES_SCHEMA_SQL +
   AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL +
-  AGENT_MEMORY_REVISIONS_SCHEMA_SQL;
+  AGENT_MEMORY_REVISIONS_SCHEMA_SQL +
+  AGENT_GOALS_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -1086,6 +1107,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // Only creates a table, so no foreign-key pause and no vacuum. No memory had a revision before it, so the table
     // starts empty and no existing row changes.
     up: (db) => db.exec(AGENT_MEMORY_REVISIONS_SCHEMA_SQL),
+  },
+  {
+    version: 63,
+    // Only creates a table and an index, so no foreign-key pause and no vacuum. No goal existed before it, so the table
+    // starts empty and no existing row changes.
+    up: (db) => db.exec(AGENT_GOALS_SCHEMA_SQL),
   },
 ];
 

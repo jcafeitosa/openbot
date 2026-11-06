@@ -24,6 +24,7 @@ import { type DynamicRecord, isBoolean } from "@openbot/contracts/runtime-values
 import { sourceText } from "@openbot/i18n/source";
 import { collapseMissedOccurrences, RoutineInputError } from "@openbot/team-client/routine-schedule";
 import { Effect, Schema } from "effect";
+import { AgentGoalStore } from "../agent-goals/agent-goals";
 import { AgentRoutineStore } from "../agent-routine-store";
 import { AGENT_PREVIEW_MAX_LENGTH, type AgentStore } from "../agent-store";
 import type { AgentWaits } from "../agent-waits/agent-waits";
@@ -162,6 +163,7 @@ export class RoutineScheduler implements RoutineDueSource {
   readonly #conversation: ConversationRuntime;
   readonly #hooks: RoutineHooks;
   readonly #routines: AgentRoutineStore;
+  readonly #goals: AgentGoalStore;
   readonly #waits: AgentWaits;
   /**
    * A deletion has to interrupt live runs before it can remove their routine, so it holds the agent
@@ -193,6 +195,7 @@ export class RoutineScheduler implements RoutineDueSource {
     this.#hooks = options.hooks;
     this.#timer = options.timer;
     this.#routines = new AgentRoutineStore(options.store.database);
+    this.#goals = new AgentGoalStore(options.store.database);
     this.#waits = options.waits;
     this.#timezone = options.timezone ?? localTimezone;
     this.#webhookRoutines = options.webhookRoutines;
@@ -1029,6 +1032,11 @@ export class RoutineScheduler implements RoutineDueSource {
     const agent = yield* this.#store.getOrCreate(run.agentId).pipe(toRoutineOperationFailed);
     return yield* Effect.gen({ self: this }, function* () {
       yield* routineStep(validateRecipient);
+      // An exhausted or expired goal refuses the run; the throw below is the failure that marks it failed.
+      yield* routineStep(() => {
+        const refusal = this.#goals.admitRun(run.agentId);
+        if (refusal) throw new Error(refusal);
+      });
       // A routine runs in the agent's chat unless the user chose its own side thread. That thread is a
       // lane beside the chat and the other routines, so a run does not wait for them.
       const thread = yield* routineStep(() =>
