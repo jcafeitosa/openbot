@@ -746,6 +746,70 @@ end-to-end updater acceptance test: check, download, restart, and confirm the ve
 losing local agents or queues. This cannot be proven with an unsigned development build because macOS
 updaters require both versions to share a valid Developer ID signature.
 
+## Rollback
+
+Every desktop publication needs a rollback plan before its tag is pushed. A published release cannot
+be recalled from users' computers. Read this section first.
+
+### What a rollback can and cannot do
+
+- **Database.** Migrations are irreversible. No backup of `openbot.db` is made before an upgrade, and
+  no schema downgrade is offered. An older application refuses a database that has a newer schema
+  version ("newer than this application supports"). After users run a new version, reinstalling an
+  older version does not restore their data path. Do not promise a database downgrade in any release
+  note, announcement, or support answer.
+- **Installed apps.** The in-app updater (`electron-updater`) only moves forward by default. The
+  repository does not set `allowDowngrade`, so an app on a bad version is not offered an older one. The
+  only path for those users is a fixed version that is higher than the bad one.
+- **New downloads.** The `latest` GitHub Release feeds the updater manifests and the release download
+  page. Moving `latest` to an earlier good release changes what new installs and updates
+  receive. It does not change the version that an installed app already runs.
+
+### Parts of a release and their rollback action
+
+| Part | Where it lives | Rollback action |
+| --- | --- | --- |
+| GitHub Release and updater feed | Release assets `latest-mac.yml`, `latest.yml`, `latest-linux*.yml`; `--latest` flag | Point `latest` at the last good tag (see steps below). |
+| Desktop fix | Next patch version | Publish a higher version through the normal path. This is the only fix for users already on the bad version. |
+| Provider CLI versions | `provider-runtime-blocklist.json` | Add the bad version to its provider list and merge to `main`. Apps read the list at their next check. Installed copies keep the blocked version. |
+| Hosted-server template | Worker secret `HOSTED_SERVER_TEMPLATE`, set by the `hosted-release` job | A failed job keeps the previous template. Servers already created keep running. Snapshots of older releases are pruned, so only the two newest ready snapshots can be selected again. |
+| Docker image | `ghcr.io/nightly-labs/openbot` tags `v<version>` and `latest` | Re-point `latest` to the last good tag. Procedure not yet verified (see Open gaps). |
+| Mobile apps | `apps/mobile` release workflows | Out of scope for this section. Use the mobile release guide. |
+
+### Steps to pull a bad desktop release
+
+1. Stop further publication. The Release Lead decides with the CTO. The user approves any change to a
+   published release.
+2. Name the last good tag. Confirm that its release has the `latest-*.yml` assets for each platform.
+3. Point `latest` at the last good tag:
+   `gh release edit <last-good-tag> --latest --repo nightly-labs/openbot`.
+4. Mark the bad release as a prerelease so it is not used as `latest`:
+   `gh release edit <bad-tag> --prerelease --repo nightly-labs/openbot`. Do not delete its assets.
+   Deleting a release or its tag needs separate user approval.
+5. If a provider CLI version is bad, add it to `provider-runtime-blocklist.json` and merge to `main`.
+6. If the Docker `latest` tag is bad, re-point it to the last good `v<version>` tag. Check anonymous
+   access afterwards with the commands in the Docker section.
+7. Prepare a fixed patch version (`bun run release:patch`) and publish it through the normal path,
+   including `bun run release:preflight`.
+8. Record the decision and the tags involved in the release notes for the fixed version, without
+   promising a database downgrade.
+
+### Who approves
+
+- The Release Lead approves the rollback plan for each desktop release before its tag is pushed, and
+  approves each rollback action.
+- The user approves any action on a published release that is hard to undo: deleting a release, a
+  tag, or assets, or a change that affects production users.
+- A change to a schema migration needs Desktop Core and Backend & Infra, with the CTO as tie-breaker.
+  Such a change must name the rollback limit above.
+
+### Open gaps
+
+- No preflight check yet confirms that a tag has a rollback plan. Adding one is a change to
+  `scripts/release-preflight.ts` and is not part of this section.
+- The Docker `latest` re-point command is not tested in this repository.
+- No documented manual procedure exists to select an older hosted snapshot after pruning.
+
 ## Managed-host release package
 
 The normal DMG remains the desktop application. The optional Host PKG installs managed-host
