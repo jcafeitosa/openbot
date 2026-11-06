@@ -604,6 +604,26 @@ const TURN_OUTCOMES_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS turn_outcomes_created ON turn_outcomes(created_at);
 `;
 
+// One row for each earlier text of an agent's instruction file, kept before every write of it, so the
+// user can restore one by its hash. Keyed by the agent and the file's name in the workspace. The store
+// keeps the newest 50 per file and prunes in the same savepoint as the insert. Only creates a table and
+// its indexes; the foreign key clears its rows with their agent. IF NOT EXISTS throughout, because this
+// text is both migration 60 and the tail of the latest schema.
+const AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_instructions_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL REFERENCES projection_agents(agent_id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL CHECK(length(file_path) BETWEEN 1 AND 255),
+    text TEXT NOT NULL,
+    sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS agent_instructions_snapshots_file
+    ON agent_instructions_snapshots(agent_id, file_path, created_at);
+  CREATE INDEX IF NOT EXISTS agent_instructions_snapshots_hash
+    ON agent_instructions_snapshots(agent_id, file_path, sha256);
+`;
+
 const LATEST_SCHEMA_SQL =
   substituteOnce(
     substituteOnce(
@@ -656,7 +676,8 @@ const LATEST_SCHEMA_SQL =
   DELETED_THREAD_MESSAGES_SCHEMA_SQL +
   BROWSER_PROXY_SCHEMA_SQL +
   AGENT_SKILL_LOADS_SCHEMA_SQL +
-  TURN_OUTCOMES_SCHEMA_SQL;
+  TURN_OUTCOMES_SCHEMA_SQL +
+  AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -1010,6 +1031,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // Only creates a table and an index, so no foreign-key pause and no vacuum. No turn had an outcome row
     // before it, so the table starts empty and no existing row changes.
     up: (db) => db.exec(TURN_OUTCOMES_SCHEMA_SQL),
+  },
+  {
+    version: 60,
+    // Only creates a table and its indexes, so no foreign-key pause and no vacuum. No instruction file was
+    // saved before it, so the table starts empty and no agent's file changes.
+    up: (db) => db.exec(AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL),
   },
 ];
 
