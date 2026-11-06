@@ -178,6 +178,14 @@ export const messages = {
   "error.backend.interruptNoSession": "OpenBot sağlayıcı oturumu kullanılamadığı için bu ajanı kesintiye uğratamıyor.",
   "error.backend.memoryTextRequired": "Bellek metni gereklidir.",
   "error.backend.memoryTextTooLong": "Bellek metni çok uzun.",
+  "error.backend.memorySecretRefused":
+    "Bu metin OpenBot'un sakladığı bir sır içeriyor, bu yüzden hatırlanmadı. Bilgiyi değeri olmadan hatırla.",
+  "error.backend.agentHopLimit":
+    "Ajanlar arasındaki istekler, tek bir zincirde {limit} adımdan sonra durur. İşi kendiniz bitirin veya sohbette kullanıcıya sorun.",
+  "error.backend.skillPersonOnly":
+    "Başka bir ajanda beceri yükleme, etkinleştirme veya kaldırma yalnızca bir kişinin mesajıyla yapılabilir. Kullanıcıdan bunu sohbette istemesini isteyin.",
+  "error.backend.routinePersonOnly":
+    "Başka bir ajanın rutinini yalnızca bir kişinin mesajı oluşturabilir, değiştirebilir veya silebilir. Kullanıcıdan bunu sohbette istemesini isteyin.",
   "error.backend.mcpServerGone": "Bu MCP sunucusu artık mevcut değil.",
   "error.backend.routineFlowLinkGone": "Bu bağlantı artık yok.",
   "error.backend.routineFlowSameAgent": "Bir ajan işi kendisine devredemez.",

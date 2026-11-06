@@ -189,6 +189,14 @@ export const messages = {
     "プロバイダーのセッションを使用できないため、OpenBot はこのエージェントを中断できません。",
   "error.backend.memoryTextRequired": "メモリーのテキストが必要です。",
   "error.backend.memoryTextTooLong": "メモリーのテキストが長すぎます。",
+  "error.backend.memorySecretRefused":
+    "このテキストには OpenBot が保持する秘密情報が含まれるため、記憶されませんでした。値を除いて事実だけを記憶してください。",
+  "error.backend.agentHopLimit":
+    "エージェント間の依頼は、1 つの連鎖で {limit} ホップを超えると止まります。作業は自分で完了するか、チャットでユーザーに確認してください。",
+  "error.backend.skillPersonOnly":
+    "別のエージェントのスキルを追加、有効化、削除できるのは、人からのメッセージだけです。チャットで依頼するようユーザーに伝えてください。",
+  "error.backend.routinePersonOnly":
+    "別のエージェントのルーティンを作成、変更、削除できるのは、人からのメッセージだけです。チャットで依頼するようユーザーに伝えてください。",
   "error.backend.mcpServerGone": "この MCP サーバーはもう存在しません。",
   "error.backend.routineFlowLinkGone": "この接続はもう存在しません。",
   "error.backend.routineFlowSameAgent": "エージェントは自分自身に作業を渡せません。",

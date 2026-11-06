@@ -171,6 +171,13 @@ export const messages = {
   "error.backend.interruptNoSession": "لا يمكن لـ OpenBot مقاطعة هذا الوكيل لأن جلسة المزوّد غير متاحة.",
   "error.backend.memoryTextRequired": "يلزم نص الذكرى.",
   "error.backend.memoryTextTooLong": "نص الذكرى طويل جدًا.",
+  "error.backend.memorySecretRefused": "يحتوي هذا النص على سر يحتفظ به OpenBot، لذلك لم يُحفظ. احفظ الحقيقة دون القيمة.",
+  "error.backend.agentHopLimit":
+    "تتوقف الطلبات بين الوكلاء بعد {limit} قفزات في سلسلة واحدة. أنجز العمل بنفسك، أو اسأل المستخدم في المحادثة.",
+  "error.backend.skillPersonOnly":
+    "لا يمكن تثبيت مهارة على وكيل آخر أو تفعيلها أو إلغاء تثبيتها إلا برسالة من شخص. اطلب من المستخدم طلبها في المحادثة.",
+  "error.backend.routinePersonOnly":
+    "لا يمكن إنشاء روتين لوكيل آخر أو تغييره أو حذفه إلا برسالة من شخص. اطلب من المستخدم طلبها في المحادثة.",
   "error.backend.mcpServerGone": "خادم MCP هذا لم يعد موجودًا.",
   "error.backend.routineFlowLinkGone": "هذا الاتصال لم يعد موجودًا.",
   "error.backend.routineFlowSameAgent": "لا يمكن للوكيل تسليم العمل إلى نفسه.",

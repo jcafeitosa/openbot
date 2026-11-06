@@ -4,6 +4,7 @@ import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type { AgentMemoryOrigin, MemoryEntry } from "@openbot/contracts/ipc";
 import { type DynamicRecord, isString } from "@openbot/contracts/runtime-values";
 import { sourceText } from "@openbot/i18n/source";
+import { containsRegisteredSecret, redactText } from "@openbot/logging";
 import { databaseRow, databaseRows, requiredStringColumn } from "./database/database-rows";
 import type { OpenBotDatabase } from "./openbot-database";
 
@@ -129,7 +130,7 @@ export class MemoryStore {
     }
     return this.save(ownerId, {
       ...(input.memoryId === undefined ? {} : { memoryId: input.memoryId }),
-      text: input.text,
+      text: automaticMemoryText(input.text),
       origin: "automatic",
       sourceTurnId: input.sourceTurnId,
       ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
@@ -291,6 +292,17 @@ function validateMemoryText(value: string): string {
   if (!text) throw new Error(sourceText("error.backend.memoryTextRequired"));
   if (text.length > INPUT_LIMITS.agentMemoryText) throw new Error(sourceText("error.backend.memoryTextTooLong"));
   return text;
+}
+
+/**
+ * The text an agent or channel remembers. A value the user registered as a secret is refused, not
+ * masked: the memory would still say what it was for. Known secret patterns are masked before the
+ * text is stored, so the memory row and its event history never hold them.
+ */
+function automaticMemoryText(value: string): string {
+  const text = validateMemoryText(value);
+  if (containsRegisteredSecret(text)) throw new Error(sourceText("error.backend.memorySecretRefused"));
+  return validateMemoryText(redactText(text));
 }
 
 /** Two memories with the same normalized text are one memory: `save` folds the second into the first. */

@@ -8,6 +8,7 @@ import {
   CONVERSATION_SUBAGENTS_ITEM_TYPE,
   type ConversationMessage,
   type ConversationPlan,
+  type ConversationPlanStep,
   type ConversationSnapshot,
   type ConversationSubagent,
   type ConversationTurnTrace,
@@ -85,6 +86,7 @@ import {
   toolUsage,
   toThreadItem,
 } from "./thread-items";
+import { type TurnLedger, type TurnOutcome, toolFailureCode } from "./turn-ledger";
 import { TurnTraces, traceMessage } from "./turn-traces";
 import { collectProviderUsage } from "./usage-collection";
 import { USAGE_LIMIT_METHOD, type UsageLimitGate } from "./usage-limit-gate";
@@ -209,6 +211,14 @@ export interface TurnHooks {
     counts: boolean,
     memoryCommitted: boolean,
   ): Effect.Effect<void>;
+  /**
+   * Checks with a tool-less generation that the steps a turn marked done are really done. It returns the
+   * gaps that the agent must still close; an empty list approves. A check that cannot run approves.
+   */
+  verifyPlan(
+    agentId: string,
+    input: { steps: readonly ConversationPlanStep[]; answer: string },
+  ): Effect.Effect<readonly string[]>;
   /** Whether the user stopped this turn, in the agent's own chat (`taskId` null) or in a task. */
   turnStopped(agentId: string, taskId: string | null, turnId: string): boolean;
   /** Whether the agent has an open wait for one of these deliveries. */
@@ -273,6 +283,7 @@ export interface TurnLifecycleOptions {
   usageLimits: UsageLimitGate;
   planContinuation: PlanContinuation;
   hooks: TurnHooks;
+  ledger: TurnLedger;
 }
 
 /**
@@ -300,6 +311,7 @@ export class TurnLifecycle {
   readonly #usageLimits: UsageLimitGate;
   readonly #planContinuation: PlanContinuation;
   readonly #hooks: TurnHooks;
+  readonly #ledger: TurnLedger;
   readonly fileHistory = new ThreadFileHistory();
   readonly #failedTurns = new Map<string, string>();
   readonly #observedCompactions = new Map<string, string>();
@@ -314,6 +326,10 @@ export class TurnLifecycle {
    * reason once the banner that showed it is gone.
    */
   readonly #turnErrors = new Map<string, string>();
+  /** The failed tool steps of each running turn, counted by their code, for the outcome ledger. */
+  readonly #toolFailures = new Map<string, Map<string, number>>();
+  /** The cause that the error of each running turn named, for the outcome ledger. */
+  readonly #turnCauses = new Map<string, CauseCode>();
   /** How many times the provider retried a request of each running turn. */
   readonly #turnRetries = new Map<string, number>();
   /**
@@ -398,6 +414,7 @@ export class TurnLifecycle {
     this.#usageLimits = options.usageLimits;
     this.#planContinuation = options.planContinuation;
     this.#hooks = options.hooks;
+    this.#ledger = options.ledger;
   }
 
   failedTurns(): ReadonlyMap<string, string> {
@@ -943,6 +960,7 @@ export class TurnLifecycle {
         const errorTurnId = getString(params, "turnId");
         if (notification.method === "error" && errorTurnId && this.#runningTurns.has(errorTurnId)) {
           this.#turnErrors.set(errorTurnId, message);
+          this.#turnCauses.set(errorTurnId, causeCode);
           // The turn's completion runs it again or reports it in words the user can act on.
           if (refusedSessionFailure(source.provider, message) !== null) return;
         }
@@ -1143,6 +1161,11 @@ export class TurnLifecycle {
       }
       const reportedError = this.#turnErrors.get(turnId);
       this.#turnErrors.delete(turnId);
+      const reportedCause = this.#turnCauses.get(turnId);
+      this.#turnCauses.delete(turnId);
+      const toolFailures = this.#toolFailures.get(turnId) ?? new Map<string, number>();
+      this.#toolFailures.delete(turnId);
+      const approvals = this.#ledger.takeApprovals(agentId, turnId);
       this.#turnRetries.delete(turnId);
       // The error is kept only while the turn runs, so a refused turn always has its entry.
       const refusedFailure =
@@ -1356,8 +1379,8 @@ export class TurnLifecycle {
         !routineSession &&
         (!taskTurn || laneTaskId !== null) &&
         this.#planContinues(agentId, laneTaskId, turnId, deliveries, latestAssistant?.text);
-      const continuation = planContinues
-        ? this.#planContinuation.consider({
+      const continuationTurn = planContinues
+        ? {
             agentId,
             taskId: laneTaskId,
             deliveryIds: deliveries.map(({ delivery }) => delivery.id),
@@ -1367,8 +1390,17 @@ export class TurnLifecycle {
                 (message) => message.itemType === CONVERSATION_PLAN_ITEM_TYPE && message.turnId !== turnId,
               )?.plan ?? null,
             answer: latestAssistant?.text,
-          })
+          }
         : null;
+      // A turn whose steps all read done is checked before the request ends; the gaps it finds run once more.
+      const verifySteps = continuationTurn ? this.#planContinuation.verificationSteps(continuationTurn) : null;
+      let gaps: readonly string[] = [];
+      if (verifySteps)
+        gaps = yield* this.#hooks.verifyPlan(agentId, {
+          steps: verifySteps.map((step) => ({ ...step, text: this.#hooks.redactMcp(step.text) })),
+          answer: this.#hooks.redactMcp(latestAssistant?.text ?? ""),
+        });
+      const continuation = continuationTurn ? this.#planContinuation.consider({ ...continuationTurn, gaps }) : null;
       if (!continuation) this.#planContinuation.cancel(agentId, laneTaskId);
       if (deliveries.length > 0) {
         const terminal = outcome === "failed" ? "failed" : outcome === "interrupted" ? "interrupted" : "completed";
@@ -1473,6 +1505,25 @@ export class TurnLifecycle {
         ...(quiet ? { quiet: true as const } : {}),
         ...(continuation ? { continues: true as const } : {}),
       });
+      // The outcome ledger gets one row for this turn: codes and counts only. A write that fails is logged,
+      // and it never fails a turn that has already ended.
+      const ledgerOutcome: TurnOutcome = outcome === "completed" || outcome === "interrupted" ? outcome : "failed";
+      try {
+        this.#ledger.record({
+          agentId,
+          threadId: this.#conversation.publicThreadId(agentId, threadId),
+          turnId,
+          outcome: ledgerOutcome,
+          causeCode: ledgerOutcome === "failed" ? (reportedCause ?? classifyFailure(failure)) : null,
+          toolFailures,
+          messageIds: snapshot.messages.filter((message) => message.turnId === turnId).map((message) => message.id),
+          memoryChanges: memoryChanges.filter((change) => change.action !== "notChanged").length,
+          approvals,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        logger.warn("Could not record the turn outcome.", { error });
+      }
       if (!channelTurn && !routineSession) {
         // An automatic continuation is part of the turn that the person started, so it counts once.
         const counts =
@@ -1999,6 +2050,12 @@ export class TurnLifecycle {
     if (!isString(item.id)) return;
     if (isToolItem(item)) {
       const failed = completed && toolFailed(item);
+      if (failed) {
+        const codes = this.#toolFailures.get(turnId) ?? new Map<string, number>();
+        const code = toolFailureCode(item);
+        codes.set(code, (codes.get(code) ?? 0) + 1);
+        this.#toolFailures.set(turnId, codes);
+      }
       this.#traces.observe(turnId, item.id, "tool", {
         completed,
         failed,

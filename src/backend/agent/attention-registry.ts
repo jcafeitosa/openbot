@@ -94,6 +94,7 @@ import {
 } from "./prompts";
 import { compactRuntimeApproval, compactRuntimeQuestion } from "./runtime-snapshot";
 import { isDynamicToolCall } from "./thread-items";
+import type { TurnLedger } from "./turn-ledger";
 
 const logger = createOpenBotLogger("attention-registry");
 
@@ -407,6 +408,8 @@ export interface AttentionRegistryOptions {
   conversation: AttentionConversation;
   browser: AttentionBrowserHost;
   hostedSites: HostedSiteApprovals;
+  /** Counts the approval decisions of each turn. Absent in a registry that runs no turn. */
+  turnLedger?: TurnLedger | undefined;
   routines: RoutineAttention;
   /** Read at each approval, so a grant the user gives now applies to the next request. */
   approvalAutomation?: ApprovalAutomationPolicy | undefined;
@@ -469,6 +472,7 @@ export class AttentionRegistry {
   // A handle belongs to one pending object, even when a provider reuses its request ID.
   readonly #localHandles = new WeakMap<PendingPrompt | PendingApproval | PendingBrowserTakeover, string>();
   readonly #conversation: AttentionConversation;
+  readonly #turnLedger: TurnLedger | null;
   readonly #browser: AttentionBrowserHost;
   readonly #hostedSites: HostedSiteApprovals;
   readonly #routines: RoutineAttention;
@@ -493,6 +497,7 @@ export class AttentionRegistry {
     this.#conversation = options.conversation;
     this.#browser = options.browser;
     this.#hostedSites = options.hostedSites;
+    this.#turnLedger = options.turnLedger ?? null;
     this.#routines = options.routines;
     this.#approvalAutomation = options.approvalAutomation ?? NO_APPROVAL_AUTOMATION;
     this.#workspaceSandboxed = options.workspaceSandboxed ?? (() => false);
@@ -830,6 +835,7 @@ export class AttentionRegistry {
       );
     }
     this.#approvals.delete(input.requestId);
+    this.#turnLedger?.noteApproval(pending.approval.agentId, getString(pending.params, "turnId"), input.decision);
     this.#emitInputResolved("approval", input.requestId, pending.approval.agentId);
     this.#emitRuntimeSnapshot();
   }, Effect.uninterruptible).bind(this);

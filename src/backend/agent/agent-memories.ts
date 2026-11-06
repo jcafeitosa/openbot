@@ -93,6 +93,8 @@ export class AgentMemories {
   readonly #memories: AgentMemoryStore;
   readonly #pending = new Map<string, PendingMemoryMutation[]>();
   readonly #epochs = new Map<string, number>();
+  /** The source that a background review's saves record, by the turn id that stages them. */
+  readonly #reviewSources = new Map<string, string>();
 
   constructor(options: AgentMemoriesOptions) {
     this.#conversation = options.conversation;
@@ -198,12 +200,15 @@ export class AgentMemories {
    * memory tools: the cap, the essential budget, duplicates and the user's choices. A review changes
    * only the memories that the agent saved, and only while they hold the text that the review read.
    * A clear since `reviewBase` drops every change.
+   * `source` is what each saved memory records as its source: the reviewed thread and turn, not the
+   * staging `turnId`.
    */
   applyReview(
     agentId: string,
     base: MemoryReviewBase,
     operations: readonly MemoryReviewOperation[],
     turnId: string,
+    source: string,
   ): ConversationMemoryChange[] {
     if (base.epoch !== this.#epoch(agentId)) return [];
     const read = new Map(base.memories.map((entry) => [entry.memory.id, entry]));
@@ -220,6 +225,7 @@ export class AgentMemories {
         .filter((memory) => !changed.has(memory.id))
         .map((memory) => memory.text),
     );
+    this.#reviewSources.set(turnId, source);
     ordered.forEach((operation, index) => {
       // An add of a saved text would only change that memory's inclusion, which can be the user's choice.
       if (operation.type === "add" && saved.has(normalizeMemoryText(operation.text))) return;
@@ -397,7 +403,7 @@ export class AgentMemories {
         epoch: this.#epoch(senderAgentId),
         ...(memoryId ? { memoryId } : {}),
         text,
-        sourceTurnId: params.turnId,
+        sourceTurnId: this.#reviewSources.get(params.turnId) ?? params.turnId,
         ...(memoryId ? { expectedUpdatedAt: current?.updatedAt ?? null } : {}),
         ...(sourceSelection ? { expectedSelectionRevision: sourceSelection.revision } : {}),
         ...(duplicate && duplicateSelection
@@ -452,6 +458,7 @@ export class AgentMemories {
   finishTurn(turnId: string, status: string): Map<string, ConversationMemoryChange[]> {
     const pending = this.#pending.get(turnId) ?? [];
     this.#pending.delete(turnId);
+    this.#reviewSources.delete(turnId);
     const changes = new Map<string, ConversationMemoryChange[]>();
     if (status !== "completed" || pending.length === 0) return changes;
 

@@ -243,12 +243,14 @@ export class AgentMemoryStore extends MemoryStore {
         }),
       ),
     ].join(" OR ");
+    // Relevance first. Recency, then origin (manual above automatic), only break exact bm25 ties.
     const ids = databaseRows(
       this.database.connection
         .prepare(
           `SELECT m.memory_id FROM agent_memory_search JOIN projection_agent_memories m ON m.rowid = agent_memory_search.rowid
        WHERE agent_memory_search MATCH ? AND m.agent_id = ?
-       ORDER BY bm25(agent_memory_search), m.updated_at DESC, m.memory_id LIMIT ?`,
+       ORDER BY bm25(agent_memory_search), m.updated_at DESC,
+         CASE m.origin WHEN 'manual' THEN 0 ELSE 1 END, m.memory_id LIMIT ?`,
         )
         .all(expression, agentId, limit + 1),
     ).map((row) => requiredStringColumn(row, "memory_id"));

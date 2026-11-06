@@ -544,6 +544,8 @@ export class MessagingThreads {
           return openBotToolFailure(
             "A direct message is private. Facts from it are not saved for the whole workspace.",
           );
+        // The origin of a fact saved here is `automatic`: an external message saved it, so the prompt
+        // leaves it out until a person approves it. This tool is the only writer of `automatic` facts.
         const saved = Result.try(() =>
           this.memories.saveFromTool(link.connectionId, {
             text: call.text,
@@ -557,6 +559,8 @@ export class MessagingThreads {
         return openBotToolResult({
           accepted: true,
           memoryId: saved.success.id,
+          // A duplicate of a fact that a person saved returns that fact, so this follows its origin.
+          approved: saved.success.origin === "manual",
           count: this.memories.count(link.connectionId),
           limit: this.memories.limit(),
         });

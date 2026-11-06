@@ -38,6 +38,7 @@ import type {
   ConversationMessageSender,
   ConversationPage,
   ConversationPageAnchor,
+  ConversationPlanStep,
   ConversationReadState,
   ConversationSearchPage,
   ConversationSnapshot,
@@ -189,7 +190,7 @@ import {
   workflowProvider,
 } from "./agent/model-choice";
 import { OpenBotToolRouter } from "./agent/openbot-tool-router";
-import { PlanContinuation } from "./agent/plan-continuation";
+import { PlanContinuation, planVerdictGaps, planVerifierPrompt } from "./agent/plan-continuation";
 import { ProfileClients } from "./agent/profile-clients";
 import {
   GenerationUsageLimitError,
@@ -220,6 +221,7 @@ import {
 } from "./agent/thread-items";
 import { ThreadLifecycle } from "./agent/thread-lifecycle";
 import { toToolOperationFailed } from "./agent/tool-operation";
+import { TurnLedger } from "./agent/turn-ledger";
 import { type AgentBrowserHost, TurnLifecycle } from "./agent/turn-lifecycle";
 import { memoryReviewUsageObserver, workflowUsageObserver } from "./agent/usage-collection";
 import { toUsageReadFailed, UsageLimitGate, type UsageLimitKey } from "./agent/usage-limit-gate";
@@ -517,7 +519,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   /** The agents that asked for a new chat with `start_new_chat`. A restart forgets the request. */
   readonly #requestedNewChats = new Set<string>();
-  /** A turn that ends with open plan steps runs again, at most 3 times for one request. */
+  /** A turn that ends with open plan steps, or with gaps that a check found, runs again, at most 8 times for one request. */
   readonly #planContinuation = new PlanContinuation({ limit: 8 });
   #initialized = false;
   #stopping = false;
@@ -990,10 +992,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         this.messaging.contextCompacted(threadId);
       },
     });
+    const turnLedger = new TurnLedger({ database: store.database });
     this.#attention = new AttentionRegistry({
       conversation: this.#conversation,
       browser: this.#browser,
       hostedSites: this.#hostedSites,
+      turnLedger,
       routines: this.#routines,
       ...(options.approvalAutomation === undefined ? {} : { approvalAutomation: options.approvalAutomation }),
       workspaceSandboxed: (agentId) => {
@@ -1552,6 +1556,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       deltas: this.#deltas,
       usageLimits: this.#usageLimits,
       planContinuation: this.#planContinuation,
+      ledger: turnLedger,
       hooks: {
         emitFailure: (failure) => this.emit("failure", failure),
         emit: (event) => this.#emit(event),
@@ -1573,6 +1578,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         closeRoutineSession: (externalThreadId) => this.#threads.closeRoutineThread(externalThreadId),
         conversationTurnEnded: (agentId, sideThreadId, counts, memoryCommitted) =>
           this.#memoryReview.turnEnded(agentId, sideThreadId, counts, memoryCommitted),
+        verifyPlan: (agentId, input) => this.#verifyPlan(agentId, input),
         turnStopped: (agentId, taskId, turnId) =>
           this.#stoppedTurn(agentId, taskId) === turnId || (taskId === null && this.#requestedNewChats.has(agentId)),
         hasOpenWait: (agentId, deliveryIds) =>
@@ -3327,6 +3333,44 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     if (!this.#mailbox.nextQueued(agentId) && !taskWork() && !this.channels.ownsWaitingWork(agentId)) return null;
     const next = this.#usageLimitBackup(agentId, this.#queuedContinuation(agentId));
     return next ? { input: { ...move(next), leaveUsageLimit: true }, move: failed ? "provider-error" : null } : null;
+  }
+
+  /**
+   * Checks with a tool-less generation that the steps a turn marked done are really done, and returns the
+   * gaps (empty when it approves). It runs only while a spare client is free, as a memory review does. A
+   * check that cannot run approves, and its failure is logged.
+   */
+  #verifyPlan(
+    agentId: string,
+    input: { steps: readonly ConversationPlanStep[]; answer: string },
+  ): Effect.Effect<readonly string[]> {
+    const agent = this.listAgents().find((candidate) => candidate.id === agentId);
+    if (!agent || this.#stopping || !this.#profileClients.hasSpare()) return Effect.succeed([]);
+    const model = backgroundModel(agent, this.#agentModels(agent));
+    if (!model) return Effect.succeed([]);
+    return Effect.try(() => this.#providers.createProfileClient(agent.provider, agent.providerAccountId)).pipe(
+      Effect.flatMap((client) =>
+        this.#profileClients.run(client, (cancelled) =>
+          generateTextWithoutTools(
+            client,
+            model.id === agent.model ? { ...model, defaultReasoningEffort: agent.reasoningEffort } : model,
+            planVerifierPrompt(input.steps, input.answer),
+            cancelled,
+            memoryReviewUsageObserver(this.#store.database.usage, agent.id, agent.provider, model.id),
+          ),
+        ),
+      ),
+      Effect.flatMap((answer) => Effect.try(() => planVerdictGaps(answer))),
+      Effect.catch((failure) =>
+        Effect.sync(() => {
+          logger.warn("Could not verify a plan; the turn ends without a check.", {
+            provider: agent.provider,
+            error: failure,
+          });
+          return [];
+        }),
+      ),
+    );
   }
 
   /**

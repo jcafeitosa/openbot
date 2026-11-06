@@ -580,6 +580,30 @@ const ANALYTICS_DATE_INDEX_SQL = `
   CREATE INDEX IF NOT EXISTS agent_usage_activity_occurred ON agent_usage_activity(occurred_at);
 `;
 
+// One row for each turn that ended, for the turn outcome ledger. It keeps codes and counts only: no text
+// of the turn, its tools, its approvals or its answer. The key is the agent and the turn, so a repeated
+// end of a turn keeps the row it wrote first.
+const TURN_OUTCOMES_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS turn_outcomes (
+    agent_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK(outcome IN ('completed', 'failed', 'interrupted')),
+    cause_code TEXT CHECK(cause_code IS NULL OR length(cause_code) BETWEEN 1 AND 64),
+    tool_failures INTEGER NOT NULL DEFAULT 0 CHECK(tool_failures >= 0),
+    tool_failure_codes_json TEXT NOT NULL DEFAULT '{}'
+      CHECK(json_valid(tool_failure_codes_json) AND json_type(tool_failure_codes_json) = 'object'),
+    approvals_accepted INTEGER NOT NULL DEFAULT 0 CHECK(approvals_accepted >= 0),
+    approvals_declined INTEGER NOT NULL DEFAULT 0 CHECK(approvals_declined >= 0),
+    reactions_present INTEGER NOT NULL DEFAULT 0 CHECK(reactions_present IN (0, 1)),
+    memory_changes INTEGER NOT NULL DEFAULT 0 CHECK(memory_changes >= 0),
+    skill_loads INTEGER NOT NULL DEFAULT 0 CHECK(skill_loads >= 0),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(agent_id, turn_id)
+  );
+  CREATE INDEX IF NOT EXISTS turn_outcomes_created ON turn_outcomes(created_at);
+`;
+
 const LATEST_SCHEMA_SQL =
   substituteOnce(
     substituteOnce(
@@ -631,7 +655,8 @@ const LATEST_SCHEMA_SQL =
   MESSAGING_ALLOWED_SENDERS_SCHEMA_SQL +
   DELETED_THREAD_MESSAGES_SCHEMA_SQL +
   BROWSER_PROXY_SCHEMA_SQL +
-  AGENT_SKILL_LOADS_SCHEMA_SQL;
+  AGENT_SKILL_LOADS_SCHEMA_SQL +
+  TURN_OUTCOMES_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -979,6 +1004,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // Only creates a table and its indexes, so no foreign-key pause and no vacuum. No skill load was
     // recorded before it, so the table starts empty and no usage row changes.
     up: (db) => db.exec(AGENT_SKILL_LOADS_SCHEMA_SQL),
+  },
+  {
+    version: 59,
+    // Only creates a table and an index, so no foreign-key pause and no vacuum. No turn had an outcome row
+    // before it, so the table starts empty and no existing row changes.
+    up: (db) => db.exec(TURN_OUTCOMES_SCHEMA_SQL),
   },
 ];
 

@@ -72,6 +72,12 @@ export interface MessagingOrigin {
   replyTo?: { authorName: string; text: string; sentAt: string };
 }
 
+/** One chain of agent requests: its id, and how many agent messages it holds up to a message. */
+export interface MessageChain {
+  id: string;
+  hop: number;
+}
+
 interface StoredMessage {
   channelId?: string | undefined;
   messaging?: MessagingOrigin;
@@ -113,6 +119,12 @@ interface StoredMessage {
    * what every message stored before this field existed meant.
    */
   expectsReply?: false;
+  /**
+   * The delivery chain of a request an agent sent with send_message. Absent on every message stored
+   * before this field existed, and on a message that no agent request started; `messageChain` reads
+   * those as hop 0.
+   */
+  chain?: MessageChain;
   createdAt: string;
 }
 
@@ -200,6 +212,8 @@ interface EnqueueInput {
   replyToMessageId?: string | null;
   /** False marks information the recipient must not answer. Defaults to an expected answer. */
   expectsReply?: boolean | undefined;
+  /** The delivery chain of a request an agent sent with send_message. Stored on the message as given. */
+  chain?: MessageChain;
   draftIds?: string[];
   /** An audio draft of what the user said. Kept with the message, not sent to the recipient. */
   voiceRecordingDraftId?: string;
@@ -601,6 +615,7 @@ export class MailboxStore {
         ...(voiceRecording ? { voiceRecording } : {}),
         replyToMessageId: input.replyToMessageId ?? null,
         ...(input.expectsReply === false ? { expectsReply: false as const } : {}),
+        ...(input.chain ? { chain: input.chain } : {}),
         createdAt,
       };
       const deliveries = recipients.map<StoredDelivery>((recipientAgentId) => ({
@@ -1934,6 +1949,23 @@ export class MailboxStore {
         : undefined;
       if (!parent) return message.sender.kind === "agent" ? message.sender.agentId : null;
       message = parent;
+    }
+    return null;
+  }
+
+  /**
+   * The delivery chain of a message. A message that no agent request started, such as an automatic
+   * result, has no chain of its own: it reads the chain of the message it replies to, so a reply loop
+   * still counts its hops. Null when no message on that reply line has a chain; that is hop 0.
+   */
+  messageChain(messageId: string): MessageChain | null {
+    const visited = new Set<string>();
+    let message = this.#state.messages.find((candidate) => candidate.id === messageId);
+    while (message && !visited.has(message.id)) {
+      if (message.chain) return { ...message.chain };
+      visited.add(message.id);
+      const replyTo = message.replyToMessageId;
+      message = replyTo ? this.#state.messages.find((candidate) => candidate.id === replyTo) : undefined;
     }
     return null;
   }
@@ -3435,8 +3467,13 @@ function isStoredMessage(value: unknown): value is StoredMessage {
     (value.voiceRecording === undefined || isStoredAttachment(value.voiceRecording)) &&
     (isString(value.replyToMessageId) || value.replyToMessageId === null) &&
     (value.expectsReply === undefined || value.expectsReply === false) &&
+    (value.chain === undefined || isMessageChain(value.chain)) &&
     isString(value.createdAt)
   );
+}
+
+function isMessageChain(value: unknown): value is MessageChain {
+  return isRecord(value) && isString(value.id) && isNumber(value.hop) && Number.isInteger(value.hop) && value.hop >= 0;
 }
 
 function isStoredDelivery(value: unknown): value is StoredDelivery {

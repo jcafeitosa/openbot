@@ -171,6 +171,17 @@ export function redactText(value: string): string {
   return marked === value ? redacted : redacted.replace(MARKERS, "[redacted]");
 }
 
+/**
+ * Whether `value` contains a secret that `registerSecretValue` registered, in any form it masks. The
+ * registry stays private: this answers yes or no and never returns the secret.
+ */
+export function containsRegisteredSecret(value: string): boolean {
+  const pattern = registeredSecretPattern;
+  if (!pattern) return false;
+  pattern.lastIndex = 0;
+  return pattern.test(value);
+}
+
 // Every exact match is found before any grows, so a match inside the token an earlier one grew to
 // still extends the range past it. Ranges that overlap or touch become one token.
 function markRegisteredSecrets(value: string): string {

@@ -114,16 +114,43 @@ export function openBotToolResult(value: unknown): OpenBotToolResponse {
   };
 }
 
+/** Why a tool call failed. The model acts on `code` and `retryable`. */
+export const TOOL_FAILURE_CODES = [
+  "validation",
+  "not_found",
+  "denied",
+  "approval_required",
+  "unavailable",
+  "timeout",
+  "internal",
+] as const;
+export type ToolFailureCode = (typeof TOOL_FAILURE_CODES)[number];
+
+export interface ToolFailureDetail {
+  code: ToolFailureCode;
+  retryable: boolean;
+  /** Short English for the model. Never shown to the user. */
+  hint?: string;
+}
+
+/** Bad arguments: the same call with corrected arguments can succeed. */
+export const VALIDATION_FAILURE: ToolFailureDetail = {
+  code: "validation",
+  retryable: false,
+  hint: "Correct the arguments and call the tool again.",
+};
+
 /**
  * A refusal the model is meant to read and act on, rather than a throw.
  *
  * `#handleServerRequest` turns a thrown error into an opaque JSON-RPC fault, which a model can only
  * give up on. `claude-client.ts` maps `success: false` onto `isError: true`, so both provider paths
- * show this as a failed tool call with the reason attached.
+ * show this as a failed tool call with the reason attached. `detail` adds the code, the retry flag and
+ * the hint next to `error`, which keeps the message as it was.
  */
-export function openBotToolFailure(message: string): OpenBotToolResponse {
+export function openBotToolFailure(message: string, detail?: ToolFailureDetail): OpenBotToolResponse {
   return {
     success: false,
-    contentItems: [{ type: "inputText", text: JSON.stringify({ error: message }) }],
+    contentItems: [{ type: "inputText", text: JSON.stringify({ error: message, ...detail }) }],
   };
 }

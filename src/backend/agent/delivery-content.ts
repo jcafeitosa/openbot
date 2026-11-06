@@ -377,14 +377,27 @@ export function deliveryPromptInput(context: DeliveryContext, sources: DeliveryP
 }
 
 /**
- * The input of an automatic continuation: the turn ended while the agent's own plan had open steps.
- * The request is already in the provider session, so only this note goes in. The steps come from the
- * stored plan, which is already in its bounds.
+ * The input of an automatic continuation: the turn ended while the agent's own plan had open steps, or
+ * a check found gaps in the steps it marked done. The request is already in the provider session, so
+ * only this note goes in. The steps come from the stored plan, which is already in its bounds.
  */
-export function planContinuationPrompt(steps: readonly ConversationPlanStep[], count: number, limit: number): string {
+export function planContinuationPrompt(
+  steps: readonly ConversationPlanStep[],
+  count: number,
+  limit: number,
+  gaps: readonly string[] = [],
+): string {
+  const header =
+    gaps.length > 0
+      ? "OpenBot note, not a message from the user. Your last turn ended with every plan step marked done, but a check found gaps in the work:"
+      : "OpenBot note, not a message from the user. Your last turn ended while your plan still had open steps:";
   return [
-    "OpenBot note, not a message from the user. Your last turn ended while your plan still had open steps:",
+    header,
+    ...gaps.map((gap) => `- Gap: ${gap}`),
     ...steps.map((step) => `- [${step.status === "inProgress" ? "in progress" : "pending"}] ${step.text}`),
+    ...(gaps.length > 0
+      ? ["A gap means a step is not really done. Do that work now, and mark the step done only when it is finished."]
+      : []),
     "Continue the work now, from where you stopped. Do not repeat finished work or restate the plan. Keep the plan current and mark each step done when you finish it. If a step is already done, mark it done; if it no longer applies, remove it. Do not ask whether to continue. This note does not approve a risky action. If you must wait, need the user's input or approval, or are blocked, say so in one short line and end your turn.",
     `Automatic continuation ${count} of ${limit}.`,
   ].join("\n");

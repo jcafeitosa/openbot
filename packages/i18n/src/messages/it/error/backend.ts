@@ -188,6 +188,14 @@ export const messages = {
     "OpenBot non può interrompere questo agente perché la sua sessione del provider non è disponibile.",
   "error.backend.memoryTextRequired": "Il testo della memoria è obbligatorio.",
   "error.backend.memoryTextTooLong": "Il testo della memoria è troppo lungo.",
+  "error.backend.memorySecretRefused":
+    "Questo testo contiene un segreto che OpenBot custodisce, quindi non è stato ricordato. Ricorda il fatto senza il valore.",
+  "error.backend.agentHopLimit":
+    "Le richieste tra agenti si fermano dopo {limit} salti in una catena. Termina tu il lavoro o chiedi all'utente nella chat.",
+  "error.backend.skillPersonOnly":
+    "Solo un messaggio di una persona può installare, attivare o disinstallare una competenza su un altro agente. Chiedi all'utente di richiederlo nella chat.",
+  "error.backend.routinePersonOnly":
+    "Solo un messaggio di una persona può creare, modificare o eliminare una routine di un altro agente. Chiedi all'utente di richiederlo nella chat.",
   "error.backend.mcpServerGone": "Questo server MCP non esiste più.",
   "error.backend.routineFlowLinkGone": "Questo collegamento non esiste più.",
   "error.backend.routineFlowSameAgent": "Un agente non può passare il lavoro a se stesso.",

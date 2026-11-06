@@ -143,6 +143,10 @@ export const INPUT_LIMITS = {
 // `INPUT_LIMITS.teamMembers` stays the wire cap for stored members.
 export const DEFAULT_TEAM_MEMBER_LIMIT = 3;
 
+// How many agent-to-agent hops one delivery chain may run. A request that would pass it is refused,
+// so a chain of requests cannot loop without end.
+export const AGENT_MESSAGE_HOP_LIMIT = 5;
+
 export const ATTACHMENT_LIMITS = {
   fileBytes: 100 * 1024 * 1024,
   totalBytes: 250 * 1024 * 1024,
