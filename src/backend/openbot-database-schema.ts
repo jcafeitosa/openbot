@@ -680,6 +680,33 @@ const RESEARCH_SOURCES_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS research_sources_agent_query ON research_sources(agent_id, query);
 `;
 
+// Migration 65 keeps each promotion of an agent's memory to a channel or messaging memory until a person decides it. A
+// promotion is a proposal, not a write: only an approved row writes to the collective memory, and it keeps the id of the
+// source memory. The text is kept after redaction and is at most 500 characters, as an agent memory is. The partial unique
+// index allows one pending proposal per target and fingerprint, so a repeated proposal returns the one still waiting.
+// Only creates a table and its indexes, so no foreign-key pause and no vacuum. No foreign key to the target: a target is a
+// channel or a messaging connection, and the approval writes through the store that checks it. IF NOT EXISTS throughout,
+// because this text is both migration 65 and the tail of the latest schema.
+const MEMORY_PROPOSALS_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS memory_proposals (
+    proposal_id TEXT PRIMARY KEY,
+    source_agent_id TEXT NOT NULL,
+    source_memory_id TEXT,
+    target_scope TEXT NOT NULL CHECK(target_scope IN ('channel', 'messaging')),
+    target_id TEXT NOT NULL,
+    text TEXT NOT NULL CHECK(length(text) BETWEEN 1 AND 500),
+    fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+    decided_by TEXT,
+    created_at TEXT NOT NULL,
+    decided_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS memory_proposals_status_target
+    ON memory_proposals(status, target_scope, target_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS memory_proposals_pending_fingerprint
+    ON memory_proposals(target_scope, target_id, fingerprint) WHERE status = 'pending';
+`;
+
 // Migration 61 records where each memory came from: a turn, a background review, a reflection or the user.
 // Frozen with the migration. ADD COLUMN puts the declaration after the last column and before the UNIQUE
 // constraint that ends the table, so the latest schema puts it there as well.
@@ -754,7 +781,8 @@ const LATEST_SCHEMA_SQL =
   AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL +
   AGENT_MEMORY_REVISIONS_SCHEMA_SQL +
   AGENT_GOALS_SCHEMA_SQL +
-  RESEARCH_SOURCES_SCHEMA_SQL;
+  RESEARCH_SOURCES_SCHEMA_SQL +
+  MEMORY_PROPOSALS_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -1138,6 +1166,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // Only creates a table and an index, so no foreign-key pause and no vacuum. No web source was recorded before it, so
     // the table starts empty and no existing row changes.
     up: (db) => db.exec(RESEARCH_SOURCES_SCHEMA_SQL),
+  },
+  {
+    version: 65,
+    // Only creates a table and its indexes, so no foreign-key pause and no vacuum. No promotion proposal existed before it,
+    // so the table starts empty and no existing row changes.
+    up: (db) => db.exec(MEMORY_PROPOSALS_SCHEMA_SQL),
   },
 ];
 
