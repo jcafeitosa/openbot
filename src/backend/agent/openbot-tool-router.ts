@@ -3,7 +3,7 @@ import { basename } from "node:path";
 import { attachmentMimeTypeForName } from "@openbot/contracts/attachment-files";
 import { chatVisualItemType } from "@openbot/contracts/chat-visual";
 import { sortConversationMessages } from "@openbot/contracts/conversation-order";
-import { ATTACHMENT_LIMITS, INPUT_LIMITS } from "@openbot/contracts/input-limits";
+import { AGENT_MESSAGE_HOP_LIMIT, ATTACHMENT_LIMITS, INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type {
   AgentModelChoice,
   AgentModelOption,
@@ -42,7 +42,8 @@ import { attachmentCall, attachmentFailure } from "../attachment-effects";
 import { OPENBOT_BROWSER_NAMESPACE } from "../browser-tools";
 import type { ChannelService } from "../channel-service";
 import type { ProviderSession } from "../database/provider-sessions";
-import type { MailboxStore } from "../mailbox-store";
+import { computeExact } from "../exact-compute";
+import type { MailboxStore, MessageChain } from "../mailbox-store";
 import { agentMcpServers, codexDeferredMcpServers } from "../mcp-provider-shapes";
 import type { MessagingThreads } from "../messaging/messaging-threads";
 import { MESSAGING_OUTBOUND_TOOLS } from "../messaging/messaging-tools";
@@ -51,6 +52,7 @@ import {
   acknowledgeRequestToolSchema,
   askUiToolSchema,
   CHAT_VISUAL_PREVIEW_DEFAULT_WIDTH,
+  computeExactToolSchema,
   htmlPreviewToolSchema,
   htmlRenderToolSchema,
   MARKETPLACE_APP_IDS,
@@ -113,7 +115,6 @@ import {
 import {
   createAgentToolSchema,
   listModelsToolSchema,
-  PROFILE_TOOL_NAMES,
   profileToolErrorMessage,
   readAgentToolSchema,
   restrictionInput,
@@ -123,7 +124,8 @@ import {
 import { apiKeyFormSpec, browserUserControlResult } from "./prompts";
 import { ROUTINE_NO_UPDATE_TOOL, ROUTINE_REPORT_FAILURE_TOOL } from "./routine-quiet-runs";
 import type { RoutineScheduler } from "./routine-scheduler";
-import { type OpenBotToolResponse, openBotToolFailure, openBotToolResult } from "./routine-tools";
+import type { ToolFailureDetail } from "./routine-tools";
+import { type OpenBotToolResponse, openBotToolFailure, openBotToolResult, VALIDATION_FAILURE } from "./routine-tools";
 import {
   captureScreenToolSchema,
   type ScreenCaptureFailed,
@@ -142,7 +144,15 @@ import {
   namesInSearch,
   resolveDeferredTool,
 } from "./tool-catalog";
-import { ToolOperationFailed, toolStep, toToolOperationFailed } from "./tool-operation";
+import {
+  invalidToolArgument,
+  ToolFailureError,
+  ToolOperationFailed,
+  toolFailureDetail,
+  toolFailureResponse,
+  toolStep,
+  toToolOperationFailed,
+} from "./tool-operation";
 import type { AgentBrowserHost } from "./turn-lifecycle";
 import { handleUpdateAgentsTool } from "./update-agents-tool";
 
@@ -173,7 +183,7 @@ function listedDescription(description: string): string {
 
 /** The reason says what to grant or to correct, and holds no screen content. */
 function captureFailure(failure: ScreenCaptureFailed) {
-  return openBotToolFailure(failure.reason);
+  return openBotToolFailure(failure.reason, { code: "unavailable", retryable: true });
 }
 
 export interface OpenBotToolRouterHooks {
@@ -354,12 +364,13 @@ export class OpenBotToolRouter {
       Effect.sync(() => {
         if (client.running) {
           try {
-            client.respondError(request.id, { code: -32603, message: String(error) });
+            if (request.method === "item/tool/call") client.respond(request.id, this.#failedToolResult(error));
+            else client.respondError(request.id, { code: -32603, message: String(error) });
           } catch {
             // The process can exit between the running check and the write.
           }
         }
-        this.#hooks.emitError("server_request_failed", error);
+        if (request.method !== "item/tool/call") this.#hooks.emitError("server_request_failed", error);
       });
     return yield* Effect.gen({ self: this }, function* () {
       switch (request.method) {
@@ -392,7 +403,7 @@ export class OpenBotToolRouter {
                 this.#requireAgent(agentId);
                 result = discoverTools(params);
               } catch {
-                client.respond(request.id, openBotToolFailure(invalid));
+                client.respond(request.id, openBotToolFailure(invalid, VALIDATION_FAILURE));
                 return;
               }
               const signIns = yield* this.#searchSignIns(agentId, params);
@@ -408,7 +419,7 @@ export class OpenBotToolRouter {
             if (params.tool === "tool_call") {
               const resolved = resolveDeferredTool(params);
               if (!resolved) {
-                client.respond(request.id, openBotToolFailure(invalid));
+                client.respond(request.id, openBotToolFailure(invalid, VALIDATION_FAILURE));
                 return;
               }
               params = resolved;
@@ -417,7 +428,13 @@ export class OpenBotToolRouter {
           if (params.namespace === "openbot" && (params.tool === "history_search" || params.tool === "history_read")) {
             const scope = this.#conversation.historyScope(params.threadId, client);
             if (!scope || this.#channels.store.channelForThread(scope.threadId)) {
-              client.respond(request.id, openBotToolFailure(sourceText("error.agent.historyUnavailable")));
+              client.respond(
+                request.id,
+                openBotToolFailure(sourceText("error.agent.historyUnavailable"), {
+                  code: "unavailable",
+                  retryable: true,
+                }),
+              );
               return;
             }
             // A taskId reads a side thread of the same agent. A thread of another agent reads as unknown.
@@ -429,13 +446,28 @@ export class OpenBotToolRouter {
                   ? this.#tasks.require(scope.agentId, taskId).threadId
                   : null;
             if (targetThreadId === null) {
-              client.respond(request.id, openBotToolFailure(sourceText("error.backend.threadNotFound")));
+              client.respond(
+                request.id,
+                openBotToolFailure(sourceText("error.backend.threadNotFound"), { code: "not_found", retryable: false }),
+              );
               return;
             }
             const result = yield* this.#history.call(scope.agentId, targetThreadId, params.tool, params.arguments).pipe(
-              Effect.catch(() => Effect.succeed(openBotToolFailure(sourceText("error.agent.historyUnavailable")))),
+              Effect.catch(() =>
+                Effect.succeed(
+                  openBotToolFailure(sourceText("error.agent.historyUnavailable"), {
+                    code: "unavailable",
+                    retryable: true,
+                  }),
+                ),
+              ),
               Effect.catchDefect(() =>
-                Effect.succeed(openBotToolFailure(sourceText("error.agent.historyUnavailable"))),
+                Effect.succeed(
+                  openBotToolFailure(sourceText("error.agent.historyUnavailable"), {
+                    code: "unavailable",
+                    retryable: true,
+                  }),
+                ),
               ),
             );
             const currentScope = this.#conversation.historyScope(params.threadId, client);
@@ -444,7 +476,10 @@ export class OpenBotToolRouter {
                 request.id,
                 currentScope?.threadId === scope.threadId
                   ? result
-                  : openBotToolFailure(sourceText("error.agent.historyUnavailable")),
+                  : openBotToolFailure(sourceText("error.agent.historyUnavailable"), {
+                      code: "unavailable",
+                      retryable: true,
+                    }),
               );
             return;
           }
@@ -567,28 +602,9 @@ export class OpenBotToolRouter {
               return;
             }
             const tool = toolRequest.params.tool;
-            // The calling agent can correct a profile request or an attachment path, so it gets the reason as a
-            // failed tool result. Codex replaces a JSON-RPC error with "dynamic tool request failed" (#1728).
-            const correctableFailure = (error: unknown) =>
-              Effect.sync(() => {
-                const message = this.#hooks.redactMcp(profileToolErrorMessage(error));
-                if (!(error instanceof z.ZodError)) logger.warn("An OpenBot tool failed.", { tool, error: message });
-                return openBotToolFailure(message);
-              });
-            const correctableTool =
-              PROFILE_TOOL_NAMES.has(tool) ||
-              CHANNEL_AGENT_TOOL_NAMES.has(tool) ||
-              tool === "list_channels" ||
-              tool === "attach_files_to_response" ||
-              tool === "messaging_post";
-            // A workflow tool reports its own correctable failures; only bad arguments reach this point.
-            const correctable = (cause: unknown) =>
-              correctableTool || (WORKFLOW_TOOL_NAMES.has(tool) && cause instanceof z.ZodError);
+            // A failed call answers with its code and retry flag, so the agent can act on the reason. Codex
+            // replaces a JSON-RPC error with "dynamic tool request failed" (#1728), so a failure is never thrown.
             const response = this.#handleOpenBotTool(client, toolRequest, toolRequest.params).pipe(
-              Effect.catch((failure) =>
-                correctable(failure.cause) ? correctableFailure(failure.cause) : Effect.fail(failure),
-              ),
-              Effect.catchDefect((defect) => (correctable(defect) ? correctableFailure(defect) : Effect.die(defect))),
               Effect.tap((result) => Effect.sync(() => client.respond(toolRequest.id, result))),
             );
             // Both store a file and then add the message that names it.
@@ -621,6 +637,21 @@ export class OpenBotToolRouter {
   }).bind(this);
 
   /**
+   * The answer to a tool call that failed, in place of a throw. The message is redacted. A defect is
+   * reported as a server error; a refusal the agent can act on is only logged.
+   */
+  #failedToolResult(error: unknown): OpenBotToolResponse {
+    const detail = toolFailureDetail(error);
+    if (detail.code === "internal") this.#hooks.emitError("server_request_failed", error);
+    else if (detail.code !== "validation")
+      logger.warn("An OpenBot tool failed.", {
+        code: detail.code,
+        error: this.#hooks.redactMcp(profileToolErrorMessage(error)),
+      });
+    return toolFailureResponse(error, profileToolErrorMessage(error), this.#hooks.redactMcp);
+  }
+
+  /**
    * The note that sends a model from OpenBot's catalog to its provider's own MCP tools, or null when
    * the provider declares them. Pi tells this for each thread. Codex defers each MCP server except
    * Computer Use (#4468), so one saved server that is on is enough.
@@ -636,10 +667,11 @@ export class OpenBotToolRouter {
    * person answers or the turn ends. The agent can correct a refused block, so it gets the reason.
    */
   #askUi(client: AgentClient, request: AppServerRequest, params: DynamicToolCallParams): void {
-    const refuse = (message: string) => client.respond(request.id, openBotToolFailure(message));
+    const refuse = (message: string, detail?: ToolFailureDetail) =>
+      client.respond(request.id, openBotToolFailure(message, detail));
     const parsed = askUiToolSchema.safeParse(params.arguments);
     if (!parsed.success) {
-      refuse(`${z.prettifyError(parsed.error)}\nCorrect the arguments and retry.`);
+      refuse(z.prettifyError(parsed.error), VALIDATION_FAILURE);
       return;
     }
     const spec = normalizeUiBlockSpec(parsed.data.block);
@@ -648,6 +680,7 @@ export class OpenBotToolRouter {
     if (!spec || !isUiBlockId(blockId)) {
       refuse(
         "The block breaks a rule: ids and option labels must be unique, an id must not be botId or a similar name, a value must be one of its options, a single choice selects at most one option, and a secret field is a text field with no value. Correct the block and retry.",
+        VALIDATION_FAILURE,
       );
       return;
     }
@@ -669,11 +702,13 @@ export class OpenBotToolRouter {
     const agentId = this.#conversation.agentForThread(params.threadId);
     if (!agentId) throw new Error("The calling OpenBot agent is unknown.");
     const apiKeys = this.#apiKeys;
-    if (!apiKeys) return openBotToolFailure("This OpenBot server cannot save API keys.");
+    if (!apiKeys)
+      return openBotToolFailure("This OpenBot server cannot save API keys.", { code: "unavailable", retryable: false });
     const failed = (failure: { cause: unknown }) =>
       Effect.succeed(
         openBotToolFailure(
           failure.cause instanceof Error ? failure.cause.message : sourceText("error.backend.apiKeySaveFailed"),
+          { code: "unavailable", retryable: true },
         ),
       );
     if (params.tool === "list_api_keys")
@@ -683,8 +718,7 @@ export class OpenBotToolRouter {
       );
     if (params.tool === "remove_api_key") {
       const parsed = removeApiKeyToolSchema.safeParse(params.arguments);
-      if (!parsed.success)
-        return openBotToolFailure(`${z.prettifyError(parsed.error)}\nCorrect the arguments and retry.`);
+      if (!parsed.success) return openBotToolFailure(z.prettifyError(parsed.error), VALIDATION_FAILURE);
       const { name } = parsed.data;
       return yield* apiKeys.remove(agentId, name).pipe(
         Effect.map((removed) => {
@@ -693,6 +727,7 @@ export class OpenBotToolRouter {
           if (this.#vaultItems?.apiKeys().some((key) => key.name === name))
             return openBotToolFailure(
               `${name} is in the Vault, which every agent uses. Only the user can delete it, in Server settings > Vault.`,
+              { code: "denied", retryable: false },
             );
           return openBotToolResult({ status: "not_found", name });
         }),
@@ -701,8 +736,7 @@ export class OpenBotToolRouter {
     }
     if (params.tool === "save_api_key") return yield* this.#saveApiKey(apiKeys, agentId, params);
     const parsed = requestApiKeyToolSchema.safeParse(params.arguments);
-    if (!parsed.success)
-      return openBotToolFailure(`${z.prettifyError(parsed.error)}\nCorrect the arguments and retry.`);
+    if (!parsed.success) return openBotToolFailure(z.prettifyError(parsed.error), VALIDATION_FAILURE);
     // A key that the Vault has is used as it is: a copy for this agent would not follow a change in the Vault.
     const keys = yield* apiKeys.list(agentId).pipe(Effect.catch(() => Effect.succeed<SavedApiKey[]>([])));
     const vaultKey = keys.find((key) => key.name === parsed.data.name && key.source === "vault");
@@ -710,11 +744,12 @@ export class OpenBotToolRouter {
     if (this.#messaging.store.linkForThread(this.#conversation.publicThreadId(agentId, params.threadId)))
       return openBotToolFailure(
         "request_api_key does not work in an external chat. Ask the user to give you the key in OpenBot.",
+        { code: "denied", retryable: false },
       );
     // With a Vault, the user can save the key for every agent, so another agent does not ask again.
     const vault = this.#vaultItems?.ready() === true;
     const spec = apiKeyFormSpec({ ...parsed.data, vault });
-    if (!spec) return openBotToolFailure("OpenBot could not show this form. Use a shorter title and retry.");
+    if (!spec) return openBotToolFailure("OpenBot could not show this form. Use a shorter title.", VALIDATION_FAILURE);
     this.#attention.surfaceUiBlock(client, request, {
       blockId: randomUUID(),
       spec,
@@ -734,22 +769,27 @@ export class OpenBotToolRouter {
     const raw = secretKeyArgument.safeParse(params.arguments);
     if (raw.success) registerSecretValue(raw.data.key);
     const parsed = saveApiKeyToolSchema.safeParse(params.arguments);
-    if (!parsed.success)
-      return openBotToolFailure(`${z.prettifyError(parsed.error)}\nCorrect the arguments and retry.`);
+    if (!parsed.success) return openBotToolFailure(z.prettifyError(parsed.error), VALIDATION_FAILURE);
     const { name, key, notes } = parsed.data;
     const threadId = this.#conversation.publicThreadId(agentId, params.threadId);
     // A person in an external chat is not an OpenBot user, and every agent reads a Vault key.
     if (this.#messaging.store.linkForThread(threadId))
       return openBotToolFailure(
         "save_api_key does not work in an external chat. Ask the user to add the key in Server settings > Vault.",
+        { code: "denied", retryable: false },
       );
     // A team member, a routine, another agent or a web page must not replace the key of every agent.
     if (!this.#requestedByPerson(agentId, params.turnId, threadId))
       return openBotToolFailure(
         "Only a person's message, in your OpenBot chat or a thread they opened, can save a key to the Vault. Ask the user to add it in Server settings > Vault.",
+        { code: "denied", retryable: false },
       );
     const vault = this.#vaultItems;
-    if (!vault?.ready()) return openBotToolFailure("No Vault is available on this computer. Ask the user.");
+    if (!vault?.ready())
+      return openBotToolFailure("No Vault is available on this computer. Ask the user.", {
+        code: "unavailable",
+        retryable: false,
+      });
     const agentName = this.#store.list().find((candidate) => candidate.id === agentId)?.name;
     const saved = yield* Effect.result(vault.saveApiKey({ name, key, notes }, agentName));
     if (Result.isFailure(saved)) {
@@ -758,6 +798,7 @@ export class OpenBotToolRouter {
       logger.warn("Unable to save an API key in the Vault for an agent", { error: toLogValue(cause) });
       return openBotToolFailure(
         cause instanceof Error && !("code" in cause) ? cause.message : sourceText("error.backend.apiKeySaveFailed"),
+        { code: "unavailable", retryable: true },
       );
     }
     this.postVaultNote(
@@ -776,6 +817,7 @@ export class OpenBotToolRouter {
       });
       return openBotToolFailure(
         `The Vault has ${name} now, but OpenBot could not delete your own key with this name, which you still read first. Call remove_api_key name=${name}.`,
+        { code: "unavailable", retryable: true },
       );
     }
     const keys = yield* apiKeys.list(agentId).pipe(Effect.catch(() => Effect.succeed<SavedApiKey[]>([])));
@@ -789,12 +831,16 @@ export class OpenBotToolRouter {
    * card waits for a person, and its prompt raises a notification as `ask_ui` does.
    */
   #acknowledgeRequest(client: AgentClient, request: AppServerRequest, params: DynamicToolCallParams): void {
-    const refuse = (message: string) => client.respond(request.id, openBotToolFailure(message));
+    const refuse = (message: string, detail?: ToolFailureDetail) =>
+      client.respond(request.id, openBotToolFailure(message, detail));
     const agentId = this.#conversation.agentForThread(params.threadId);
     const agent = agentId ? this.#store.list().find((candidate) => candidate.id === agentId) : undefined;
     const defaults = this.#store.agentDefaults();
     if (!agent || !agentQuickAcknowledgementEnabled(agent, defaults)) {
-      refuse("The user has not turned on the plan card for you. Start the work without it.");
+      refuse("The user has not turned on the plan card for you. Start the work without it.", {
+        code: "denied",
+        retryable: false,
+      });
       return;
     }
     const threadId = this.#conversation.publicThreadId(agent.id, params.threadId);
@@ -805,7 +851,7 @@ export class OpenBotToolRouter {
     }
     const parsed = acknowledgeRequestToolSchema.safeParse(params.arguments);
     if (!parsed.success) {
-      refuse(`${z.prettifyError(parsed.error)}\nCorrect the arguments and retry.`);
+      refuse(z.prettifyError(parsed.error), VALIDATION_FAILURE);
       return;
     }
     const { message, steps, startLabel, cancelLabel, alternativeLabel } = parsed.data;
@@ -820,7 +866,7 @@ export class OpenBotToolRouter {
       ],
     });
     if (!spec) {
-      refuse("Each button needs a different label. Correct the labels and retry.");
+      refuse("Each button needs a different label.", VALIDATION_FAILURE);
       return;
     }
     this.#attention.surfaceUiBlock(
@@ -853,7 +899,8 @@ export class OpenBotToolRouter {
     const loaded = yield* Effect.result(
       Effect.gen({ self: this }, function* () {
         const tools = yield* toolStep(() => {
-          if (!this.#localSkillTools) throw new Error("Skill tools are unavailable.");
+          if (!this.#localSkillTools)
+            throw new ToolFailureError({ code: "unavailable", retryable: true }, "Skill tools are unavailable.");
           return this.#localSkillTools();
         });
         return (yield* tools.listInstalled(agent.id).pipe(toToolOperationFailed)).map((skill) => ({
@@ -912,17 +959,10 @@ export class OpenBotToolRouter {
     if (!senderAgentId) throw new Error("The sending OpenBot agent is unknown.");
 
     if (LOCAL_SKILL_TOOL_DEFINITIONS.some((tool) => tool.name === params.tool)) {
-      const reportFailure = (error: unknown) =>
-        Effect.sync(() => {
-          return {
-            success: false,
-            contentItems: [
-              { type: "inputText", text: redactText(error instanceof Error ? error.message : String(error)) },
-            ],
-          };
-        });
+      const reportFailure = (error: unknown) => Effect.sync(() => this.#failedToolResult(error));
       return yield* Effect.gen({ self: this }, function* () {
-        if (!this.#localSkillTools) throw new Error("Local skill tools are unavailable.");
+        if (!this.#localSkillTools)
+          throw new ToolFailureError({ code: "unavailable", retryable: true }, "Local skill tools are unavailable.");
         const result = openBotToolResult(
           yield* runLocalSkillTool(
             this.#localSkillTools(),
@@ -930,6 +970,13 @@ export class OpenBotToolRouter {
             params.tool,
             params.arguments,
             (agentId) => this.#requireAgent(agentId ?? senderAgentId).id,
+            () => {
+              if (!this.#routines.personRequestTurn(senderAgentId, params.threadId, params.turnId))
+                throw new ToolFailureError(
+                  { code: "denied", retryable: false },
+                  sourceText("error.backend.skillPersonOnly"),
+                );
+            },
             (event) => {
               const executionThreadId = this.#conversation.publicThreadId(senderAgentId, params.threadId);
               const snapshot = structuredClone(this.#conversation.ensureSnapshot(senderAgentId, executionThreadId));
@@ -995,7 +1042,10 @@ export class OpenBotToolRouter {
       // Only the agent that answers a platform conversation, in that conversation's own thread.
       const link = this.#messaging.store.linkForThread(executionThreadId);
       if (!link || link.agentId !== senderAgentId)
-        return openBotToolFailure("Messaging tools work only in a turn that answers an external chat message.");
+        return openBotToolFailure("Messaging tools work only in a turn that answers an external chat message.", {
+          code: "denied",
+          retryable: false,
+        });
       return yield* this.#messaging.tool(link, params.turnId, params.callId, params.tool, params.arguments);
     }
     const channelId = this.#channels.store.channelForThread(executionThreadId);
@@ -1032,10 +1082,11 @@ export class OpenBotToolRouter {
       // In a channel task, the request that started the task must come from this computer's user.
       if (channelId) {
         if (!(yield* this.#channels.requestedByLocalPerson(channelId, senderAgentId, params.turnId)))
-          return openBotToolFailure(CHANNEL_AGENT_TOOL_NEEDS_LOCAL_PERSON);
+          return openBotToolFailure(CHANNEL_AGENT_TOOL_NEEDS_LOCAL_PERSON, { code: "denied", retryable: false });
       } else if (!this.#requestedByPerson(senderAgentId, params.turnId, executionThreadId))
         return openBotToolFailure(
           "Only a person's message, in your OpenBot chat or a thread they opened, can create or change a channel. Ask the user to request it there.",
+          { code: "denied", retryable: false },
         );
       return yield* handleChannelAgentTool(params, senderAgentId, {
         channels: this.#channels,
@@ -1044,7 +1095,11 @@ export class OpenBotToolRouter {
       });
     }
     if (params.tool === "send_to_channel") {
-      if (channelId) return openBotToolFailure("Use channel_assign or channel_transfer for channel work.");
+      if (channelId)
+        return openBotToolFailure("Use channel_assign or channel_transfer for channel work.", {
+          code: "denied",
+          retryable: false,
+        });
       const args = sendToChannelToolSchema.parse(params.arguments, { reportInput: true });
       const channel = yield* this.#channels.handoff({
         operationId: toolCallIdempotencyKey(params),
@@ -1073,11 +1128,20 @@ export class OpenBotToolRouter {
       return openBotToolResult(yield* this.#hostedSites.listSites());
     }
 
-    if (isHostedSiteMutationTool(params.tool)) throw new Error("Hosted site changes require user approval.");
+    if (isHostedSiteMutationTool(params.tool))
+      throw new ToolFailureError(
+        {
+          code: "approval_required",
+          retryable: false,
+          hint: "Tell the user that this change needs their approval in OpenBot.",
+        },
+        "Hosted site changes require user approval.",
+      );
 
     if (params.tool === "attach_files_to_response") {
       const args = params.arguments;
-      if (!isRecord(args) || !Array.isArray(args.paths)) throw new Error("paths must be an array of local files.");
+      if (!isRecord(args) || !Array.isArray(args.paths))
+        throw invalidToolArgument("paths must be an array of local files.");
       if (
         args.paths.length === 0 ||
         args.paths.length > INPUT_LIMITS.attachments ||
@@ -1163,9 +1227,13 @@ export class OpenBotToolRouter {
       if (!agent || !agentNewChatAllowed(agent, this.#store.agentDefaults()))
         return openBotToolFailure(
           "The user has not allowed you to start a new chat. Ask the user to allow it in your settings, or to start a new chat there.",
+          { code: "denied", retryable: false },
         );
       if (agent.threadId !== this.#conversation.publicThreadId(senderAgentId, params.threadId))
-        return openBotToolFailure("You can start a new chat only from your own chat, not from a task or a channel.");
+        return openBotToolFailure("You can start a new chat only from your own chat, not from a task or a channel.", {
+          code: "denied",
+          retryable: false,
+        });
       this.#hooks.requestNewChat(senderAgentId);
       return openBotToolResult({
         status: "requested",
@@ -1175,7 +1243,8 @@ export class OpenBotToolRouter {
 
     if (params.tool === ROUTINE_NO_UPDATE_TOOL) {
       const outcome = this.#hooks.requestNoUpdate(senderAgentId, executionThreadId, params.turnId);
-      if (outcome === null) return openBotToolFailure("Use this tool only in a routine run.");
+      if (outcome === null)
+        return openBotToolFailure("Use this tool only in a routine run.", { code: "denied", retryable: false });
       return openBotToolResult(
         outcome === "quiet"
           ? { status: "quiet", note: "This run ends without a message or a notification. End your turn now." }
@@ -1186,7 +1255,7 @@ export class OpenBotToolRouter {
     if (params.tool === ROUTINE_REPORT_FAILURE_TOOL) {
       const { reason } = routineReportFailureToolSchema.parse(params.arguments ?? {});
       if (!this.#hooks.reportRoutineFailure(senderAgentId, params.turnId, reason))
-        return openBotToolFailure("Use this tool only in a routine run.");
+        return openBotToolFailure("Use this tool only in a routine run.", { code: "denied", retryable: false });
       return openBotToolResult({ status: "failed", note: "This run ends as failed. Give your answer as usual." });
     }
 
@@ -1216,11 +1285,15 @@ export class OpenBotToolRouter {
     )
       return openBotToolFailure(
         "Only a person's message, in your OpenBot chat or a thread they opened, can change, delete or run a workflow. Ask the user to request it there.",
+        { code: "denied", retryable: false },
       );
     // A read gives every workflow, its webhook URLs and its run outputs. The Team API hides these
     // from a member by agent access and admin rights, so a member's message does not get them here.
     if (WORKFLOW_TOOL_NAMES.has(params.tool) && this.#fromRemoteMember(senderAgentId, params.turnId))
-      return openBotToolFailure("A team member's message cannot read workflows. Ask the member to use Workflows.");
+      return openBotToolFailure("A team member's message cannot read workflows. Ask the member to use Workflows.", {
+        code: "denied",
+        retryable: false,
+      });
     // The agent list is read only for a workflow tool, not on each OpenBot tool call.
     if (WORKFLOW_TOOL_NAMES.has(params.tool)) {
       const workflowResult = yield* handleWorkflowTool(
@@ -1272,6 +1345,7 @@ export class OpenBotToolRouter {
       if (args.memoryId !== undefined)
         return openBotToolFailure(
           "This channel is isolated, so a memory from it cannot change your own memories. Save the corrected fact without memoryId: it becomes a channel memory.",
+          { code: "denied", retryable: false },
         );
       const result = yield* this.#channels.tool(
         channelId,
@@ -1346,6 +1420,15 @@ export class OpenBotToolRouter {
       });
     }
 
+    if (params.tool === "compute_exact") {
+      const parsed = computeExactToolSchema.safeParse(params.arguments);
+      const outcome = parsed.success
+        ? computeExact(parsed.data.expression)
+        : { ok: false as const, code: "validation" as const, message: profileToolErrorMessage(parsed.error) };
+      if (!outcome.ok) return openBotToolFailure(outcome.message, VALIDATION_FAILURE);
+      return openBotToolResult({ value: outcome.value, type: outcome.type });
+    }
+
     if (params.tool === "react_to_user_message") return yield* this.#react(params, senderAgentId);
 
     return yield* this.#sendMessage(params, senderAgentId);
@@ -1363,7 +1446,7 @@ export class OpenBotToolRouter {
   ) {
     // The agent can correct its page, so it gets the reason. The reason does not repeat the page.
     const parsed = htmlRenderToolSchema.safeParse(params.arguments, { reportInput: true });
-    if (!parsed.success) return openBotToolFailure(profileToolErrorMessage(parsed.error));
+    if (!parsed.success) return openBotToolFailure(profileToolErrorMessage(parsed.error), VALIDATION_FAILURE);
     const args = parsed.data;
     const messageId = visualReplyMessageId(params.threadId, params.turnId, params.callId);
     if (
@@ -1451,10 +1534,14 @@ export class OpenBotToolRouter {
     params: DynamicToolCallParams,
   ) {
     const parsed = htmlPreviewToolSchema.safeParse(params.arguments, { reportInput: true });
-    if (!parsed.success) return openBotToolFailure(profileToolErrorMessage(parsed.error));
+    if (!parsed.success) return openBotToolFailure(profileToolErrorMessage(parsed.error), VALIDATION_FAILURE);
     const args = parsed.data;
     const preview = this.#visualPreview;
-    if (!preview) return openBotToolFailure("This OpenBot cannot draw a page. Call html_render without a preview.");
+    if (!preview)
+      return openBotToolFailure("This OpenBot cannot draw a page. Call html_render without a preview.", {
+        code: "unavailable",
+        retryable: false,
+      });
     return yield* preview
       .capture({
         html: args.html,
@@ -1471,7 +1558,9 @@ export class OpenBotToolRouter {
             ],
           }),
         ),
-        Effect.catchTag("ChatVisualPreviewFailed", (failure) => Effect.succeed(openBotToolFailure(failure.reason))),
+        Effect.catchTag("ChatVisualPreviewFailed", (failure) =>
+          Effect.succeed(openBotToolFailure(failure.reason, { code: "unavailable", retryable: true })),
+        ),
       );
   });
 
@@ -1487,15 +1576,20 @@ export class OpenBotToolRouter {
   ) {
     const agentId = this.#conversation.agentForThread(params.threadId);
     const agent = agentId ? this.#hooks.listAgents().find((candidate) => candidate.id === agentId) : undefined;
-    if (!agent) return openBotToolFailure(sourceText("error.agent.toolRequestInvalid"));
-    if (!agentComputerUseEnabled(agent)) return openBotToolFailure(sourceText("error.agent.screenCaptureOff"));
+    if (!agent) return openBotToolFailure(sourceText("error.agent.toolRequestInvalid"), VALIDATION_FAILURE);
+    if (!agentComputerUseEnabled(agent))
+      return openBotToolFailure(sourceText("error.agent.screenCaptureOff"), { code: "denied", retryable: false });
     const host = this.#screenCapture;
-    if (!host) return openBotToolFailure(sourceText("error.agent.screenCaptureUnavailable"));
+    if (!host)
+      return openBotToolFailure(sourceText("error.agent.screenCaptureUnavailable"), {
+        code: "unavailable",
+        retryable: false,
+      });
     const threadId = this.#conversation.publicThreadId(agent.id, params.threadId);
     // A Slack, Discord, Telegram or WhatsApp link sends each agent attachment of the turn to the platform. The
     // screen of this computer must stay on this computer.
     if (this.#messaging.store.linkForThread(threadId)) {
-      return openBotToolFailure(sourceText("error.agent.screenCaptureShared"));
+      return openBotToolFailure(sourceText("error.agent.screenCaptureShared"), { code: "denied", retryable: false });
     }
     // A channel shows the image to each member who reads it, so each capture asks, with Full access too.
     const channelId = this.#channels.store.channelForThread(threadId);
@@ -1504,7 +1598,7 @@ export class OpenBotToolRouter {
       return Result.isFailure(sources) ? captureFailure(sources.failure) : openBotToolResult(sources.success);
     }
     const parsed = captureScreenToolSchema.safeParse(params.arguments, { reportInput: true });
-    if (!parsed.success) return openBotToolFailure(profileToolErrorMessage(parsed.error));
+    if (!parsed.success) return openBotToolFailure(profileToolErrorMessage(parsed.error), VALIDATION_FAILURE);
     const capture = parsed.data;
     const messageId = responseAttachmentMessageId(params.threadId, params.turnId, params.callId);
     if (this.#conversation.ensureSnapshot(agent.id, threadId).messages.some(({ id }) => id === messageId)) {
@@ -1534,7 +1628,8 @@ export class OpenBotToolRouter {
       },
       { alwaysAsk: channelId !== null },
     );
-    if (decision !== "accept") return openBotToolFailure(sourceText("error.agent.screenCaptureDeclined"));
+    if (decision !== "accept")
+      return openBotToolFailure(sourceText("error.agent.screenCaptureDeclined"), { code: "denied", retryable: false });
     const image = yield* Effect.result(host.capture(capture));
     if (Result.isFailure(image)) return captureFailure(image.failure);
     return yield* this.#showCapture(agent.id, threadId, params, messageId, image.success);
@@ -1554,7 +1649,7 @@ export class OpenBotToolRouter {
     const agentId = this.#conversation.agentForThread(params.threadId);
     const servers = this.#mcpServers;
     if (!agentId || !servers || !isMcpServerTool(params.tool))
-      return openBotToolFailure(sourceText("error.agent.toolRequestInvalid"));
+      return openBotToolFailure(sourceText("error.agent.toolRequestInvalid"), VALIDATION_FAILURE);
     const threadId = this.#conversation.publicThreadId(agentId, params.threadId);
     return yield* handleMcpServerTool(servers, {
       tool: params.tool,
@@ -1725,13 +1820,21 @@ export class OpenBotToolRouter {
     const sources = listed.success;
     if (capture.target === "window") {
       const window = sources.windows.find(({ id }) => id === capture.windowId);
-      if (!window) return openBotToolFailure(sourceText("error.agent.screenCaptureWindowMissing"));
+      if (!window)
+        return openBotToolFailure(sourceText("error.agent.screenCaptureWindowMissing"), {
+          code: "not_found",
+          retryable: false,
+        });
       return sourceText("status.agent.screenCaptureWindow", { name: window.name });
     }
     const display = capture.displayId
       ? sources.displays.find(({ id }) => id === capture.displayId)
       : sources.displays.find(({ primary }) => primary);
-    if (capture.displayId && !display) return openBotToolFailure(sourceText("error.agent.screenCaptureDisplayMissing"));
+    if (capture.displayId && !display)
+      return openBotToolFailure(sourceText("error.agent.screenCaptureDisplayMissing"), {
+        code: "not_found",
+        retryable: false,
+      });
     return display?.name
       ? sourceText("status.agent.screenCaptureDisplay", { name: display.name })
       : sourceText("status.agent.screenCaptureScreen");
@@ -1914,7 +2017,10 @@ export class OpenBotToolRouter {
       if (!sender) throw new Error("The calling agent no longer exists.");
       const target = this.#requireAgent(agentId);
       if (widensAgentSettings(target, access, computerUse)) {
-        return openBotToolFailure(sourceText("error.agent.onlyUserWidensSettings"));
+        return openBotToolFailure(sourceText("error.agent.onlyUserWidensSettings"), {
+          code: "denied",
+          retryable: false,
+        });
       }
       // Checked before anything is written, so a model the provider does not list leaves the name
       // and every other field of the same call unchanged.
@@ -1999,7 +2105,7 @@ export class OpenBotToolRouter {
     ): Effect.fn.Return<OpenBotToolResponse, ToolOperationFailed> {
       const args = params.arguments;
       if (!isRecord(args) || !isMessageReaction(args.emoji)) {
-        throw new Error("emoji must be exactly one complete Unicode emoji.");
+        throw invalidToolArgument("emoji must be exactly one complete Unicode emoji.");
       }
       // The newest one when the turn started with several of the person's messages.
       const delivery = this.#mailbox
@@ -2030,12 +2136,12 @@ export class OpenBotToolRouter {
       }
       const recipientValues = params.arguments.recipientAgentIds;
       if (!Array.isArray(recipientValues) || !recipientValues.every((item) => isString(item))) {
-        throw new Error("recipientAgentIds must be an array of agent ids.");
+        throw invalidToolArgument("recipientAgentIds must be an array of agent ids.");
       }
       if (recipientValues.length !== new Set(recipientValues).size) {
-        throw new Error("Duplicate recipients are not allowed.");
+        throw invalidToolArgument("Duplicate recipients are not allowed.");
       }
-      if (recipientValues.includes(senderAgentId)) throw new Error("An agent cannot message itself.");
+      if (recipientValues.includes(senderAgentId)) throw invalidToolArgument("An agent cannot message itself.");
       const known = new Map(this.#hooks.listAgents().map((agent) => [agent.id, agent]));
       for (const recipient of recipientValues) {
         const agent = known.get(recipient);
@@ -2046,7 +2152,7 @@ export class OpenBotToolRouter {
       }
       const paths = params.arguments.paths ?? [];
       if (!Array.isArray(paths) || !paths.every((item) => isString(item))) {
-        throw new Error("paths must be an array of local file paths.");
+        throw invalidToolArgument("paths must be an array of local file paths.");
       }
       const replyToMessageId = params.arguments.replyToMessageId;
       if (
@@ -2054,12 +2160,12 @@ export class OpenBotToolRouter {
         replyToMessageId !== null &&
         (!isString(replyToMessageId) || replyToMessageId.length > INPUT_LIMITS.identifier)
       ) {
-        throw new Error("replyToMessageId must be a message id.");
+        throw invalidToolArgument("replyToMessageId must be a message id.");
       }
-      if (!isString(params.arguments.text)) throw new Error("text is required.");
+      if (!isString(params.arguments.text)) throw invalidToolArgument("text is required.");
       const expectsReply = params.arguments.expectsReply;
       if (expectsReply !== undefined && typeof expectsReply !== "boolean") {
-        throw new Error("expectsReply must be a boolean.");
+        throw invalidToolArgument("expectsReply must be a boolean.");
       }
 
       const turnDeliveries = this.#mailbox.findDeliveriesByTurn(senderAgentId, params.turnId);
@@ -2096,6 +2202,26 @@ export class OpenBotToolRouter {
       );
       const [answerTaskId = null] = answerTaskIds.size === 1 ? answerTaskIds : [];
       const taskId = answerTaskId && this.#tasks.threadId(answerTaskId) !== null ? answerTaskId : undefined;
+      // The delivery chain. A request runs one hop past the newest message of its chain that started its
+      // turn or that it replies to. A request past the hop limit is refused, so requests cannot loop forever.
+      const parentChain = [
+        replyTo,
+        ...turnDeliveries.map(({ delivery }) => (delivery.sender.kind === "agent" ? delivery.messageId : null)),
+      ]
+        .flatMap((messageId) => (messageId ? [this.#mailbox.messageChain(messageId)] : []))
+        .reduce<MessageChain | null>(
+          (newest, chain) => (chain && (!newest || chain.hop > newest.hop) ? chain : newest),
+          null,
+        );
+      const chain = { id: parentChain?.id ?? randomUUID(), hop: (parentChain?.hop ?? 0) + 1 };
+      if (expectsReply !== false && chain.hop > AGENT_MESSAGE_HOP_LIMIT) {
+        this.#hooks.emitError(
+          "agent_hop_refused",
+          new Error(`Chain ${chain.id} reached hop ${chain.hop}.`),
+          senderAgentId,
+        );
+        throw new Error(sourceText("error.backend.agentHopLimit", { limit: AGENT_MESSAGE_HOP_LIMIT }));
+      }
       const text = params.arguments.text;
       const receipt = yield* this.#mailbox
         .enqueue({
@@ -2105,6 +2231,7 @@ export class OpenBotToolRouter {
           sourcePaths: paths,
           replyToMessageId: replyTo,
           ...(expectsReply === undefined ? {} : { expectsReply }),
+          chain,
           ...(messagingReturn ? { messagingReturn } : {}),
           ...(senderTaskId ? { senderTaskId } : {}),
           ...(taskId ? { taskId } : {}),

@@ -615,6 +615,7 @@ export class RoutineScheduler implements RoutineDueSource {
         "runIn",
       ]);
       const agentId = this.#toolAgentId(args, senderAgentId);
+      this.#requirePeerRequest(agentId, senderAgentId, params);
       const active = args.active === undefined ? true : args.active;
       if (!isBoolean(active)) throw new RoutineInputError("active must be a boolean.");
       const timezone =
@@ -745,8 +746,10 @@ export class RoutineScheduler implements RoutineDueSource {
         "runIn",
       ]);
       const policies = { ...routineToolPolicies(args), ...routineToolRunPlace(args) };
+      const agentId = this.#toolAgentId(args, senderAgentId);
+      this.#requirePeerRequest(agentId, senderAgentId, params);
       const input: UpdateRoutineInput = {
-        agentId: this.#toolAgentId(args, senderAgentId),
+        agentId,
         routineId: routineToolString(args.routineId, "routineId", INPUT_LIMITS.identifier, "routineId is required."),
         ...policies,
       };
@@ -780,6 +783,7 @@ export class RoutineScheduler implements RoutineDueSource {
     if (params.tool === "delete_routine") {
       const args = routineToolArguments(params.arguments, ["agentId", "routineId"]);
       const agentId = this.#toolAgentId(args, senderAgentId);
+      this.#requirePeerRequest(agentId, senderAgentId, params);
       const routineId = routineToolString(
         args.routineId,
         "routineId",
@@ -1254,20 +1258,37 @@ export class RoutineScheduler implements RoutineDueSource {
   }
 
   /**
+   * Whether this turn is a person's request in the agent's own chat. Every delivery of the turn must be
+   * a person's message, and the turn must not run in an execution thread: a channel task, or a message
+   * from Slack or Telegram, also arrives as `user`. A routine run or an agent message never qualifies.
+   */
+  personRequestTurn(senderAgentId: string, threadId: string, turnId: string): boolean {
+    const deliveries = this.#mailbox.findDeliveriesByTurn(senderAgentId, turnId);
+    return (
+      deliveries.length > 0 &&
+      deliveries.every(({ delivery }) => delivery.sender.kind === "user") &&
+      !this.#conversation.isExecutionThread(this.#conversation.publicThreadId(senderAgentId, threadId))
+    );
+  }
+
+  /**
+   * A change to another agent's routine: only a person's request may make it. An agent may still
+   * change its own routines without one.
+   */
+  #requirePeerRequest(agentId: string, senderAgentId: string, params: DynamicToolCallParams): void {
+    if (agentId === senderAgentId) return;
+    if (!this.personRequestTurn(senderAgentId, params.threadId, params.turnId))
+      throw new RoutineInputError(sourceText("error.backend.routinePersonOnly"));
+  }
+
+  /**
    * The writer of the webhook routine tools. A public route changes only on a person's request: a
    * routine run or an agent message can carry text from outside, such as a webhook body.
    */
   #webhookTool(senderAgentId: string, threadId: string, turnId: string): WebhookRoutineWriter {
     const webhooks = this.#webhookRoutines?.();
     if (!webhooks) throw new RoutineInputError("This server cannot create webhook routines.");
-    // Every delivery of the turn: a message steered into a routine run shares the run's turn. Only
-    // the agent's own chat: a channel task and a Slack or Telegram message also arrive as `user`.
-    const deliveries = this.#mailbox.findDeliveriesByTurn(senderAgentId, turnId);
-    const requested =
-      deliveries.length > 0 &&
-      deliveries.every(({ delivery }) => delivery.sender.kind === "user") &&
-      !this.#conversation.isExecutionThread(this.#conversation.publicThreadId(senderAgentId, threadId));
-    if (!requested) {
+    if (!this.personRequestTurn(senderAgentId, threadId, turnId)) {
       throw new RoutineInputError(
         "Only a person's message can create, change or delete a webhook routine. Ask the user to request it in the chat.",
       );

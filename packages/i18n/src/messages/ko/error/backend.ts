@@ -175,6 +175,14 @@ export const messages = {
   "error.backend.interruptNoSession": "제공자 세션을 사용할 수 없어서 OpenBot이 이 에이전트를 중단할 수 없어요.",
   "error.backend.memoryTextRequired": "메모리 내용이 필요해요.",
   "error.backend.memoryTextTooLong": "메모리 내용이 너무 길어요.",
+  "error.backend.memorySecretRefused":
+    "이 텍스트에는 OpenBot이 보관하는 비밀 정보가 있어 기억하지 않았어요. 값은 빼고 사실만 기억해 주세요.",
+  "error.backend.agentHopLimit":
+    "에이전트 간 요청은 한 연쇄에서 {limit}회 전달되면 멈춰요. 직접 작업을 마치거나 채팅에서 사용자에게 물어보세요.",
+  "error.backend.skillPersonOnly":
+    "다른 에이전트의 스킬을 설치, 켜기, 제거할 수 있는 것은 사람의 메시지뿐이에요. 채팅에서 사용자에게 요청하도록 해 주세요.",
+  "error.backend.routinePersonOnly":
+    "다른 에이전트의 루틴을 만들거나 바꾸거나 지울 수 있는 것은 사람의 메시지뿐이에요. 채팅에서 사용자에게 요청하도록 해 주세요.",
   "error.backend.mcpServerGone": "이 MCP 서버는 더 이상 없어요.",
   "error.backend.routineFlowLinkGone": "이 연결은 더 이상 없어요.",
   "error.backend.routineFlowSameAgent": "에이전트는 자기 자신에게 작업을 넘길 수 없어요.",

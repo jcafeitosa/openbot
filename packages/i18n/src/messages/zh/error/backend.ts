@@ -166,6 +166,12 @@ export const messages = {
   "error.backend.interruptNoSession": "由于服务商会话不可用，OpenBot 无法中断该助手。",
   "error.backend.memoryTextRequired": "需要填写记忆内容。",
   "error.backend.memoryTextTooLong": "记忆内容过长。",
+  "error.backend.memorySecretRefused": "此文本包含 OpenBot 保存的机密，因此未被记住。请只记住事实，不要包含该值。",
+  "error.backend.agentHopLimit": "同一调用链中的智能体间请求在 {limit} 跳后停止。请自行完成工作，或在对话中询问用户。",
+  "error.backend.skillPersonOnly":
+    "只有来自用户的消息才能在其他智能体上安装、启用或卸载技能。请让用户在对话中提出这一请求。",
+  "error.backend.routinePersonOnly":
+    "只有来自用户的消息才能创建、修改或删除其他智能体的例行任务。请让用户在对话中提出这一请求。",
   "error.backend.mcpServerGone": "该 MCP 服务器已不存在。",
   "error.backend.routineFlowLinkGone": "该连接已不存在。",
   "error.backend.routineFlowSameAgent": "助手不能把工作交给自己。",

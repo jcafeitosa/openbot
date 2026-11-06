@@ -55,7 +55,11 @@ function seedMemories(db: DatabaseSync): void {
 }
 
 function rows(db: DatabaseSync) {
-  return db.prepare("SELECT * FROM projection_agent_memories ORDER BY memory_id").all();
+  return db
+    .prepare(
+      "SELECT memory_id, agent_id, text, normalized_text, origin, source_turn_id, created_at, updated_at, last_event_sequence FROM projection_agent_memories ORDER BY memory_id",
+    )
+    .all();
 }
 
 describe("agent memory selection migration", () => {
@@ -67,7 +71,7 @@ describe("agent memory selection migration", () => {
       const before = rows(db);
       migrateOpenBotDatabase(db);
       expect(rows(db)).toEqual(before);
-      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 58 });
+      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 62 });
       const selected = databaseRows(
         db
           .prepare(`SELECT m.memory_id, m.text, m.origin FROM projection_agent_memories m
@@ -133,9 +137,9 @@ describe("agent memory selection migration", () => {
     const db = databaseAt(31);
     seedMemories(db);
     const before = rows(db);
-    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(63,'now')");
     expect(() => migrateOpenBotDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=59; DELETE FROM schema_migrations WHERE version=20");
+    db.exec("DELETE FROM schema_migrations WHERE version=63; DELETE FROM schema_migrations WHERE version=20");
     expect(() => migrateOpenBotDatabase(db)).toThrow("missing version 20");
     expect(rows(db)).toEqual(before);
   });

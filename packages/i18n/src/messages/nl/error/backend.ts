@@ -186,6 +186,14 @@ export const messages = {
     "OpenBot kan deze agent niet onderbreken, omdat de sessie bij de aanbieder niet beschikbaar is.",
   "error.backend.memoryTextRequired": "Tekst voor de herinnering is verplicht.",
   "error.backend.memoryTextTooLong": "De tekst van de herinnering is te lang.",
+  "error.backend.memorySecretRefused":
+    "Deze tekst bevat een geheim dat OpenBot bewaart, dus is hij niet onthouden. Onthoud het feit zonder de waarde.",
+  "error.backend.agentHopLimit":
+    "Verzoeken tussen agents stoppen na {limit} stappen in één keten. Rond het werk zelf af of vraag de gebruiker in de chat.",
+  "error.backend.skillPersonOnly":
+    "Alleen een bericht van een persoon kan een vaardigheid op een andere agent installeren, inschakelen of verwijderen. Vraag de gebruiker dit in de chat aan te vragen.",
+  "error.backend.routinePersonOnly":
+    "Alleen een bericht van een persoon kan een routine van een andere agent maken, wijzigen of verwijderen. Vraag de gebruiker dit in de chat aan te vragen.",
   "error.backend.mcpServerGone": "Deze MCP-server bestaat niet meer.",
   "error.backend.routineFlowLinkGone": "Deze verbinding bestaat niet meer.",
   "error.backend.routineFlowSameAgent": "Een agent kan geen werk aan zichzelf overdragen.",

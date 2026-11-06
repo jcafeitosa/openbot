@@ -6,7 +6,7 @@
 // review generation is logged and answers the text in `control.json`, after its delay.
 // Checks:
 //   1. Nineteen turns start no review. The twentieth starts one, which adds a memory and shows one
-//      memory-changes line with its own turn id.
+//      memory-changes line with its own turn id. The memory records the reviewed thread and turn as its source.
 //   2. A secret in the chat is not in the review prompt.
 //   3. A review shows every essential memory, and of the searchable ones only those that fit its
 //      budget, the ones that relate to the chat first.
@@ -24,8 +24,8 @@
 //  12. Off (interval 0): 20 turns, a closed side thread, a clear and a pause start no review.
 //  13. Deleting a side thread or deleting the agent during a slow review applies nothing and shows
 //      no error.
-//  14. A review does not forget a memory that it sees only redacted, and does not add the text of a
-//      saved memory again, which would change the user's inclusion choice.
+//  14. A secret that the agent remembers is stored redacted or refused, and a refusal is reported. A review
+//      does not forget a memory that it sees only redacted, and does not add the text of a saved memory again.
 //  15. Stopping the service during a slow review applies nothing and shows no error.
 // No provider, account or network is used. `bun run test:memory-review`.
 // Writes .openbot-build/memory-review-e2e/report.json.
@@ -35,6 +35,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_PROVIDERS, type AgentEvent, CONVERSATION_MEMORY_CHANGES_ITEM_TYPE } from "@openbot/contracts/ipc";
+import { isDynamicRecord } from "@openbot/contracts/runtime-values";
 import { Effect } from "effect";
 import type { AgentBrowserHost } from "../src/backend/agent/turn-lifecycle";
 
@@ -353,6 +354,21 @@ try {
     return { line: shown[0]?.id };
   });
 
+  await check("a review's memory records the reviewed thread and turn as its source", async () => {
+    const threadId = store.list().find((agent) => agent.id === first.id)?.threadId;
+    const saved = service.listMemories(first.id).find((memory) => memory.text === "The user prefers green tea.");
+    assert.ok(saved, "The review saved the memory.");
+    const provenance = database.connection
+      .prepare(
+        "SELECT source_kind, source_thread_id, source_turn_id FROM projection_agent_memories WHERE memory_id = ?",
+      )
+      .get(saved.id);
+    assert.equal(provenance?.source_kind, "review", "The source names a review.");
+    assert.equal(provenance?.source_thread_id, threadId, "The source thread is the reviewed thread.");
+    assert.ok(String(provenance?.source_turn_id).startsWith("turn-"), "The source names a turn of the chat.");
+    return { source: provenance?.source_turn_id };
+  });
+
   await check("the review prompt has no secret", async () => {
     const prompt = reviews()[0] ?? "";
     assert.ok(prompt.includes("I always drink green tea."), "The prompt has the chat.");
@@ -587,12 +603,22 @@ try {
     return { deleted: fourth.id };
   });
 
-  await check("a review does not forget a memory it sees redacted, or add the text of a saved one", async () => {
+  await check("a remembered secret is stored redacted or refused, and a review keeps the user's memories", async () => {
     const guarded = await createAgent("Guarded");
     const secretText = `The user's key is ${SECRET}.`;
+    const resultsBefore = logged("toolResult").length;
     await send(guarded.id, `Save it. ${calls({ tool: "remember", arguments: { text: secretText } })}`);
-    const hidden = service.listMemories(guarded.id).find((memory) => memory.text.includes(SECRET))?.id;
-    assert.ok(hidden, "The agent saved the memory.");
+    const stored = service.listMemories(guarded.id);
+    assert.ok(!stored.some((memory) => memory.text.includes(SECRET)), "No stored memory has the secret.");
+    const refused = logged("toolResult")
+      .slice(resultsBefore)
+      .some((entry) => isDynamicRecord(entry.result) && entry.result.success === false);
+    assert.ok(
+      refused || stored.some((memory) => memory.text.startsWith("The user's key is")),
+      "The secret is stored redacted, or its refusal is recorded.",
+    );
+    // A manual memory keeps its text, so the review sees it redacted and must not forget it.
+    const hidden = service.createMemory({ agentId: guarded.id, text: `The user's old key is ${SECRET}.` }).id;
     const manualText = "The user's dog is called Rex.";
     const written = service.createMemory({ agentId: guarded.id, text: manualText }).id;
     const inclusion = () =>
@@ -617,7 +643,7 @@ try {
     );
     assert.equal(memories.filter((memory) => memory.text === manualText).length, 1, "No copy was added.");
     assert.equal(inclusion(), before, "The user's choice stays.");
-    return { memories: memories.length, inclusion: before };
+    return { memories: memories.length, inclusion: before, refused };
   });
 
   await check("stopping the service during a slow review applies nothing", async () => {

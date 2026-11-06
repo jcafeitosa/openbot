@@ -49,7 +49,18 @@ function contents(db: DatabaseSync): Record<string, Record<string, SQLOutputValu
     )
     .all()
     .map((row) => String(row.name));
-  return Object.fromEntries(tables.map((table) => [table, db.prepare(`SELECT * FROM "${table}"`).all()]));
+  return Object.fromEntries(
+    tables.map((table) => [
+      table,
+      db
+        .prepare(
+          table === "projection_agent_memories"
+            ? `SELECT memory_id, agent_id, text, normalized_text, origin, source_turn_id, created_at, updated_at, last_event_sequence FROM "${table}"`
+            : `SELECT * FROM "${table}"`,
+        )
+        .all(),
+    ]),
+  );
 }
 
 /** What the upgrade adds to each old thread: a null branch link. */
@@ -68,6 +79,8 @@ function withBranchLink(
     browser_proxies: [],
     browser_profile_proxies: [],
     agent_usage_skill_loads: [],
+    turn_outcomes: [],
+    agent_instructions_snapshots: [],
     projection_agent_threads: (before.projection_agent_threads ?? []).map((row) => ({
       ...row,
       branch_source_thread_id: null,
@@ -87,7 +100,7 @@ function threadColumns(db: DatabaseSync): string[] {
 }
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 58 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 62 });
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -99,7 +112,7 @@ describe("agent thread branch migration", () => {
     seed(db);
     const before = contents(db);
     migrateOpenBotDatabase(db);
-    expect(contents(db)).toEqual(withBranchLink(before));
+    expect(contents(db)).toEqual({ ...withBranchLink(before), agent_memory_revisions: [] });
     expect(threadColumns(db).slice(-4, -1)).toEqual(BRANCH_COLUMNS);
     expectHealthy(db);
   });
@@ -118,7 +131,7 @@ describe("agent thread branch migration", () => {
     expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
     db.exec("DROP TRIGGER fail_marker");
     migrateOpenBotDatabase(db);
-    expect(contents(db)).toEqual(withBranchLink(before));
+    expect(contents(db)).toEqual({ ...withBranchLink(before), agent_memory_revisions: [] });
     expectHealthy(db);
   });
 
@@ -158,9 +171,9 @@ describe("agent thread branch migration", () => {
     seed(db);
     const before = contents(db);
     const columnsBefore = threadColumns(db);
-    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(63,'now')");
     expect(() => migrateOpenBotDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=59; DELETE FROM schema_migrations WHERE version=46");
+    db.exec("DELETE FROM schema_migrations WHERE version=63; DELETE FROM schema_migrations WHERE version=46");
     expect(() => migrateOpenBotDatabase(db)).toThrow("missing version 46");
     expect(contents(db)).toEqual(before);
     expect(threadColumns(db)).toEqual(columnsBefore);
@@ -172,7 +185,7 @@ describe("agent thread branch migration", () => {
     migrateOpenBotDatabase(db);
     const after = contents(db);
     // An application one release older knows versions up to 47: version 48 is newer than it supports.
-    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(63,'now')");
     expect(() => migrateOpenBotDatabase(db)).toThrow("newer than this application supports");
     expect(contents(db)).toEqual(after);
   });

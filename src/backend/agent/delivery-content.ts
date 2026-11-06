@@ -15,6 +15,7 @@ import { wokenWaitsPromptText } from "../agent-waits/agent-waits";
 import { homeSkillRoot, homeSkillTagSlug } from "../home-skills";
 import type { DeliveryContext } from "../mailbox-store";
 import { quietRoutineRun, ROUTINE_NO_UPDATE_TOOL, ROUTINE_REPORT_FAILURE_TOOL } from "./routine-quiet-runs";
+import type { RecurringFailure } from "./turn-ledger";
 
 export function responseAttachmentMessageId(threadId: string, turnId: string, callId: string): string {
   const digest = createHash("sha256").update(`${threadId}\0${turnId}\0${callId}`).digest("hex").slice(0, 32);
@@ -377,14 +378,27 @@ export function deliveryPromptInput(context: DeliveryContext, sources: DeliveryP
 }
 
 /**
- * The input of an automatic continuation: the turn ended while the agent's own plan had open steps.
- * The request is already in the provider session, so only this note goes in. The steps come from the
- * stored plan, which is already in its bounds.
+ * The input of an automatic continuation: the turn ended while the agent's own plan had open steps, or
+ * a check found gaps in the steps it marked done. The request is already in the provider session, so
+ * only this note goes in. The steps come from the stored plan, which is already in its bounds.
  */
-export function planContinuationPrompt(steps: readonly ConversationPlanStep[], count: number, limit: number): string {
+export function planContinuationPrompt(
+  steps: readonly ConversationPlanStep[],
+  count: number,
+  limit: number,
+  gaps: readonly string[] = [],
+): string {
+  const header =
+    gaps.length > 0
+      ? "OpenBot note, not a message from the user. Your last turn ended with every plan step marked done, but a check found gaps in the work:"
+      : "OpenBot note, not a message from the user. Your last turn ended while your plan still had open steps:";
   return [
-    "OpenBot note, not a message from the user. Your last turn ended while your plan still had open steps:",
+    header,
+    ...gaps.map((gap) => `- Gap: ${gap}`),
     ...steps.map((step) => `- [${step.status === "inProgress" ? "in progress" : "pending"}] ${step.text}`),
+    ...(gaps.length > 0
+      ? ["A gap means a step is not really done. Do that work now, and mark the step done only when it is finished."]
+      : []),
     "Continue the work now, from where you stopped. Do not repeat finished work or restate the plan. Keep the plan current and mark each step done when you finish it. If a step is already done, mark it done; if it no longer applies, remove it. Do not ask whether to continue. This note does not approve a risky action. If you must wait, need the user's input or approval, or are blocked, say so in one short line and end your turn.",
     `Automatic continuation ${count} of ${limit}.`,
   ].join("\n");
@@ -409,9 +423,14 @@ export function combinedPromptInput(
   inputs: readonly DeliveryInputItem[][],
   unanswered: readonly string[],
   agentNames: ReadonlyMap<string, string>,
+  recurrence: RecurringFailure | null = null,
 ): DeliveryInputItem[] {
   const [only] = inputs;
-  if (inputs.length === 1 && only && unanswered.length === 0) return only;
+  // The note is its own text item, after the messages. A teammate prompt is read from its start to its
+  // end, so the note cannot sit inside the combined text.
+  const note: DeliveryInputItem[] =
+    recurrence === null ? [] : [{ type: "text", text: recurringFailureNote(recurrence) }];
+  if (inputs.length === 1 && only && unanswered.length === 0) return [...only, ...note];
   const texts = inputs.flatMap((items) => items.flatMap((item) => (item.type === "text" ? [item.text] : [])));
   const names = unanswered.map((agentId) => agentNames.get(agentId) ?? agentId);
   const text = [
@@ -421,7 +440,19 @@ export function combinedPromptInput(
   ]
     .filter(Boolean)
     .join("\n\n");
-  return [{ type: "text", text }, ...inputs.flatMap((items) => items.filter((item) => item.type !== "text"))];
+  return [{ type: "text", text }, ...inputs.flatMap((items) => items.filter((item) => item.type !== "text")), ...note];
+}
+
+/**
+ * The note of a recurring failure: its count, its codes and the change of approach. It holds no user text,
+ * no tool argument and no answer, because the ledger keeps none of them.
+ */
+export function recurringFailureNote(failure: RecurringFailure): string {
+  return [
+    "OpenBot note, not a message from the user.",
+    `${failure.count} of your last 20 turns failed with cause ${failure.causeCode} and tool failure ${failure.toolFailureCode}.`,
+    "Change your approach: do not repeat the same action unchanged. Try another way to reach the goal, or say in one short line what blocks you.",
+  ].join(" ");
 }
 
 export function displayMessageReferences(

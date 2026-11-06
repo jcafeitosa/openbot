@@ -177,6 +177,14 @@ export const messages = defineMessages("error.backend", {
     "OpenBot cannot interrupt this agent because its provider session is unavailable.",
   "error.backend.memoryTextRequired": "Memory text is required.",
   "error.backend.memoryTextTooLong": "Memory text is too long.",
+  "error.backend.memorySecretRefused":
+    "This text holds a secret that OpenBot keeps, so it was not remembered. Remember the fact without the value.",
+  "error.backend.agentHopLimit":
+    "Requests between agents stop after {limit} hops in one chain. Finish the work yourself, or ask the user in the chat.",
+  "error.backend.skillPersonOnly":
+    "Only a person's message can install, enable or uninstall a skill on another agent. Ask the user to request it in the chat.",
+  "error.backend.routinePersonOnly":
+    "Only a person's message can create, change or delete a routine on another agent. Ask the user to request it in the chat.",
   "error.backend.mcpServerGone": "This MCP server no longer exists.",
   "error.backend.routineFlowLinkGone": "This connection no longer exists.",
   "error.backend.routineFlowSameAgent": "An agent cannot hand work to itself.",

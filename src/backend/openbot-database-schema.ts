@@ -580,12 +580,92 @@ const ANALYTICS_DATE_INDEX_SQL = `
   CREATE INDEX IF NOT EXISTS agent_usage_activity_occurred ON agent_usage_activity(occurred_at);
 `;
 
+// One row for each turn that ended, for the turn outcome ledger. It keeps codes and counts only: no text
+// of the turn, its tools, its approvals or its answer. The key is the agent and the turn, so a repeated
+// end of a turn keeps the row it wrote first.
+const TURN_OUTCOMES_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS turn_outcomes (
+    agent_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK(outcome IN ('completed', 'failed', 'interrupted')),
+    cause_code TEXT CHECK(cause_code IS NULL OR length(cause_code) BETWEEN 1 AND 64),
+    tool_failures INTEGER NOT NULL DEFAULT 0 CHECK(tool_failures >= 0),
+    tool_failure_codes_json TEXT NOT NULL DEFAULT '{}'
+      CHECK(json_valid(tool_failure_codes_json) AND json_type(tool_failure_codes_json) = 'object'),
+    approvals_accepted INTEGER NOT NULL DEFAULT 0 CHECK(approvals_accepted >= 0),
+    approvals_declined INTEGER NOT NULL DEFAULT 0 CHECK(approvals_declined >= 0),
+    reactions_present INTEGER NOT NULL DEFAULT 0 CHECK(reactions_present IN (0, 1)),
+    memory_changes INTEGER NOT NULL DEFAULT 0 CHECK(memory_changes >= 0),
+    skill_loads INTEGER NOT NULL DEFAULT 0 CHECK(skill_loads >= 0),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(agent_id, turn_id)
+  );
+  CREATE INDEX IF NOT EXISTS turn_outcomes_created ON turn_outcomes(created_at);
+`;
+
+// One row for each earlier text of an agent's instruction file, kept before every write of it, so the
+// user can restore one by its hash. Keyed by the agent and the file's name in the workspace. The store
+// keeps the newest 50 per file and prunes in the same savepoint as the insert. Only creates a table and
+// its indexes; the foreign key clears its rows with their agent. IF NOT EXISTS throughout, because this
+// text is both migration 60 and the tail of the latest schema.
+const AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_instructions_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL REFERENCES projection_agents(agent_id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL CHECK(length(file_path) BETWEEN 1 AND 255),
+    text TEXT NOT NULL,
+    sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS agent_instructions_snapshots_file
+    ON agent_instructions_snapshots(agent_id, file_path, created_at);
+  CREATE INDEX IF NOT EXISTS agent_instructions_snapshots_hash
+    ON agent_instructions_snapshots(agent_id, file_path, sha256);
+`;
+
+// Migration 62 keeps the text an agent's memory had before each change to it, with the source it came from and the
+// reason for the change. Only creates a table, so no foreign-key pause and no vacuum. The foreign key clears a
+// memory's revisions with the memory, so forgetting it, clearing the agent's memories and deleting the agent leave
+// none behind. IF NOT EXISTS throughout, because this text is both migration 62 and the tail of the latest schema.
+const AGENT_MEMORY_REVISIONS_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_memory_revisions (
+    memory_id TEXT NOT NULL REFERENCES projection_agent_memories(memory_id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL CHECK(seq >= 1),
+    text TEXT NOT NULL,
+    origin TEXT NOT NULL CHECK(origin IN ('automatic', 'manual')),
+    source_kind TEXT CHECK(source_kind IS NULL OR source_kind IN ('turn', 'review', 'reflection', 'manual')),
+    source_thread_id TEXT,
+    reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 64),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(memory_id, seq)
+  );
+`;
+
+// Migration 61 records where each memory came from: a turn, a background review, a reflection or the user.
+// Frozen with the migration. ADD COLUMN puts the declaration after the last column and before the UNIQUE
+// constraint that ends the table, so the latest schema puts it there as well.
+const V61_AGENT_MEMORY_SOURCE_KIND_COLUMN_SQL = `source_kind TEXT CHECK(source_kind IN ('turn', 'review', 'reflection', 'manual'))`;
+const V61_AGENT_MEMORY_SOURCE_THREAD_COLUMN_SQL = `source_thread_id TEXT`;
+
+// The memory table's end as migration 8 declares it, and as migration 61 declares it.
+const BASELINE_AGENT_MEMORIES_END_SQL = `    last_event_sequence INTEGER NOT NULL,
+    UNIQUE(agent_id, normalized_text)`;
+const V61_AGENT_MEMORIES_END_SQL = `    last_event_sequence INTEGER NOT NULL,
+    ${V61_AGENT_MEMORY_SOURCE_KIND_COLUMN_SQL},
+    ${V61_AGENT_MEMORY_SOURCE_THREAD_COLUMN_SQL},
+    UNIQUE(agent_id, normalized_text)`;
+
 const LATEST_SCHEMA_SQL =
   substituteOnce(
     substituteOnce(
       substituteOnce(
         substituteOnce(
-          substituteOnce(BASELINE_V8_SCHEMA_SQL, BASELINE_REACTIONS_TABLE_SQL, V12_REACTIONS_TABLE_SQL),
+          substituteOnce(
+            substituteOnce(BASELINE_V8_SCHEMA_SQL, BASELINE_REACTIONS_TABLE_SQL, V12_REACTIONS_TABLE_SQL),
+            BASELINE_AGENT_MEMORIES_END_SQL,
+            V61_AGENT_MEMORIES_END_SQL,
+          ),
           BASELINE_THREAD_MESSAGES_END_SQL,
           withThreadMessageOrderColumns(BASELINE_THREAD_MESSAGES_END_SQL),
         ),
@@ -631,7 +711,10 @@ const LATEST_SCHEMA_SQL =
   MESSAGING_ALLOWED_SENDERS_SCHEMA_SQL +
   DELETED_THREAD_MESSAGES_SCHEMA_SQL +
   BROWSER_PROXY_SCHEMA_SQL +
-  AGENT_SKILL_LOADS_SCHEMA_SQL;
+  AGENT_SKILL_LOADS_SCHEMA_SQL +
+  TURN_OUTCOMES_SCHEMA_SQL +
+  AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL +
+  AGENT_MEMORY_REVISIONS_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -979,6 +1062,30 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // Only creates a table and its indexes, so no foreign-key pause and no vacuum. No skill load was
     // recorded before it, so the table starts empty and no usage row changes.
     up: (db) => db.exec(AGENT_SKILL_LOADS_SCHEMA_SQL),
+  },
+  {
+    version: 59,
+    // Only creates a table and an index, so no foreign-key pause and no vacuum. No turn had an outcome row
+    // before it, so the table starts empty and no existing row changes.
+    up: (db) => db.exec(TURN_OUTCOMES_SCHEMA_SQL),
+  },
+  {
+    version: 60,
+    // Only creates a table and its indexes, so no foreign-key pause and no vacuum. No instruction file was
+    // saved before it, so the table starts empty and no agent's file changes.
+    up: (db) => db.exec(AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL),
+  },
+  {
+    version: 61,
+    // Adds one column with no default and backfills it from the origins and source turn ids already stored. No
+    // rebuild, so no foreign-key pause and no vacuum. Every source turn id keeps its text, prefix included.
+    up: addMemorySourceKind,
+  },
+  {
+    version: 62,
+    // Only creates a table, so no foreign-key pause and no vacuum. No memory had a revision before it, so the table
+    // starts empty and no existing row changes.
+    up: (db) => db.exec(AGENT_MEMORY_REVISIONS_SCHEMA_SQL),
   },
 ];
 
@@ -1394,6 +1501,38 @@ function addAgentRoutineRunPlace(db: DatabaseSync): void {
   const columns = db.prepare("PRAGMA table_info(projection_agent_routines)").all();
   if (columns.some((existing) => isDynamicRecord(existing) && existing.name === "run_in")) return;
   db.exec(`ALTER TABLE projection_agent_routines ADD COLUMN ${V57_AGENT_ROUTINE_RUN_IN_COLUMN_SQL}`);
+}
+
+// Migration 61 gives every memory its source kind and source thread. A row written before it takes the kind named by
+// the prefix of its source turn id, then its origin; its thread stays NULL. The source turn id itself is not rewritten.
+function addMemorySourceKind(db: DatabaseSync): void {
+  // A replay over a database that the latest schema built, or a development profile that ran this version before it
+  // shipped, has one or both columns already. Each missing column is added. The backfill runs only when this migration
+  // adds the kind: a kind that is there already belongs to the writer that recorded it, and must not be rewritten.
+  const names = db
+    .prepare("PRAGMA table_info(projection_agent_memories)")
+    .all()
+    .flatMap((column) => (isDynamicRecord(column) && isString(column.name) ? [column.name] : []));
+  const addsKind = !names.includes("source_kind");
+  if (addsKind) db.exec(`ALTER TABLE projection_agent_memories ADD COLUMN ${V61_AGENT_MEMORY_SOURCE_KIND_COLUMN_SQL}`);
+  if (!names.includes("source_thread_id"))
+    db.exec(`ALTER TABLE projection_agent_memories ADD COLUMN ${V61_AGENT_MEMORY_SOURCE_THREAD_COLUMN_SQL}`);
+  if (!addsKind) return;
+  // The update trigger of migration 32 would add one to the selection revision of every memory the backfill
+  // touches, a change the user never made. It is dropped for the backfill and created again from its own declaration.
+  const trigger = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'agent_memory_update'")
+    .get();
+  if (!isDynamicRecord(trigger) || !isString(trigger.sql))
+    throw new Error("The agent memory update trigger is missing.");
+  db.exec("DROP TRIGGER agent_memory_update");
+  db.exec(`UPDATE projection_agent_memories SET source_kind = CASE
+    WHEN instr(source_turn_id, 'reflection:') = 1 THEN 'reflection'
+    WHEN instr(source_turn_id, 'review:') = 1 THEN 'review'
+    WHEN origin = 'manual' THEN 'manual'
+    ELSE 'turn'
+  END`);
+  db.exec(trigger.sql);
 }
 
 // Migration 28 removes the provider CHECK. It rebuilds the table with no guard: every shipped table has the

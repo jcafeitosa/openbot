@@ -3,6 +3,7 @@
 
 import { chmod, lstat, open, realpath } from "node:fs/promises";
 import { join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import {
   AGENT_INSTRUCTION_FILE_NAMES,
@@ -12,6 +13,7 @@ import {
 } from "@openbot/contracts/ipc";
 import { Effect, Option, Schema } from "effect";
 import { writeFileAtomically } from "../atomic-json-file";
+import { findInstructionsSnapshot, recordInstructionsSnapshot } from "../instructions-history-store";
 import { isPathInside } from "../path-containment";
 
 /**
@@ -27,6 +29,12 @@ export class AgentInstructionsFileRefused extends Schema.TaggedError<AgentInstru
 export class AgentInstructionsFileFailed extends Schema.TaggedError<AgentInstructionsFileFailed>()(
   "AgentInstructionsFileFailed",
   { operation: Schema.Literals(["read", "write"]), cause: Schema.Defect() },
+) {}
+
+/** No snapshot of the file has this hash: it was never kept, or the newest 50 no longer hold it. */
+export class InstructionsSnapshotMissing extends Schema.TaggedError<InstructionsSnapshotMissing>()(
+  "InstructionsSnapshotMissing",
+  { sha256: Schema.String },
 ) {}
 
 interface FoundFile {
@@ -110,17 +118,33 @@ export const agentInstructionsRevealPath = Effect.fn("WorkspaceInstructions.reve
   return Option.isSome(found) ? found.value.path : workspace;
 });
 
+/** The agent whose history keeps the texts that its writes replace, and the connection that holds them. */
+export interface InstructionsHistory {
+  readonly agentId: string;
+  readonly database: DatabaseSync;
+}
+
+/** Keeps the text that a write is about to replace. A write that replaces nothing keeps nothing. */
+const snapshotBeforeWrite = (history: InstructionsHistory, fileName: string, replaced: string) =>
+  Effect.try({
+    try: () =>
+      recordInstructionsSnapshot(history.database, { agentId: history.agentId, filePath: fileName, text: replaced }),
+    catch: (cause) => new AgentInstructionsFileFailed({ operation: "write", cause }),
+  });
+
 /**
  * Replaces the text of the first instruction file, or creates `AGENTS.md`. The file keeps its
  * permission bits; a new file is readable only by the user. An empty text keeps an empty file: a
  * save never deletes the file. The save is refused when the text is not `expected` now, because the
  * agent changed the file after the editor read it. A change between this check and the write is
- * still possible, but the window is short.
+ * still possible, but the window is short. With `history`, the text that the write replaces is kept
+ * first, unless the write replaces nothing.
  */
 export const saveAgentInstructionsFile = Effect.fn("WorkspaceInstructions.save")(function* (
   workspace: string,
   text: string,
   expected: string,
+  history?: InstructionsHistory,
 ) {
   const found = yield* findFile(workspace);
   if ((yield* editorText(found)) !== expected) return yield* new AgentInstructionsFileRefused({ reason: "changed" });
@@ -128,6 +152,7 @@ export const saveAgentInstructionsFile = Effect.fn("WorkspaceInstructions.save")
   const path = Option.isSome(found)
     ? found.value.path
     : join(yield* fileIo("write", () => realpath(workspace)), fileName);
+  if (history && Option.isSome(found) && text !== expected) yield* snapshotBeforeWrite(history, fileName, expected);
   yield* writeFileAtomically(path, text).pipe(
     Effect.mapError((error) => new AgentInstructionsFileFailed({ operation: "write", cause: error.cause })),
   );
@@ -136,6 +161,26 @@ export const saveAgentInstructionsFile = Effect.fn("WorkspaceInstructions.save")
     yield* fileIo("write", () => chmod(path, mode));
   }
   return { fileName, exists: true, text } satisfies AgentInstructionsFile;
+});
+
+/**
+ * Restores the instruction file to the text that has this hash, from the newest snapshot of the file
+ * that holds it. The text that the restore replaces is kept first, as any write keeps it, so a restore
+ * can itself be undone.
+ */
+export const restoreAgentInstructionsSnapshot = Effect.fn("WorkspaceInstructions.restore")(function* (
+  workspace: string,
+  sha256: string,
+  history: InstructionsHistory,
+) {
+  const found = yield* findFile(workspace);
+  const fileName = Option.isSome(found) ? found.value.fileName : "AGENTS.md";
+  const snapshot = yield* Effect.try({
+    try: () => findInstructionsSnapshot(history.database, { agentId: history.agentId, filePath: fileName, sha256 }),
+    catch: (cause) => new AgentInstructionsFileFailed({ operation: "read", cause }),
+  });
+  if (!snapshot) return yield* new InstructionsSnapshotMissing({ sha256 });
+  return yield* saveAgentInstructionsFile(workspace, snapshot.text, yield* editorText(found), history);
 });
 
 /** The instruction file as the prompt carries it. */

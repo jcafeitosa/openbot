@@ -14,9 +14,14 @@ afterEach(() => {
 
 const PROFILE = "a".repeat(32);
 const PROXY = "b".repeat(32);
-const PROXY_TABLES = { browser_profile_proxies: [], browser_proxies: [] };
+const PROXY_TABLES = { agent_memory_revisions: [], browser_profile_proxies: [], browser_proxies: [] };
 // Migration 58 runs after 56 and adds this empty table.
-const LATER_TABLES = { agent_usage_skill_loads: [] };
+const LATER_TABLES = {
+  agent_memory_revisions: [],
+  agent_usage_skill_loads: [],
+  turn_outcomes: [],
+  agent_instructions_snapshots: [],
+};
 
 function databaseAt(version: number): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -53,7 +58,18 @@ function contents(db: DatabaseSync): Record<string, unknown[]> {
     )
     .all()
     .map((row) => String(row.name));
-  return Object.fromEntries(tables.map((table) => [table, db.prepare(`SELECT * FROM "${table}"`).all()]));
+  return Object.fromEntries(
+    tables.map((table) => [
+      table,
+      db
+        .prepare(
+          table === "projection_agent_memories"
+            ? `SELECT memory_id, agent_id, text, normalized_text, origin, source_turn_id, created_at, updated_at, last_event_sequence FROM "${table}"`
+            : `SELECT * FROM "${table}"`,
+        )
+        .all(),
+    ]),
+  );
 }
 
 function proxyTables(db: DatabaseSync) {
@@ -61,7 +77,7 @@ function proxyTables(db: DatabaseSync) {
 }
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 58 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 62 });
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -133,9 +149,9 @@ describe("browser proxy migration", () => {
     const db = databaseAt(55);
     seed(db, 55);
     const before = contents(db);
-    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(63,'now')");
     expect(() => migrateOpenBotDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=59; DELETE FROM schema_migrations WHERE version=20");
+    db.exec("DELETE FROM schema_migrations WHERE version=63; DELETE FROM schema_migrations WHERE version=20");
     expect(() => migrateOpenBotDatabase(db)).toThrow("missing version 20");
     expect(contents(db)).toEqual(before);
     expect(proxyTables(db)).toEqual([]);
