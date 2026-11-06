@@ -53,6 +53,7 @@ const voiceRuntimeLibraries = ["sherpa-onnx.node", "libsherpa-onnx-c-api.dylib",
 const voiceSessionSettingsPath = resolve(voiceRuntimePath, "no-arena.cfg");
 const remoteRuntimePath = resolve(resourcesPath, "remote-desktop-runtime/darwin", architecture);
 const cuaDriverPath = resolve(resourcesPath, "cua-driver/darwin", architecture);
+const macAccessProgram = resolve(resourcesPath, "macos-agent-access/openbot-macos-access");
 // The database host is spawned by path as its own process, so it has to survive the asar unchanged.
 // Packed into app.asar it would still be readable, but `utilityProcess` cannot start it from there.
 const databaseHostPath = resolve(resourcesPath, "app.asar.unpacked/out/main/agent-database-host.js");
@@ -103,6 +104,12 @@ await Promise.all([
   access(resolve(remoteRuntimePath, "SHA256SUMS.txt")),
   access(resolve(cuaDriverPath, "cua-driver")),
   access(resolve(cuaDriverPath, "LICENSE.md")),
+  access(macAccessProgram).catch((error: unknown) => {
+    if (isMissingFileError(error)) {
+      throw new Error("The Mac agent-access program is missing from the application.");
+    }
+    throw error;
+  }),
 ]);
 // Only this Mac's driver ships. A `from: build/cua-driver` that forgot the target would put the
 // Windows and Linux builds in every installer.
@@ -143,6 +150,21 @@ expectEqual(
   "OpenBot uses the microphone to transcribe voice prompts locally on this Mac.",
   "microphone usage description",
 );
+expectEqual(
+  plist.NSLocationUsageDescription,
+  "Read the location of this Mac. The value can go to the model provider. You can refuse.",
+  "location usage description",
+);
+expectEqual(
+  plist.NSLocationWhenInUseUsageDescription,
+  "Read the location of this Mac. The value can go to the model provider. You can refuse.",
+  "location when-in-use description",
+);
+expectEqual(
+  plist.NSFocusStatusUsageDescription,
+  "Read whether Focus is on. The value can go to the model provider. You can refuse.",
+  "Focus status description",
+);
 
 const packageJson = JSON.parse(await readFile("package.json", "utf8"));
 if (!isDynamicRecord(packageJson)) throw new Error("package.json is not a JSON object.");
@@ -166,6 +188,14 @@ for (const [path, name] of [
 const executableArchitecture = run("file", [executablePath]);
 if (!executableArchitecture.includes(machOArchitecture)) {
   throw new Error(`Expected a ${machOArchitecture} executable: ${executableArchitecture}`);
+}
+const macAccessArchitecture = run("file", [macAccessProgram]);
+if (!macAccessArchitecture.includes(machOArchitecture)) {
+  throw new Error(`Expected a ${machOArchitecture} Mac agent-access program: ${macAccessArchitecture}`);
+}
+const applicationEntitlements = run("codesign", ["-d", "--entitlements", "-", executablePath], true);
+if (applicationEntitlements.includes("com.apple.developer.weatherkit")) {
+  throw new Error("The application signature must not include the WeatherKit entitlement.");
 }
 for (const name of voiceRuntimeLibraries) {
   const path = resolve(voiceRuntimePath, name);

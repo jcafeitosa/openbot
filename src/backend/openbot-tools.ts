@@ -15,6 +15,7 @@ import { interruptAgentToolSchema } from "./agent/agent-interrupt-tool";
 import { createChannelToolSchema, listChannelsToolSchema, updateChannelToolSchema } from "./agent/channel-agent-tools";
 import { DATA_TOOL_DEFINITIONS } from "./agent/data-tools";
 import { HISTORY_TOOL_DEFINITIONS } from "./agent/history-tools";
+import { allowMacFolderShape, readImageTextShape, searchMacFolderShape } from "./agent/mac-agent-access";
 import { MCP_SERVER_TOOL_DEFINITIONS } from "./agent/mcp-tools";
 import { MEMORY_RECALL_TOOL_DEFINITIONS } from "./agent/memory-tool-inputs";
 import {
@@ -308,6 +309,58 @@ export const MARKETPLACE_APP_IDS: readonly string[] = [
   ...CONNECTOR_IDS,
 ];
 
+/**
+ * These tools run on the Mac that runs the agent. The list is not a Team API field.
+ * A Windows or Linux host does not advertise them.
+ */
+const MAC_AGENT_ACCESS_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] =
+  process.platform === "darwin"
+    ? [
+        {
+          name: "read_mac_location",
+          description:
+            "Read this Mac location through Core Location and send it to the model. The user can refuse. The accuracy is the value Core Location returns. This does not say that the Mac has a GPS chip.",
+          shape: {},
+        },
+        {
+          name: "read_mac_weather",
+          description:
+            "Read the Apple Weather forecast for this Mac location and send it to the model. The user can refuse. Say Apple Weather with the forecast. Do not pass a location from another device.",
+          shape: {},
+        },
+        {
+          name: "allow_mac_folder",
+          description:
+            "Ask the user to allow Desktop, Documents, or Downloads. OpenBot keeps a security-scoped bookmark on this Mac. It does not ask for Full Disk Access. The result is the folder kind. File names found later can go to the model.",
+          shape: allowMacFolderShape,
+        },
+        {
+          name: "search_mac_folder",
+          description:
+            "Search file names in a Desktop, Documents, or Downloads folder the user already allowed. The result is each file name and the folder kind. Call allow_mac_folder first when the folder is not allowed.",
+          shape: searchMacFolderShape,
+        },
+        {
+          name: "list_running_apps",
+          description:
+            "List the running apps and the front app on this Mac. This is the app list, not a screen capture. The list can go to the model. The user can refuse.",
+          shape: {},
+        },
+        {
+          name: "read_image_text",
+          description:
+            "Read the text in an image that is already in this chat. The user can refuse. Pass the attachment id. The text can go to the model.",
+          shape: readImageTextShape,
+        },
+        {
+          name: "read_focus_status",
+          description:
+            "Read whether Focus is on. The result is only true or false. OpenBot does not receive the Focus name. The value can go to the model. The user can refuse.",
+          shape: {},
+        },
+      ]
+    : [];
+
 /** Shared declarations for Codex, Grok, and Claude. Service handlers enforce execution rules. */
 export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
   ...CHANNEL_TOOL_DEFINITIONS,
@@ -368,6 +421,7 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
     description: `Show a finished HTML page (chart, table, diagram, collage, mockup) in this conversation, above your final text reply; call it before you write that reply. The user already sees the page, so the reply must not announce it or restate it: add only what the page does not say. In a channel, each member who reads the channel sees it. OpenBot fits the frame to the page height. A height lower than the page caps the frame, and the rest scrolls in it. ${VISUAL_PAGE_RULES} ${VISUAL_PAGE_ACTIONS}`,
     shape: htmlRenderToolSchema.shape,
   },
+  ...MAC_AGENT_ACCESS_TOOL_DEFINITIONS,
   {
     name: "list_capture_sources",
     description:

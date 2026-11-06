@@ -252,6 +252,7 @@ import { LOCAL_SERVERS_FILE } from "./local-servers/local-server-registry";
 import { LocalServers } from "./local-servers/local-servers";
 import { createLoginItem } from "./login-item";
 import { LogoColorService } from "./logo-color-service";
+import { MacAgentAccess } from "./mac-agent-access";
 import type { MacHapticFeedback } from "./mac-haptic-feedback";
 import { MACHINE_ALERTS_PREFERENCE_FILE, MachineAlertMonitor, MachineAlertPreferenceStore } from "./machine-alerts";
 import { MachineMetricsSampler } from "./machine-metrics";
@@ -1879,6 +1880,14 @@ export async function createApplicationServices({
       }),
     // `desktopCapturer` captures the display OpenBot is on. With an agent display of its own, that
     // is only the OpenBot window, so agents take their screenshots with the Computer Use driver.
+    macAccess:
+      process.platform === "darwin"
+        ? new MacAgentAccess({
+            packaged: app.isPackaged,
+            userDataPath: app.getPath("userData"),
+            translate: language.translate,
+          })
+        : null,
     screenCapture: hasSeparateAgentDisplay(process.platform)
       ? null
       : new ScreenCapturer({

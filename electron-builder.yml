@@ -125,6 +125,11 @@ mac:
       to: remote-desktop-runtime
     - from: build/cua-driver/darwin/${arch}
       to: cua-driver/darwin/${arch}
+    # The Mac agent-access program. Build it with `bun run build:macos-agent-access` before packaging.
+    # electron-builder signs it with the inherited entitlements. Those entitlements do not include
+    # WeatherKit or Focus. The Apple portal profile for this program is still unverified.
+    - from: .openbot-build/macos-agent-access
+      to: macos-agent-access
   # The Computer Use driver arrives signed by Cua AI with the hardened runtime, a secure timestamp
   # and `com.apple.security.automation.apple-events`. Re-signing it with OpenBot's inherited
   # entitlements would drop that entitlement and break the driver's Automation route, so its own
@@ -138,6 +143,9 @@ mac:
     CFBundleIconName: Icon
     ElectronTeamID: ZTRDTUL87R
     NSMicrophoneUsageDescription: OpenBot uses the microphone to transcribe voice prompts locally on this Mac.
+    NSLocationUsageDescription: Read the location of this Mac. The value can go to the model provider. You can refuse.
+    NSLocationWhenInUseUsageDescription: Read the location of this Mac. The value can go to the model provider. You can refuse.
+    NSFocusStatusUsageDescription: Read whether Focus is on. The value can go to the model provider. You can refuse.
     # Computer Use runs the driver as a child process, so macOS asks for both grants in OpenBot's
     # name and shows these sentences. Under the hardened runtime, macOS shows the Automation prompt
     # only when the app has `com.apple.security.automation.apple-events` in its entitlements.

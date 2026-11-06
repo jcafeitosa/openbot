@@ -1304,6 +1304,26 @@ export class MailboxStore {
     });
   }
 
+  /**
+   * The file of an image this agent already has on a message it sent or received.
+   * Null when the id is missing, deleted, or not an image.
+   */
+  imageFileForAgent(agentId: string, attachmentId: string): { path: string } | null {
+    const visible = new Set<string>();
+    for (const delivery of this.#state.deliveries) {
+      if (delivery.recipientAgentId === agentId) visible.add(delivery.messageId);
+    }
+    for (const message of this.#state.messages) {
+      const own = message.sender.kind === "agent" && message.sender.agentId === agentId;
+      if (!own && !visible.has(message.id)) continue;
+      const attachment = message.attachments.find((item) => item.id === attachmentId);
+      if (!attachment || attachment.deletedAt || attachment.kind !== "image") continue;
+      if (!attachment.mimeType.startsWith("image/") || attachment.mimeType.includes("svg")) return null;
+      return { path: attachment.path };
+    }
+    return null;
+  }
+
   conversationMessages(
     agentId: string,
     options: { fromCreatedAt?: string; limit?: number } = {},
