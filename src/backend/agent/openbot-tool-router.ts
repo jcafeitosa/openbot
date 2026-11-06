@@ -90,6 +90,7 @@ import type { ConversationRuntime } from "./conversation-runtime";
 import { handleDataTool } from "./data-tools";
 import { responseAttachmentMessageId, visualReplyFileName, visualReplyMessageId } from "./delivery-content";
 import type { DrainScheduler } from "./drain-scheduler";
+import { dryRunPreview, isIrreversibleTool } from "./dry-run-policy";
 import { HistoryTools } from "./history-tools";
 import type { HostedSiteCoordinator } from "./hosted-site-coordinator";
 import { isHostedSiteMutationTool } from "./hosted-site-events";
@@ -949,6 +950,37 @@ export class OpenBotToolRouter {
     };
   });
 
+  /**
+   * The refusals that need no person's answer. They run before the approval card, so a person is never asked
+   * to approve a call that is refused. Each one repeats the check that its tool's own branch makes.
+   */
+  #refusedBeforeApproval(params: DynamicToolCallParams, senderAgentId: string): OpenBotToolResponse | null {
+    const denied = (message: string) => openBotToolFailure(message, { code: "denied", retryable: false });
+    if (params.tool === "uninstall_skill" || params.tool === "delete_routine") {
+      const target =
+        isRecord(params.arguments) && isString(params.arguments.agentId) ? params.arguments.agentId : senderAgentId;
+      if (
+        target !== senderAgentId &&
+        !this.#routines.personRequestTurn(senderAgentId, params.threadId, params.turnId)
+      ) {
+        return denied(
+          sourceText(
+            params.tool === "uninstall_skill" ? "error.backend.skillPersonOnly" : "error.backend.routinePersonOnly",
+          ),
+        );
+      }
+    }
+    if (params.tool === "messaging_forget_memory") {
+      const link = this.#messaging.store.linkForThread(
+        this.#conversation.publicThreadId(senderAgentId, params.threadId),
+      );
+      if (!link || link.agentId !== senderAgentId) {
+        return denied("Messaging tools work only in a turn that answers an external chat message.");
+      }
+    }
+    return null;
+  }
+
   readonly #handleOpenBotTool = Effect.fn("OpenBotToolRouter.handleOpenBotTool")(function* (
     this: OpenBotToolRouter,
     client: AgentClient,
@@ -957,6 +989,42 @@ export class OpenBotToolRouter {
   ) {
     const senderAgentId = this.#conversation.agentForThread(params.threadId);
     if (!senderAgentId) throw new Error("The sending OpenBot agent is unknown.");
+
+    // An irreversible call runs only after a person approves its dry-run preview. The approval waits for
+    // the person even with Full access, so a grant given earlier does not answer it.
+    if (isIrreversibleTool(params.tool)) {
+      const refused = this.#refusedBeforeApproval(params, senderAgentId);
+      if (refused) return refused;
+      const preview = dryRunPreview(params.tool, params.arguments);
+      const approved = yield* this.#attention
+        .awaitToolApproval(
+          client,
+          request,
+          {
+            requestId: request.id,
+            agentId: senderAgentId,
+            threadId: this.#conversation.publicThreadId(senderAgentId, params.threadId),
+            turnId: params.turnId,
+            kind: "permissions",
+            command: null,
+            cwd: null,
+            reason: preview,
+            grantRoot: null,
+            permissions: null,
+          },
+          { alwaysAsk: true },
+        )
+        .pipe(
+          Effect.map((decision) => decision === "accept"),
+          toToolOperationFailed,
+        );
+      if (!approved)
+        return openBotToolFailure(preview, {
+          code: "approval_required",
+          retryable: false,
+          hint: "Tell the user that this change needs their approval in OpenBot. Do not call it again unless they ask.",
+        });
+    }
 
     if (LOCAL_SKILL_TOOL_DEFINITIONS.some((tool) => tool.name === params.tool)) {
       const reportFailure = (error: unknown) => Effect.sync(() => this.#failedToolResult(error));

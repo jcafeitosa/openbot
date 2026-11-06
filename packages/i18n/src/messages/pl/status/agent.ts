@@ -2,6 +2,20 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/agent";
 
 export const messages = {
+  "status.agent.dryRunPreview":
+    "Próba bez wykonania, jeszcze nie uruchomiono: {action} ({tool}). Argumenty: {summary}. Osoba musi to zatwierdzić w OpenBot, zanim zostanie wykonane.",
+  "status.agent.dryRunPostMessage": "Opublikować wiadomość w zewnętrznym czacie",
+  "status.agent.dryRunForgetExternalMemory": "Usunąć pamięć z zewnętrznego czatu",
+  "status.agent.dryRunForgetMemory": "Usunąć pamięć agenta",
+  "status.agent.dryRunUninstallSkill": "Odinstalować umiejętność",
+  "status.agent.dryRunDeleteRoutine": "Usunąć rutynę",
+  "status.agent.dryRunNoArguments": "brak",
+  "status.agent.dryRunArgument": "{name} to {value}",
+  "status.agent.dryRunTextValue": { one: "tekst, {count} znak", other: "tekst, {count} znaków" },
+  "status.agent.dryRunListValue": { one: "lista, {count} element", other: "lista, {count} elementów" },
+  "status.agent.dryRunObjectValue": { one: "obiekt, {count} pole", other: "obiekt, {count} pól" },
+  "status.agent.dryRunEmptyValue": "pusty",
+  "status.agent.dryRunOtherValue": "wartość",
   "status.agent.claudeWriteOutside":
     "Zapis {path} poza obszarem roboczym agenta, folderem współdzielonym i folderami tymczasowymi.",
   "status.agent.contextCleared": "Kontekst wyczyszczony. Tutaj zaczyna się nowy czat.",

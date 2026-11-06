@@ -2,6 +2,20 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/agent";
 
 export const messages = {
+  "status.agent.dryRunPreview":
+    "Kuru çalıştırma, henüz çalıştırılmadı: {action} ({tool}). Bağımsız değişkenler: {summary}. Çalıştırılmadan önce bir kişinin bunu OpenBot'ta onaylaması gerekir.",
+  "status.agent.dryRunPostMessage": "Harici bir sohbete mesaj gönder",
+  "status.agent.dryRunForgetExternalMemory": "Harici bir sohbetin belleğini sil",
+  "status.agent.dryRunForgetMemory": "Bir ajan belleğini sil",
+  "status.agent.dryRunUninstallSkill": "Bir beceriyi kaldır",
+  "status.agent.dryRunDeleteRoutine": "Bir rutini sil",
+  "status.agent.dryRunNoArguments": "yok",
+  "status.agent.dryRunArgument": "{name}: {value}",
+  "status.agent.dryRunTextValue": { one: "metin, {count} karakter", other: "metin, {count} karakter" },
+  "status.agent.dryRunListValue": { one: "liste, {count} öğe", other: "liste, {count} öğe" },
+  "status.agent.dryRunObjectValue": { one: "nesne, {count} alan", other: "nesne, {count} alan" },
+  "status.agent.dryRunEmptyValue": "boş",
+  "status.agent.dryRunOtherValue": "değer",
   "status.agent.claudeWriteOutside":
     "Ajanın çalışma alanı, paylaşılan klasör ve geçici klasörler dışındaki {path} konumuna yaz.",
   "status.agent.contextCleared": "Bağlam temizlendi. Yeni bir sohbet burada başlıyor.",

@@ -2,6 +2,20 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/agent";
 
 export const messages = {
+  "status.agent.dryRunPreview":
+    "تشغيل تجريبي، لم يُنفَّذ بعد: {action} ({tool}). المعاملات: {summary}. يجب أن يوافق عليه شخص في OpenBot قبل أن يُنفَّذ.",
+  "status.agent.dryRunPostMessage": "نشر رسالة في محادثة خارجية",
+  "status.agent.dryRunForgetExternalMemory": "حذف ذاكرة من محادثة خارجية",
+  "status.agent.dryRunForgetMemory": "حذف ذاكرة وكيل",
+  "status.agent.dryRunUninstallSkill": "إلغاء تثبيت مهارة",
+  "status.agent.dryRunDeleteRoutine": "حذف روتين",
+  "status.agent.dryRunNoArguments": "لا شيء",
+  "status.agent.dryRunArgument": "{name}: {value}",
+  "status.agent.dryRunTextValue": { one: "نص، {count} حرف", other: "نص، {count} حرف" },
+  "status.agent.dryRunListValue": { one: "قائمة، {count} عنصر", other: "قائمة، {count} عنصر" },
+  "status.agent.dryRunObjectValue": { one: "كائن، {count} حقل", other: "كائن، {count} حقل" },
+  "status.agent.dryRunEmptyValue": "فارغ",
+  "status.agent.dryRunOtherValue": "قيمة",
   "status.agent.claudeWriteOutside": "الكتابة إلى {path}، خارج مساحة عمل الوكيل والمجلد المشترك والمجلدات المؤقتة.",
   "status.agent.contextCleared": "تم مسح السياق. تبدأ دردشة جديدة هنا.",
   "status.agent.instructionsChanged": "حدّث تعليماته",

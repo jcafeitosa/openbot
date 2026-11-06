@@ -2,6 +2,20 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/agent";
 
 export const messages = {
+  "status.agent.dryRunPreview":
+    "Essai à blanc, pas encore exécuté : {action} ({tool}). Arguments : {summary}. Une personne doit l’approuver dans OpenBot avant son exécution.",
+  "status.agent.dryRunPostMessage": "Publier un message dans un chat externe",
+  "status.agent.dryRunForgetExternalMemory": "Supprimer un souvenir d’un chat externe",
+  "status.agent.dryRunForgetMemory": "Supprimer un souvenir de l’agent",
+  "status.agent.dryRunUninstallSkill": "Désinstaller une compétence",
+  "status.agent.dryRunDeleteRoutine": "Supprimer une routine",
+  "status.agent.dryRunNoArguments": "aucun",
+  "status.agent.dryRunArgument": "{name} est {value}",
+  "status.agent.dryRunTextValue": { one: "texte, {count} caractère", other: "texte, {count} caractères" },
+  "status.agent.dryRunListValue": { one: "liste, {count} élément", other: "liste, {count} éléments" },
+  "status.agent.dryRunObjectValue": { one: "objet, {count} champ", other: "objet, {count} champs" },
+  "status.agent.dryRunEmptyValue": "vide",
+  "status.agent.dryRunOtherValue": "valeur",
   "status.agent.claudeWriteOutside":
     "Écrire {path}, hors de l’espace de travail de l’agent, du dossier partagé et des dossiers temporaires.",
   "status.agent.contextCleared": "Contexte effacé. Une nouvelle discussion commence ici.",

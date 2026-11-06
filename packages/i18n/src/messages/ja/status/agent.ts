@@ -2,6 +2,20 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/agent";
 
 export const messages = {
+  "status.agent.dryRunPreview":
+    "ドライラン、まだ実行していません: {action}（{tool}）。引数: {summary}。実行する前に、OpenBot で人が承認する必要があります。",
+  "status.agent.dryRunPostMessage": "外部のチャットにメッセージを投稿する",
+  "status.agent.dryRunForgetExternalMemory": "外部のチャットの記憶を削除する",
+  "status.agent.dryRunForgetMemory": "エージェントの記憶を削除する",
+  "status.agent.dryRunUninstallSkill": "スキルをアンインストールする",
+  "status.agent.dryRunDeleteRoutine": "ルーティンを削除する",
+  "status.agent.dryRunNoArguments": "なし",
+  "status.agent.dryRunArgument": "{name}は{value}",
+  "status.agent.dryRunTextValue": { one: "テキスト、{count} 文字", other: "テキスト、{count} 文字" },
+  "status.agent.dryRunListValue": { one: "リスト、{count} 件", other: "リスト、{count} 件" },
+  "status.agent.dryRunObjectValue": { one: "オブジェクト、{count} 項目", other: "オブジェクト、{count} 項目" },
+  "status.agent.dryRunEmptyValue": "空",
+  "status.agent.dryRunOtherValue": "値",
   "status.agent.claudeWriteOutside":
     "{path} に書き込みます。これはエージェントのワークスペース、共有フォルダー、一時フォルダーの外です。",
   "status.agent.contextCleared": "コンテキストを消去しました。ここから新しいチャットが始まります。",

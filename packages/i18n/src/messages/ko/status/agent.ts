@@ -2,6 +2,20 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/agent";
 
 export const messages = {
+  "status.agent.dryRunPreview":
+    "드라이런, 아직 실행하지 않았어요: {action} ({tool}). 인수: {summary}. 실행하기 전에 OpenBot에서 사람이 승인해야 해요.",
+  "status.agent.dryRunPostMessage": "외부 채팅에 메시지 게시",
+  "status.agent.dryRunForgetExternalMemory": "외부 채팅의 메모리 삭제",
+  "status.agent.dryRunForgetMemory": "에이전트 메모리 삭제",
+  "status.agent.dryRunUninstallSkill": "스킬 제거",
+  "status.agent.dryRunDeleteRoutine": "루틴 삭제",
+  "status.agent.dryRunNoArguments": "없음",
+  "status.agent.dryRunArgument": "{name}: {value}",
+  "status.agent.dryRunTextValue": { one: "텍스트, {count}자", other: "텍스트, {count}자" },
+  "status.agent.dryRunListValue": { one: "목록, {count}개", other: "목록, {count}개" },
+  "status.agent.dryRunObjectValue": { one: "객체, {count}개 필드", other: "객체, {count}개 필드" },
+  "status.agent.dryRunEmptyValue": "비어 있음",
+  "status.agent.dryRunOtherValue": "값",
   "status.agent.claudeWriteOutside": "에이전트의 워크스페이스, 공유 폴더, 임시 폴더 밖에 있는 {path}에 써요.",
   "status.agent.contextCleared": "컨텍스트를 지웠어요. 여기서 새 채팅이 시작돼요.",
   "status.agent.instructionsChanged": "지침을 업데이트했어요",

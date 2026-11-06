@@ -2,6 +2,20 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/agent";
 
 export const messages = {
+  "status.agent.dryRunPreview":
+    "试运行，尚未执行：{action}（{tool}）。参数：{summary}。执行前需要有人在 OpenBot 中批准。",
+  "status.agent.dryRunPostMessage": "向外部聊天发布消息",
+  "status.agent.dryRunForgetExternalMemory": "删除外部聊天的一条记忆",
+  "status.agent.dryRunForgetMemory": "删除一条智能体记忆",
+  "status.agent.dryRunUninstallSkill": "卸载一项技能",
+  "status.agent.dryRunDeleteRoutine": "删除一个例程",
+  "status.agent.dryRunNoArguments": "无",
+  "status.agent.dryRunArgument": "{name}是{value}",
+  "status.agent.dryRunTextValue": { one: "文本，{count} 个字符", other: "文本，{count} 个字符" },
+  "status.agent.dryRunListValue": { one: "列表，{count} 项", other: "列表，{count} 项" },
+  "status.agent.dryRunObjectValue": { one: "对象，{count} 个字段", other: "对象，{count} 个字段" },
+  "status.agent.dryRunEmptyValue": "空",
+  "status.agent.dryRunOtherValue": "值",
   "status.agent.claudeWriteOutside": "写入 {path}，位置在助手工作区、共享文件夹和临时文件夹之外。",
   "status.agent.contextCleared": "上下文已清空，将从这里开始新对话。",
   "status.agent.instructionsChanged": "更新了它的指令",

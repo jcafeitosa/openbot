@@ -1,6 +1,20 @@
 import { defineMessages } from "../../../message";
 
 export const messages = defineMessages("status.agent", {
+  "status.agent.dryRunPreview":
+    "Dry run, not run yet: {action} ({tool}). Arguments: {summary}. A person must approve it in OpenBot before it runs.",
+  "status.agent.dryRunPostMessage": "Post a message to an external chat",
+  "status.agent.dryRunForgetExternalMemory": "Delete a memory of an external chat",
+  "status.agent.dryRunForgetMemory": "Delete an agent memory",
+  "status.agent.dryRunUninstallSkill": "Uninstall a skill",
+  "status.agent.dryRunDeleteRoutine": "Delete a routine",
+  "status.agent.dryRunNoArguments": "none",
+  "status.agent.dryRunArgument": "{name} | {value}",
+  "status.agent.dryRunTextValue": { one: "text, {count} character", other: "text, {count} characters" },
+  "status.agent.dryRunListValue": { one: "list, {count} item", other: "list, {count} items" },
+  "status.agent.dryRunObjectValue": { one: "object, {count} field", other: "object, {count} fields" },
+  "status.agent.dryRunEmptyValue": "empty",
+  "status.agent.dryRunOtherValue": "value",
   "status.agent.claudeWriteOutside":
     "Write {path}, outside the agent's workspace, the shared folder and the temporary folders.",
   "status.agent.contextCleared": "Context cleared. A new chat starts here.",

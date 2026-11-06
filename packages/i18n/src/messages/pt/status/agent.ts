@@ -2,6 +2,20 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/agent";
 
 export const messages = {
+  "status.agent.dryRunPreview":
+    "Simulação, ainda não executada: {action} ({tool}). Argumentos: {summary}. Uma pessoa precisa aprovar no OpenBot antes de executar.",
+  "status.agent.dryRunPostMessage": "Publicar uma mensagem em um chat externo",
+  "status.agent.dryRunForgetExternalMemory": "Excluir uma memória de um chat externo",
+  "status.agent.dryRunForgetMemory": "Excluir uma memória do agente",
+  "status.agent.dryRunUninstallSkill": "Desinstalar uma habilidade",
+  "status.agent.dryRunDeleteRoutine": "Excluir uma rotina",
+  "status.agent.dryRunNoArguments": "nenhum",
+  "status.agent.dryRunArgument": "{name} é {value}",
+  "status.agent.dryRunTextValue": { one: "texto, {count} caractere", other: "texto, {count} caracteres" },
+  "status.agent.dryRunListValue": { one: "lista, {count} item", other: "lista, {count} itens" },
+  "status.agent.dryRunObjectValue": { one: "objeto, {count} campo", other: "objeto, {count} campos" },
+  "status.agent.dryRunEmptyValue": "vazio",
+  "status.agent.dryRunOtherValue": "valor",
   "status.agent.claudeWriteOutside":
     "Gravar em {path}, fora do espaço de trabalho do agente, da pasta compartilhada e das pastas temporárias.",
   "status.agent.contextCleared": "Contexto limpo. Um novo chat começa aqui.",

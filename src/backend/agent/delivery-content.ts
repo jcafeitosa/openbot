@@ -14,6 +14,7 @@ import { redactText } from "@openbot/logging";
 import { wokenWaitsPromptText } from "../agent-waits/agent-waits";
 import { homeSkillRoot, homeSkillTagSlug } from "../home-skills";
 import type { DeliveryContext } from "../mailbox-store";
+import { exactToolGuidance } from "./exact-tool-policy";
 import { quietRoutineRun, ROUTINE_NO_UPDATE_TOOL, ROUTINE_REPORT_FAILURE_TOOL } from "./routine-quiet-runs";
 import type { RecurringFailure } from "./turn-ledger";
 
@@ -428,8 +429,16 @@ export function combinedPromptInput(
   const [only] = inputs;
   // The note is its own text item, after the messages. A teammate prompt is read from its start to its
   // end, so the note cannot sit inside the combined text.
-  const note: DeliveryInputItem[] =
-    recurrence === null ? [] : [{ type: "text", text: recurringFailureNote(recurrence) }];
+  const exact = exactToolGuidance(
+    inputs
+      .flat()
+      .flatMap((item) => (item.type === "text" ? [item.text] : []))
+      .join("\n"),
+  );
+  const note: DeliveryInputItem[] = [
+    ...(exact === null ? [] : [{ type: "text" as const, text: exact }]),
+    ...(recurrence === null ? [] : [{ type: "text" as const, text: recurringFailureNote(recurrence) }]),
+  ];
   if (inputs.length === 1 && only && unanswered.length === 0) return [...only, ...note];
   const texts = inputs.flatMap((items) => items.flatMap((item) => (item.type === "text" ? [item.text] : [])));
   const names = unanswered.map((agentId) => agentNames.get(agentId) ?? agentId);

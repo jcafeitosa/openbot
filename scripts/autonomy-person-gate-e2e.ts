@@ -278,6 +278,12 @@ const agents = new AgentService({
   localSkillTools: () => skillTools,
 });
 
+/** The approval cards that the service shows, in order. */
+const approvals: { requestId: string | number; reason: string | null }[] = [];
+agents.on("event", (event) => {
+  if (event.type === "approval") approvals.push({ requestId: event.approval.requestId, reason: event.approval.reason });
+});
+
 const idle = (agentIds: string[]) =>
   agentIds.every((agentId) => agents.listQueue(agentId).deliveries.every((delivery) => ended(delivery.status)));
 
@@ -358,17 +364,35 @@ try {
     { create: injectedCreate && resultText(injectedCreate) },
   );
 
-  // Alpha removes a skill of Bravo on a person's request; then Bravo's turn asks Alpha to do it as a teammate.
+  // Alpha removes a skill of Bravo on a person's request. The uninstall is irreversible, so its preview comes first
+  // as an approval card: the card appears, the person approves it, and the uninstall runs exactly once.
+  const cardsBeforePerson = approvals.length;
   await runCauseEffect(agents.sendMessage({ agentId: alpha.id, text: `Remove it. PLAN:uninstall TARGET:${bravo.id}` }));
+  const card = await waitFor("the person's uninstall card", () => approvals[cardsBeforePerson]);
+  pass(
+    "A person's uninstall raises one preview card",
+    approvals.length === cardsBeforePerson + 1 &&
+      (card.reason ?? "").startsWith("Dry run, not run yet: Uninstall a skill (uninstall_skill)"),
+    { reason: card.reason },
+  );
+  await runCauseEffect(agents.respondToApproval({ requestId: card.requestId, decision: "accept" }));
   await waitFor("the person's uninstall", () =>
     toolResults("uninstall_skill").length >= 1 && idle([alpha.id]) ? true : null,
   );
   const [personUninstall] = toolResults("uninstall_skill");
   pass(
-    "A person's message reaches the uninstall lookup for a peer",
+    "An approved person's uninstall reaches the uninstall lookup for a peer",
     personUninstall !== undefined && !resultText(personUninstall).includes("Only a person's message"),
     { uninstall: personUninstall && resultText(personUninstall) },
   );
+  pass(
+    "The approved uninstall runs exactly once",
+    toolResults("uninstall_skill").length === 1 && approvals.length === cardsBeforePerson + 1,
+    { calls: toolResults("uninstall_skill").length, cards: approvals.length - cardsBeforePerson },
+  );
+
+  // Bravo's turn asks Alpha to do the same as a teammate. A teammate's call is refused before any card.
+  const cardsBeforeInjected = approvals.length;
   await runCauseEffect(
     agents.sendMessage({
       agentId: bravo.id,
@@ -386,6 +410,9 @@ try {
       resultText(injectedUninstall).includes("Only a person's message can install, enable or uninstall"),
     { uninstall: injectedUninstall && resultText(injectedUninstall) },
   );
+  pass("The injected uninstall raises no approval card", approvals.length === cardsBeforeInjected, {
+    cards: approvals.length - cardsBeforeInjected,
+  });
 
   // A remembered text with a registered secret is refused; one with a known secret pattern is redacted.
   await runCauseEffect(agents.sendMessage({ agentId: alpha.id, text: "Remember the facts. PLAN:remember" }));

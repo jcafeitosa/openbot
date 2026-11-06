@@ -2,6 +2,20 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/agent";
 
 export const messages = {
+  "status.agent.dryRunPreview":
+    "Пробный запуск, ещё не выполнено: {action} ({tool}). Аргументы: {summary}. Человек должен одобрить это в OpenBot до выполнения.",
+  "status.agent.dryRunPostMessage": "Опубликовать сообщение во внешнем чате",
+  "status.agent.dryRunForgetExternalMemory": "Удалить память внешнего чата",
+  "status.agent.dryRunForgetMemory": "Удалить память агента",
+  "status.agent.dryRunUninstallSkill": "Удалить навык",
+  "status.agent.dryRunDeleteRoutine": "Удалить регулярную задачу",
+  "status.agent.dryRunNoArguments": "нет",
+  "status.agent.dryRunArgument": "{name} — {value}",
+  "status.agent.dryRunTextValue": { one: "текст, {count} симв.", other: "текст, {count} симв." },
+  "status.agent.dryRunListValue": { one: "список, {count} эл.", other: "список, {count} эл." },
+  "status.agent.dryRunObjectValue": { one: "объект, {count} пол.", other: "объект, {count} пол." },
+  "status.agent.dryRunEmptyValue": "пусто",
+  "status.agent.dryRunOtherValue": "значение",
   "status.agent.claudeWriteOutside":
     "Запись в {path} — за пределами рабочего пространства агента, общей папки и временных папок.",
   "status.agent.contextCleared": "Контекст очищен. Здесь начинается новый чат.",

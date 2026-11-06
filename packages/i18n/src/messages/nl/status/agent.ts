@@ -2,6 +2,20 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/agent";
 
 export const messages = {
+  "status.agent.dryRunPreview":
+    "Proefrun, nog niet uitgevoerd: {action} ({tool}). Argumenten: {summary}. Een persoon moet dit in OpenBot goedkeuren voordat het wordt uitgevoerd.",
+  "status.agent.dryRunPostMessage": "Een bericht plaatsen in een externe chat",
+  "status.agent.dryRunForgetExternalMemory": "Een geheugen van een externe chat verwijderen",
+  "status.agent.dryRunForgetMemory": "Een geheugen van de agent verwijderen",
+  "status.agent.dryRunUninstallSkill": "Een vaardigheid verwijderen",
+  "status.agent.dryRunDeleteRoutine": "Een routine verwijderen",
+  "status.agent.dryRunNoArguments": "geen",
+  "status.agent.dryRunArgument": "{name} is {value}",
+  "status.agent.dryRunTextValue": { one: "tekst, {count} teken", other: "tekst, {count} tekens" },
+  "status.agent.dryRunListValue": { one: "lijst, {count} item", other: "lijst, {count} items" },
+  "status.agent.dryRunObjectValue": { one: "object, {count} veld", other: "object, {count} velden" },
+  "status.agent.dryRunEmptyValue": "leeg",
+  "status.agent.dryRunOtherValue": "waarde",
   "status.agent.claudeWriteOutside":
     "{path} schrijven, buiten de werkruimte van de agent, de gedeelde map en de tijdelijke mappen.",
   "status.agent.contextCleared": "Context gewist. Hier begint een nieuwe chat.",
