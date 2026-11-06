@@ -3804,7 +3804,16 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   readonly initialize = Effect.fn("AgentService.initialize")(function* (
     this: AgentService,
-    options: { heldRoutines?: RoutineHoldWindow | undefined } = {},
+    options: {
+      heldRoutines?: RoutineHoldWindow | undefined;
+      /** Completes when the saved agents are loaded, before any provider CLI starts. */
+      rosterLoaded?: Effect.Effect<void> | undefined;
+      /**
+       * Starts only the providers saved agents use. `startUnassignedProviders` starts the others
+       * after the workspace is ready.
+       */
+      deferUnassignedProviders?: boolean | undefined;
+    } = {},
   ) {
     this.#stopping = false;
     yield* this.#store
@@ -3841,8 +3850,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#initialized = true;
       this.#memoryHold.start();
     });
+    if (options.rosterLoaded) yield* options.rosterLoaded;
+    const assigned = options.deferUnassignedProviders
+      ? [...new Set(this.#store.list().map((agent) => providerForAgent(agent)))]
+      : undefined;
     yield* this.#providers
-      .start()
+      .start(assigned)
       .pipe(Effect.mapError((error) => new AgentLifecycleFailed({ operation: "start providers", cause: error.cause })));
     yield* lifecycleStep("publish queues", () => {
       for (const agent of this.#store.list()) this.#mailboxSync.emitQueue(agent.id);
@@ -3865,6 +3878,19 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#channelRoutines.reconcileAll();
       this.#routineTimer.arm();
     });
+  }).bind(this);
+
+  /** Starts the built-in providers that initialization left until the workspace was ready. */
+  readonly startUnassignedProviders = Effect.fn("AgentService.startUnassignedProviders")(function* (
+    this: AgentService,
+  ) {
+    yield* this.#providers
+      .startUnassignedProviders()
+      .pipe(
+        Effect.mapError(
+          (error) => new AgentLifecycleFailed({ operation: "start unassigned providers", cause: error.cause }),
+        ),
+      );
   }).bind(this);
 
   setPreferredProvider(

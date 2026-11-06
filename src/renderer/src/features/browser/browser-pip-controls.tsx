@@ -4,7 +4,7 @@ import { render } from "@solidjs/web";
 import { createSignal } from "solid-js";
 import "../../styles.css";
 import { syncAppearance } from "../../appearance-choice";
-import { I18nProvider } from "../../i18n-context";
+import { I18nProvider, preloadInterfaceLocale } from "../../i18n-context";
 import { browserPort } from "./browser-port";
 
 /**
@@ -51,6 +51,7 @@ function BrowserPictureInPictureControls() {
 const root = document.getElementById("root");
 if (!root) throw new Error("Browser Picture in Picture controls root was not found.");
 syncAppearance();
+preloadInterfaceLocale();
 render(
   () => (
     <I18nProvider>

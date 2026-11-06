@@ -70,6 +70,10 @@ export const WorkflowsPage = lazy(() =>
 export const ScheduleView = lazy(() =>
   import("./features/schedule/SchedulePanel").then((module) => ({ default: module.ScheduleView })),
 );
+/** The desktop schedule page. It shares the chunk of `ScheduleView`. */
+export const SchedulePanel = lazy(() =>
+  import("./features/schedule/SchedulePanel").then((module) => ({ default: module.SchedulePanel })),
+);
 export const TasksView = lazy(() =>
   import("./features/tasks/TasksView").then((module) => ({ default: module.TasksView })),
 );

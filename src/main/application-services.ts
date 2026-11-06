@@ -3136,6 +3136,11 @@ export async function createApplicationServices({
         appVersion: app.getVersion(),
         server: hostedServer !== null || serverModeEnvironment !== null,
         send: (properties) => analytics.handleStartup(properties),
+        onWorkspaceReady: () => {
+          void runCauseEffect(service.startUnassignedProviders()).catch((error) =>
+            logger.warn("Unable to start the remaining providers.", toLogValue(error)),
+          );
+        },
       });
   if (startup) {
     // Not awaited: the summary goes much later, and a start not read by then gives `unknown`.
@@ -3545,7 +3550,13 @@ export async function createApplicationServices({
   const agentInitialization = new AgentInitializationGate((rosterLoaded) =>
     Effect.gen(function* () {
       yield* Fiber.join(computerUseWarmUp);
-      yield* service.initialize({ heldRoutines: takeRoutineHold(routineHoldFile, (message) => logger.warn(message)) });
+      yield* service.initialize({
+        heldRoutines: takeRoutineHold(routineHoldFile, (message) => logger.warn(message)),
+        rosterLoaded,
+        // A completed setup opens the workspace, which starts the other providers. A first run and a
+        // process with no window still start every provider after the roster is ready.
+        deferUnassignedProviders: setupState.completed && startup !== null,
+      });
       // A client's agent list waits only until here. The steps below do not change the roster.
       yield* rosterLoaded;
       yield* eventsRuntime.start();

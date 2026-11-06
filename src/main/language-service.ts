@@ -1,5 +1,5 @@
 import { type AppLanguagePreference, DEFAULT_APP_LANGUAGE } from "@openbot/contracts/ipc";
-import { type AppTranslate, resolveLocale, type TranslatedLocale, translateFor } from "@openbot/i18n";
+import { type AppTranslate, loadLocale, resolveLocale, type TranslatedLocale, translateFor } from "@openbot/i18n";
 import { Effect, Semaphore } from "effect";
 import { readLanguagePreference, writeLanguagePreference } from "./language-preference-store";
 import type { PreferenceFileFailure } from "./preference-file";
@@ -48,7 +48,10 @@ export class LanguageService {
   /** Read the saved preference. Called once at startup, before the first window opens. */
   load(): Effect.Effect<AppLanguagePreference, PreferenceFileFailure> {
     return Effect.gen({ self: this }, function* () {
-      this.#apply(yield* readLanguagePreference(this.#path));
+      const preference = yield* readLanguagePreference(this.#path);
+      // A missing catalog must not stop the start. The menu then uses English.
+      yield* this.#catalogs(resolveLocale(preference.language, this.#systemLocale));
+      this.#apply(preference);
       return this.preference;
     });
   }
@@ -67,6 +70,9 @@ export class LanguageService {
 
   #write(preference: AppLanguagePreference): Effect.Effect<AppLanguagePreference, PreferenceFileFailure> {
     return Effect.gen({ self: this }, function* () {
+      const locale = resolveLocale(preference.language, this.#systemLocale);
+      // The screen keeps the previous language when the catalog does not load.
+      if (!(yield* this.#catalogs(locale))) return this.preference;
       const saved = yield* writeLanguagePreference(this.#path, preference);
       this.#apply(saved);
       for (const listener of this.#listeners) listener(this.preference);
@@ -84,5 +90,18 @@ export class LanguageService {
   #apply(preference: AppLanguagePreference): void {
     this.#preference = preference;
     this.#translate = translateFor(this.locale);
+  }
+
+  /**
+   * Loads `locale` before a menu, a dialog or a notification reads it.
+   * English is already in the process. A failed load returns false.
+   */
+  #catalogs(locale: TranslatedLocale): Effect.Effect<boolean> {
+    return Effect.promise(() =>
+      loadLocale(locale).then(
+        () => true,
+        () => false,
+      ),
+    );
   }
 }

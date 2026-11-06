@@ -1,15 +1,15 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { access, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import { agentProviderName, type KeyOnlyProviderId } from "@openbot/contracts/agent-providers";
+import { agentProviderName, KEY_ONLY_PROVIDERS, type KeyOnlyProviderId } from "@openbot/contracts/agent-providers";
 import { type DynamicRecord, isBoolean, isString } from "@openbot/contracts/runtime-values";
 import { sourceText } from "@openbot/i18n/source";
 import { createOpenBotLogger, type LogValue, redactText } from "@openbot/logging";
 import { type CauseCode, classifyFailure, httpStatusCause, structuredCause } from "@openbot/telemetry";
-import { Cause, Effect, Exit, Option, Schema, Scope, Semaphore } from "effect";
+import { Cause, Deferred, Effect, Exit, Option, Schema, Scope, Semaphore } from "effect";
 import { secretElicitationField } from "./agent/prompts";
 import { waitForSuccessfulProcess } from "./agent/provider-status";
 import { type AgentClient, type DiagnosticOrigin, MissingPiSessionError, RequestTimeoutError } from "./agent-client";
@@ -30,7 +30,7 @@ import {
   usableMcpServers,
 } from "./mcp-provider-shapes";
 import { mcpSecretValues, redactMcpRecord, redactMcpValues } from "./mcp-redaction";
-import type { CustomProviderSource } from "./opencode-config";
+import type { CustomProviderConfig, CustomProviderSource } from "./opencode-config";
 import { PendingServerRequests } from "./pending-server-requests";
 import { createPiCustomEndpointExtension } from "./pi-custom-endpoints";
 import { createPiKeyExtension } from "./pi-key-providers";
@@ -130,6 +130,11 @@ export interface PiProviderOptions {
   keyProvider?: { id: KeyOnlyProviderId; apiKey: () => string | null };
   /** The custom endpoints that run on Pi, read at each spawn. Only for the main `pi` client. */
   customEndpoints?: CustomProviderSource;
+  /**
+   * The keys and custom endpoints of every Pi-backed provider. When set, and when the process is not
+   * confined, those providers share one catalog process. A confined client keeps its own process.
+   */
+  sharedCatalog?: () => PiCatalogShare;
   providerStateDirectory?: string;
   profileGeneration?: boolean;
   mcpServers?: McpServerSource;
@@ -187,6 +192,90 @@ interface ClientEvents {
   request: [AppServerRequest];
   exit: [Error];
   diagnostic: [string, DiagnosticOrigin?];
+}
+
+/** Keys and custom endpoints that one shared Pi catalog process registers. */
+interface PiCatalogShare {
+  readonly keys: Partial<Record<KeyOnlyProviderId, string>>;
+  readonly endpoints: readonly CustomProviderConfig[];
+}
+
+interface PiListedModel {
+  readonly provider: string;
+  readonly id: string;
+  readonly displayName: string;
+  readonly defaultReasoningEffort?: string;
+  readonly supportedReasoningEfforts: readonly { readonly reasoningEffort: string }[];
+  readonly reasoningEffortConfigurable: boolean;
+}
+
+interface SharedPiFlight<A> {
+  readonly key: string;
+  readonly deferred: Deferred.Deferred<A, ProviderClientOperationError>;
+}
+
+/** Same executable, mode, keys and endpoints share one process. The key is a hash, so a key stays out of it. */
+function piCatalogFlightKey(executable: string, mode: "presence" | "full" | "refresh", share: PiCatalogShare): string {
+  const hash = createHash("sha256");
+  hash.update(executable);
+  hash.update("\0");
+  hash.update(mode);
+  for (const id of KEY_ONLY_PROVIDERS) {
+    hash.update("\0");
+    hash.update(id);
+    hash.update("\0");
+    hash.update(share.keys[id] ?? "");
+  }
+  for (const endpoint of share.endpoints) {
+    hash.update("\0");
+    hash.update(endpoint.id);
+    hash.update("\0");
+    hash.update(endpoint.baseUrl);
+    hash.update("\0");
+    hash.update(endpoint.apiKey ?? "");
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * The first caller runs `read`. Later callers with the same key wait for that result.
+ * The flight is cleared before the result is published, so a later list starts a new process.
+ */
+function catalogFlight<A>(): (
+  key: string,
+  read: Effect.Effect<A, ProviderClientOperationError>,
+) => Effect.Effect<A, ProviderClientOperationError> {
+  let current: SharedPiFlight<A> | null = null;
+  return (key, read) =>
+    Effect.gen(function* () {
+      const existing = current;
+      if (existing?.key === key) return yield* Deferred.await(existing.deferred);
+      const deferred = Deferred.makeUnsafe<A, ProviderClientOperationError>();
+      const flight: SharedPiFlight<A> = { key, deferred };
+      current = flight;
+      const exit = yield* Effect.uninterruptible(Effect.exit(read));
+      if (current === flight) current = null;
+      yield* Deferred.done(deferred, exit);
+      if (Exit.isFailure(exit)) return yield* Effect.failCause(exit.cause);
+      return exit.value;
+    });
+}
+
+/** A presence read and a full read do not share a process. A refresh has its own flight too. */
+const shareCatalogPresence = catalogFlight<readonly PiListedModel[]>();
+const shareCatalogFull = catalogFlight<readonly PiListedModel[]>();
+const shareCatalogRefresh = catalogFlight<void>();
+
+/** The variables `pi update --models` reads. A provider with no variable, such as Inception, is skipped. */
+function catalogRefreshEnvironment(keys: Partial<Record<KeyOnlyProviderId, string>>): Record<string, string> {
+  const environment: Record<string, string> = {};
+  for (const id of KEY_ONLY_PROVIDERS) {
+    const variable = PI_CATALOG_KEY_VARIABLES[id];
+    const key = keys[id];
+    if (!variable || !key) continue;
+    environment[variable] = key;
+  }
+  return environment;
 }
 
 /** Owns Pi's native sessions. The database owns OpenBot history and agent identity. */
@@ -316,7 +405,7 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
         response = { marketplaces: [] };
         break;
       case "account/read": {
-        const models = yield* this.#models(timeoutMs);
+        const models = yield* this.#models(timeoutMs, false);
         response = { account: models.length ? { type: this.provider, email: null } : null, requiresOpenaiAuth: false };
         break;
       }
@@ -389,10 +478,24 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
     return yield* providerSync(() => decoder(response));
   });
 
-  readonly #models = Effect.fn("PiAgentClient.models")(function* (this: PiAgentClient, timeoutMs?: number) {
+  readonly #models = Effect.fn("PiAgentClient.models")(function* (
+    this: PiAgentClient,
+    timeoutMs?: number,
+    full = true,
+  ) {
     // With no key a key-only provider has no models, and Pi need not start.
     const keyProvider = this.options.keyProvider;
     if (keyProvider && !keyProvider.apiKey()) return [];
+    if (this.options.sharedCatalog && !this.options.confine) {
+      const share = this.options.sharedCatalog();
+      const mode = full ? "full" : "presence";
+      const shareRead = full ? shareCatalogFull : shareCatalogPresence;
+      const listed = yield* shareRead(
+        piCatalogFlightKey(this.cli.executable, mode, share),
+        this.#readSharedModels(share, timeoutMs, full),
+      );
+      return this.#publishCatalog(listed);
+    }
     const rpc = new PiRpc(this.#redact, this.provider);
     rpc.on("diagnostic", (text) => this.emit("diagnostic", text));
     rpc.on("record", (record) => {
@@ -428,7 +531,8 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
             if (!provider || !id || (keyProvider && provider !== keyProvider.id)) continue;
             const reasoning = isRecord(model) && model.reasoning === true;
             let levels: string[] = [];
-            if (reasoning) {
+            // A presence read only needs the model count. The full list still reads each thinking level.
+            if (full && reasoning) {
               yield* connection.request({ type: "set_model", provider, modelId: id }, timeoutMs);
               const advertised = yield* connection.request({ type: "get_available_thinking_levels" }, timeoutMs);
               levels = getArray(advertised, "levels")
@@ -472,6 +576,14 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
    */
   readonly #refreshCatalog = Effect.fn("PiAgentClient.refreshCatalog")(function* (this: PiAgentClient) {
     const keyProvider = this.options.keyProvider;
+    if (this.options.sharedCatalog && !this.options.confine) {
+      if (keyProvider && !keyProvider.apiKey()) return;
+      const share = this.options.sharedCatalog();
+      return yield* shareCatalogRefresh(
+        piCatalogFlightKey(this.cli.executable, "refresh", share),
+        this.#runCatalogRefresh(catalogRefreshEnvironment(share.keys)),
+      );
+    }
     const environment: Record<string, string> = {};
     if (keyProvider) {
       const variable = PI_CATALOG_KEY_VARIABLES[keyProvider.id];
@@ -479,6 +591,14 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
       if (!variable || !key) return;
       environment[variable] = key;
     }
+    yield* this.#runCatalogRefresh(environment);
+  });
+
+  /** Runs `pi update --models` with the given key variables. A failure leaves the saved catalog. */
+  readonly #runCatalogRefresh = Effect.fn("PiAgentClient.runCatalogRefresh")(function* (
+    this: PiAgentClient,
+    environment: Record<string, string>,
+  ) {
     const target = cliSpawnTarget(this.cli.executable, ["update", "--models"]);
     const env = { ...process.env, ...cliPathEnvironment(this.cli), ...this.options.extraEnv?.(), ...environment };
     yield* Effect.scoped(
@@ -510,6 +630,137 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
       ),
     );
   });
+
+  /** Lists models from one Pi process that carries every Pi-backed provider's key and endpoint. */
+  readonly #readSharedModels = Effect.fn("PiAgentClient.readSharedModels")(function* (
+    this: PiAgentClient,
+    share: PiCatalogShare,
+    timeoutMs: number | undefined,
+    full: boolean,
+  ) {
+    const secretValues = new Set(this.#secretValues());
+    const redact = (value: string) => redactMcpValues(redactText(value), [...secretValues]);
+    const rpc = new PiRpc(redact, "pi");
+    rpc.on("diagnostic", (text) => this.emit("diagnostic", text));
+    rpc.on("record", (record) => {
+      if (
+        record.type === "extension_ui_request" &&
+        isString(record.id) &&
+        ["confirm", "select", "input", "editor"].includes(String(record.method))
+      )
+        rpc.send({ type: "extension_ui_response", id: record.id, cancelled: true });
+    });
+    return yield* Effect.acquireUseRelease(
+      Effect.gen({ self: this }, function* () {
+        const extensions = yield* this.#sharedExtensions(share);
+        for (const extension of extensions) {
+          for (const secret of extension.secrets) {
+            secretValues.add(secret);
+            secretValues.add(JSON.stringify(secret).slice(1, -1));
+          }
+        }
+        yield* providerSync(() =>
+          this.#spawn(
+            rpc,
+            this.options.discoveryCwd?.() ?? process.cwd(),
+            ["--no-session", "--no-tools", ...extensions.flatMap((extension) => ["--extension", extension.path])],
+            Object.assign({}, ...extensions.map((extension) => extension.environment)),
+          ),
+        ).pipe(
+          Effect.onError(() =>
+            Effect.forEach(extensions, (extension) => extension.close(), { discard: true }).pipe(Effect.orDie),
+          ),
+        );
+        return extensions;
+      }),
+      () => this.#collectCatalog(rpc, timeoutMs, full),
+      (extensions) =>
+        rpc
+          .stop()
+          .pipe(
+            Effect.ensuring(
+              Effect.forEach(extensions, (extension) => extension.close(), { discard: true }).pipe(Effect.orDie),
+            ),
+            Effect.orDie,
+          ),
+    );
+  });
+
+  readonly #sharedExtensions = Effect.fn("PiAgentClient.sharedExtensions")(function* (
+    this: PiAgentClient,
+    share: PiCatalogShare,
+  ) {
+    const directory = this.options.providerStateDirectory;
+    const extensions: PiMcpExtension[] = [];
+    for (const id of KEY_ONLY_PROVIDERS) {
+      const key = share.keys[id];
+      if (!key) continue;
+      extensions.push(yield* createPiKeyExtension(id, key, directory));
+    }
+    const endpoints = yield* createPiCustomEndpointExtension(share.endpoints, directory);
+    if (endpoints) extensions.push(endpoints);
+    return extensions;
+  });
+
+  readonly #collectCatalog = Effect.fn("PiAgentClient.collectCatalog")(function* (
+    this: PiAgentClient,
+    connection: PiRpc,
+    timeoutMs: number | undefined,
+    full: boolean,
+  ) {
+    const state = yield* connection.request({ type: "get_state" }, timeoutMs);
+    const listed = yield* connection.request({ type: "get_available_models" }, timeoutMs);
+    const models: PiListedModel[] = [];
+    for (const model of getArray(listed, "models")) {
+      const provider = getString(model, "provider");
+      const id = getString(model, "id");
+      if (!provider || !id) continue;
+      const reasoning = isRecord(model) && model.reasoning === true;
+      let levels: string[] = [];
+      if (full && reasoning) {
+        yield* connection.request({ type: "set_model", provider, modelId: id }, timeoutMs);
+        const advertised = yield* connection.request({ type: "get_available_thinking_levels" }, timeoutMs);
+        levels = getArray(advertised, "levels")
+          .filter(isString)
+          .map((level) => (level === "off" ? "none" : level));
+      }
+      const thinkingLevel = getString(state, "thinkingLevel");
+      const preferred = thinkingLevel === "off" ? "none" : thinkingLevel;
+      const defaultLevel = preferred && levels.includes(preferred) ? preferred : levels[0];
+      models.push({
+        provider,
+        id,
+        displayName: getString(model, "name") ?? id,
+        ...(defaultLevel === undefined ? {} : { defaultReasoningEffort: defaultLevel }),
+        supportedReasoningEfforts: levels.map((reasoningEffort) => ({ reasoningEffort })),
+        reasoningEffortConfigurable: levels.length > 0,
+      });
+    }
+    return models;
+  });
+
+  /** Keeps the model ids each provider already published. A key-only provider keeps only its own models. */
+  #publishCatalog(models: readonly PiListedModel[]) {
+    const keyProvider = this.options.keyProvider;
+    return models.flatMap((model) => {
+      if (keyProvider && model.provider !== keyProvider.id) return [];
+      return [
+        {
+          // Pi takes any id, and Cloudflare Workers AI ids such as `@cf/moonshotai/kimi-k2.6`
+          // have an `@` that the contract charset refuses (#5079).
+          model: encodedModelId(keyProvider ? "" : `${model.provider}/`, model.id),
+          displayName: model.displayName,
+          ...(model.defaultReasoningEffort === undefined
+            ? {}
+            : { defaultReasoningEffort: model.defaultReasoningEffort }),
+          supportedReasoningEfforts: model.supportedReasoningEfforts.map((level) => ({
+            reasoningEffort: level.reasoningEffort,
+          })),
+          reasoningEffortConfigurable: model.reasoningEffortConfigurable,
+        },
+      ];
+    });
+  }
 
   /** The extension that gives a key-only provider its key, or that registers the custom endpoints of `pi`. */
   readonly #keyExtension = Effect.fn("PiAgentClient.keyExtension")(function* (this: PiAgentClient) {

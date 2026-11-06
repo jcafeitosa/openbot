@@ -5,7 +5,7 @@ import { render } from "@solidjs/web";
 import { createSignal, onCleanup, onSettled, Show } from "solid-js";
 import "../../styles.css";
 import { syncAppearance } from "../../appearance-choice";
-import { I18nProvider } from "../../i18n-context";
+import { I18nProvider, preloadInterfaceLocale } from "../../i18n-context";
 import { browserPort } from "./browser-port";
 
 /** Main opens the window on a host's tab with `view=live`: the page is drawn here, not placed over it. */
@@ -90,6 +90,7 @@ function BrowserPictureInPicture() {
 const root = document.getElementById("root");
 if (!root) throw new Error("Browser Picture in Picture root element was not found.");
 syncAppearance();
+preloadInterfaceLocale();
 render(
   () => (
     <I18nProvider>

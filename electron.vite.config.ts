@@ -1,7 +1,9 @@
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import solidPlugin from "@solidjs/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { normalizePath, type Plugin } from "vite";
 
 const rendererPort = readRendererPort(process.env.OPENBOT_DEV_RENDERER_PORT);
 
@@ -9,6 +11,7 @@ export default defineConfig({
   main: {
     // Workspace sources ship as TypeScript and must be bundled for the packaged app.
     plugins: [
+      lazyLanguageCatalogs(),
       externalizeDepsPlugin({
         exclude: [
           "@openbot/brand",
@@ -57,7 +60,7 @@ export default defineConfig({
     },
   },
   renderer: {
-    plugins: [solidPlugin(), tailwindcss({ optimize: false })],
+    plugins: [lazyLanguageCatalogs(), solidPlugin(), tailwindcss({ optimize: false })],
     optimizeDeps: {
       // bloub finds its plush images with `new URL(..., import.meta.url)`. A pre-bundle moves the
       // code away from the images, so Vite serves the package as it is.
@@ -80,6 +83,26 @@ export default defineConfig({
     },
   },
 });
+
+const I18N_SOURCE = normalizePath(fileURLToPath(new URL("./packages/i18n/src/", import.meta.url)));
+const EAGER_CATALOG_MODULES = new Set(["./app-catalogs", "./source-catalogs", "./format-catalogs", "./locale-loading"]);
+
+/**
+ * The desktop main process and the desktop renderer load English first. Each other language loads
+ * on first use. The same replacement as `apps/auth-api/vite.config.ts`.
+ */
+function lazyLanguageCatalogs(): Plugin {
+  return {
+    name: "openbot-lazy-language-catalogs",
+    enforce: "pre",
+    resolveId(source, importer) {
+      if (!importer || !EAGER_CATALOG_MODULES.has(source)) return null;
+      const from = normalizePath(importer);
+      if (!from.startsWith(I18N_SOURCE) || from.endsWith("/lazy-catalogs.ts")) return null;
+      return `${I18N_SOURCE}lazy-catalogs.ts`;
+    },
+  };
+}
 
 function readRendererPort(value: string | undefined): number | undefined {
   if (value === undefined) return undefined;

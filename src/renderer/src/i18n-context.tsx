@@ -30,9 +30,9 @@ export interface I18nValue {
 }
 
 /**
- * `requested` once its catalogs are loaded. The desktop build holds every language, so this is
- * `requested` at once. The public web build loads a language on first use and keeps the previous
- * one on the screen until then; if the load fails, the screen stays in that language.
+ * `requested` once its catalogs are loaded. English is in the first bundle. Each other language
+ * loads on first use, and the screen keeps the previous language until then. A failed load leaves
+ * the screen in that language.
  */
 function createLoadedLocale(requested: () => TranslatedLocale): () => TranslatedLocale {
   const [loads, setLoads] = createSignal(0);
@@ -200,4 +200,9 @@ export function StaticI18nProvider(
 
 export function useI18n(): I18nValue {
   return useContext(I18nContext);
+}
+
+/** Starts the catalogs of the system language before the first paint. English is already loaded. */
+export function preloadInterfaceLocale(): void {
+  void loadLocale(resolveLocale(DEFAULT_APP_LANGUAGE, navigator.language)).catch(() => undefined);
 }

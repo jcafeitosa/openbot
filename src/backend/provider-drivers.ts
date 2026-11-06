@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { type ClientSideConnection, type InitializeResponse, RequestError } from "@agentclientprotocol/sdk";
+import { KEY_ONLY_PROVIDERS } from "@openbot/contracts/agent-providers";
 import {
   type AgentAuthState,
   type AgentModelOption,
@@ -670,7 +671,17 @@ function piClient(
             return confineSpawnTarget(target, confinement, paths);
           },
         }
-      : {}),
+      : {
+          sharedCatalog: () => ({
+            keys: Object.fromEntries(
+              KEY_ONLY_PROVIDERS.flatMap((id) => {
+                const key = context.apiKey(id);
+                return key ? [[id, key] as const] : [];
+              }),
+            ),
+            endpoints: customProvidersOn(context.customProviders, "pi")(),
+          }),
+        }),
     extraEnv: () => ({ ...context.agentEnvironment?.() }),
     ...piKeyProvider(provider, context),
     ...(context.providerStateDirectory ? { providerStateDirectory: context.providerStateDirectory } : {}),

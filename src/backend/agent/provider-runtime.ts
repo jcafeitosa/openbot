@@ -151,8 +151,12 @@ const PROVIDER_IDLE_RELEASE_MS = 10 * 60_000;
  */
 const PROVIDER_UNASSIGNED_RELEASE_MS = 60_000;
 const PROVIDER_IDLE_CHECK_MS = 60_000;
-/** How often the host reads a signed-out provider's sign-in file. A read is one `stat`. */
+/**
+ * How often the host reads a signed-out provider's sign-in file while a row waits for a session.
+ * A read is one `stat`. With no waiting row the host reads about once every 20 seconds.
+ */
 const SIGN_IN_FILE_POLL_MS = 2_000;
+const SIGN_IN_FILE_IDLE_POLL_MS = 20_000;
 
 /**
  * Identifies one write of a sign-in file. The time alone is not enough: a file system with 1 s
@@ -477,6 +481,15 @@ export class ProviderRuntime implements ProviderPort {
   /** Each provider's sign-in file, and the version of it that the last account check saw. */
   readonly #signInFiles = new Map<AgentProvider, { paths: readonly string[]; seen: string }>();
   #signInCheck: NodeJS.Timeout | null = null;
+  /** True while the sign-in poll uses the short delay. `null` before the first arm. */
+  #signInPollFast: boolean | null = null;
+  /**
+   * The providers `start` connected, or `null` when `start` connected every built-in provider.
+   * `startUnassignedProviders` waits for this, then connects the rest.
+   */
+  readonly #assignedWave = Deferred.makeUnsafe<ReadonlySet<AgentProvider> | null>();
+  #unassignedProvidersStarted = false;
+  readonly #unassignedProvidersDone = Deferred.makeUnsafe<void, ProviderOperationFailed>();
   #status: AgentStatus = structuredClone(INITIAL_STATUS);
   #providerRefresh: Deferred.Deferred<AgentStatus, ProviderOperationFailed> | null = null;
   readonly #codexLogin: CodexLoginFlow;
@@ -1338,7 +1351,14 @@ export class ProviderRuntime implements ProviderPort {
     );
   }
 
-  readonly start = Effect.fn("ProviderRuntime.start")(function* (this: ProviderRuntime) {
+  /**
+   * Starts provider CLIs. With `providers`, only those CLIs start. The others wait for
+   * `startUnassignedProviders`. With no list, every built-in provider starts.
+   */
+  readonly start = Effect.fn("ProviderRuntime.start")(function* (
+    this: ProviderRuntime,
+    providers?: readonly AgentProvider[],
+  ) {
     if (this.#scope.state._tag === "Closed") this.#scope = Scope.makeUnsafe();
     this.#idleCheck ??= setInterval(
       () => Effect.runFork(this.#releaseIdleProviders().pipe(Effect.forkIn(this.#scope))),
@@ -1346,10 +1366,34 @@ export class ProviderRuntime implements ProviderPort {
     );
     this.#idleCheck.unref?.();
     this.#watchSignInFiles();
-    yield* this.#connect(
-      "starting",
-      BUILT_IN_PROVIDER_DRIVERS.map((driver) => driver.id),
+    const limited = providers !== undefined;
+    const requested = limited ? providers : BUILT_IN_PROVIDER_DRIVERS.map((driver) => driver.id);
+    const assigned = limited ? new Set(requested) : null;
+    yield* this.#connect("starting", requested).pipe(
+      Effect.ensuring(Deferred.succeed(this.#assignedWave, assigned).pipe(Effect.ignore)),
     );
+  }).bind(this);
+
+  /**
+   * Starts the built-in providers that `start` left out. A second call waits for the first.
+   * When `start` already included every provider, this does nothing.
+   */
+  readonly startUnassignedProviders = Effect.fn("ProviderRuntime.startUnassignedProviders")(function* (
+    this: ProviderRuntime,
+  ) {
+    if (this.#unassignedProvidersStarted) return yield* Deferred.await(this.#unassignedProvidersDone);
+    this.#unassignedProvidersStarted = true;
+    const exit = yield* Effect.exit(
+      Effect.gen({ self: this }, function* () {
+        const assigned = yield* Deferred.await(this.#assignedWave);
+        if (assigned === null) return;
+        const rest = BUILT_IN_PROVIDER_DRIVERS.map((driver) => driver.id).filter((id) => !assigned.has(id));
+        if (rest.length === 0) return;
+        yield* this.#connect("starting", rest);
+      }),
+    );
+    yield* Deferred.done(this.#unassignedProvidersDone, exit);
+    if (Exit.isFailure(exit)) return yield* Effect.failCause(exit.cause);
   }).bind(this);
 
   /**
@@ -1365,7 +1409,38 @@ export class ProviderRuntime implements ProviderPort {
         this.#signInFiles.set(driver.id, { paths, seen: signInFileVersion(paths) });
     }
     if (this.#signInFiles.size === 0) return;
-    this.#signInCheck ??= setInterval(() => this.#checkSignInFiles(), SIGN_IN_FILE_POLL_MS);
+    this.#armSignInPoll();
+  }
+
+  /** A waiting sign-in row, or a sign-in OpenBot is running, keeps the short poll. */
+  #signInPollIsFast(): boolean {
+    if (this.#codexLogin.pending || this.#cliLogin.size > 0 || this.#providerConnectionCommands.size > 0) return true;
+    for (const provider of this.#signInFiles.keys()) {
+      const row = this.#status.providers?.find((candidate) => candidate.id === provider);
+      if (row?.state === "sign-in-required") return true;
+    }
+    return false;
+  }
+
+  /**
+   * Arms the next sign-in file read. The same speed leaves the current timer in place. A change
+   * to the short delay replaces a long wait, so a new sign-in is seen promptly.
+   */
+  #armSignInPoll(): void {
+    if (this.#signInFiles.size === 0) return;
+    const fast = this.#signInPollIsFast();
+    if (this.#signInCheck && this.#signInPollFast === fast) return;
+    if (this.#signInCheck) clearTimeout(this.#signInCheck);
+    this.#signInPollFast = fast;
+    this.#signInCheck = setTimeout(
+      () => {
+        this.#signInCheck = null;
+        this.#signInPollFast = null;
+        this.#checkSignInFiles();
+        this.#armSignInPoll();
+      },
+      fast ? SIGN_IN_FILE_POLL_MS : SIGN_IN_FILE_IDLE_POLL_MS,
+    );
     this.#signInCheck.unref?.();
   }
 
@@ -2747,8 +2822,9 @@ export class ProviderRuntime implements ProviderPort {
     this.#restartsWhenIdle.clear();
     if (this.#idleCheck) clearInterval(this.#idleCheck);
     this.#idleCheck = null;
-    if (this.#signInCheck) clearInterval(this.#signInCheck);
+    if (this.#signInCheck) clearTimeout(this.#signInCheck);
     this.#signInCheck = null;
+    this.#signInPollFast = null;
     this.#signInFiles.clear();
     this.#released.clear();
     const loginClient = this.#codexLogin.dispose();
@@ -4111,6 +4187,7 @@ export class ProviderRuntime implements ProviderPort {
       capabilities: patch.capabilities ?? this.#status.capabilities,
     };
     this.#emit({ type: "status", status: this.status() });
+    this.#armSignInPoll();
     // The drain holds the messages of a provider that waits for a sign-in, and no other event wakes
     // them. A provider that becomes available again can start them.
     for (const provider of available) this.#hooks.onProviderResumed(provider);

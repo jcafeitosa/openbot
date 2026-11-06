@@ -8,9 +8,9 @@ import { source as enSource } from "./messages/en/source";
 import type { sourceTranslation as SourceTranslation } from "./source-catalogs";
 
 /**
- * The catalogs of the public web build: `app-catalogs.ts`, `source-catalogs.ts`,
- * `format-catalogs.ts` and `locale-loading.ts` in one module, which `apps/auth-api/vite.config.ts`
- * puts in their place.
+ * The catalogs of the desktop main process, the desktop renderer and the public web build: `app-catalogs.ts`,
+ * `source-catalogs.ts`, `format-catalogs.ts` and `locale-loading.ts` in one module. The desktop
+ * Vite config and `apps/auth-api/vite.config.ts` put this module in their place.
  *
  * The site shows the desktop app as a demo and as the web client. All fourteen languages are more than
  * 1 MB compressed and block the page for about a second on a phone, so English is part of the

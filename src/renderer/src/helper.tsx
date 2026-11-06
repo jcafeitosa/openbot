@@ -5,7 +5,7 @@ import { BrowserDockSurface } from "./features/browser/BrowserDockSurface";
 import { ComputerUseHighlightSurface } from "./features/computer-use/ComputerUseHighlightSurface";
 import { ComputerUsePermissionHelp, permissionFromQuery } from "./features/computer-use/ComputerUsePermissionHelp";
 import { DynamicIslandSurface } from "./features/dynamic-island/DynamicIslandSurface";
-import { I18nProvider } from "./i18n-context";
+import { I18nProvider, preloadInterfaceLocale } from "./i18n-context";
 import { syncLogoColor } from "./logo-color";
 import "./styles.css";
 
@@ -19,6 +19,7 @@ if (!root) {
 }
 
 installPointerFocusGuard();
+preloadInterfaceLocale();
 
 const query = new URLSearchParams(window.location.search);
 const surface = query.get("surface");

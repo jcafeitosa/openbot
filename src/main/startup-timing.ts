@@ -61,6 +61,8 @@ export interface StartupTimingOptions {
   appVersion: string;
   server: boolean;
   send: (properties: StartupProperties) => void;
+  /** The workspace finished its first load, or the wait for that load ended. */
+  onWorkspaceReady?: () => void;
 }
 
 interface SavedStart {
@@ -112,6 +114,7 @@ export class StartupTiming {
   readonly #options: StartupTimingOptions;
   #startKind: StartKind = "unknown";
   #workspaceReadyMs: number | null = null;
+  #workspaceReleased = false;
   #rendererLoaded = false;
   #timer: NodeJS.Timeout | null = null;
   #sent = false;
@@ -150,7 +153,15 @@ export class StartupTiming {
   workspaceReady(): void {
     if (this.#sent || this.#workspaceReadyMs !== null) return;
     this.#workspaceReadyMs = performance.now();
+    this.#releaseWorkspace();
     if (this.#rendererLoaded) this.#send();
+  }
+
+  /** Runs once, at the workspace load or when the wait for that load ends. */
+  #releaseWorkspace(): void {
+    if (this.#workspaceReleased) return;
+    this.#workspaceReleased = true;
+    this.#options.onWorkspaceReady?.();
   }
 
   dispose(): void {
@@ -161,6 +172,7 @@ export class StartupTiming {
 
   #send(): void {
     if (this.#sent) return;
+    this.#releaseWorkspace();
     this.#sent = true;
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;

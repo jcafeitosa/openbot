@@ -8,6 +8,7 @@ import { App } from "./App";
 import { startActionSounds } from "./action-sounds";
 import { syncAppearance } from "./appearance-choice";
 import { readChatWindowTarget } from "./features/window/chat-window";
+import { preloadInterfaceLocale } from "./i18n-context";
 import { syncLogoColor } from "./logo-color";
 import { startRendererTiming } from "./renderer-timing";
 import "./styles.css";
@@ -20,6 +21,7 @@ if (!root) {
 
 // A startup mark for `dev:bench`, after the bundle is parsed.
 performance.mark("openbot:renderer-start");
+preloadInterfaceLocale();
 installPointerFocusGuard();
 syncAppearance({ windowGlass: true });
 syncLogoColor();

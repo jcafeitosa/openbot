@@ -8,8 +8,9 @@ import { EVENTS_CAPABILITY } from "@openbot/contracts/team-protocol/events-v1";
 import { ROUTINE_FLOWS_CAPABILITY } from "@openbot/contracts/team-protocol/routine-flows-v1";
 import type { DiagramModelChoice } from "@openbot/ui/features/diagrams/DiagramNewAgentCard";
 import { useText } from "@openbot/ui/text";
-import { createMemo, Show } from "solid-js";
+import { createMemo, Loading, Show } from "solid-js";
 import { useLayout } from "../../layout";
+import { RoutineFlowsCanvas } from "../../lazy-views";
 import { useNavigation } from "../../navigation";
 import { useProviders } from "../../providers";
 import { useAgentActions } from "../agents/agent-actions";
@@ -19,7 +20,6 @@ import { useCustomAgents } from "../custom-agents/custom-agents-context";
 import { useSetup } from "../onboarding/onboarding-context";
 import { serverCanAdminister, serverSupportsCapability } from "../servers/server-capabilities";
 import { useServers } from "../servers/servers-context";
-import { RoutineFlowsCanvas } from "./RoutineFlowsCanvas";
 import { desktopRoutineFlowsHost } from "./routine-flows-port";
 
 export function WorkspaceRoutineFlows() {
@@ -93,14 +93,16 @@ export function WorkspaceRoutineFlows() {
       }
     >
       {(id) => (
-        <RoutineFlowsCanvas
-          host={desktopRoutineFlowsHost(id, webhooks)}
-          agent={activeAgent()}
-          agents={agentList()}
-          newAgentModels={newAgentModels()}
-          createAgent={createAgentInPlace}
-          onCreateRoutine={createRoutine}
-        />
+        <Loading>
+          <RoutineFlowsCanvas
+            host={desktopRoutineFlowsHost(id, webhooks)}
+            agent={activeAgent()}
+            agents={agentList()}
+            newAgentModels={newAgentModels()}
+            createAgent={createAgentInPlace}
+            onCreateRoutine={createRoutine}
+          />
+        </Loading>
       )}
     </Show>
   );

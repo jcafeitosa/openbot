@@ -8,7 +8,7 @@ import {
   type HostStatus,
   IPC_ENDPOINTS,
 } from "@openbot/contracts/ipc";
-import { createFormat, localeDirection, resolveLocale, translateFor } from "@openbot/i18n";
+import { createFormat, loadLocale, localeDirection, resolveLocale, translateFor } from "@openbot/i18n";
 import { localizeSourceText } from "@openbot/i18n/source";
 import { createOpenBotLogger, toLogValue } from "@openbot/logging";
 import { createRemoteDirectoryRefresh } from "@openbot/team-client/remote-directory";
@@ -1311,6 +1311,8 @@ if (!hasSingleInstanceLock) {
       configureRendererPermissions();
       // A local server keeps a window that never loads: the agent browser and the services attach to it.
       if (!localServerChild) await Effect.runPromise(windows.restoreMainWindowBounds());
+      // The first window title uses the system language. Load that catalog before the window opens.
+      await loadLocale(resolveLocale("system", app.getLocale())).catch(() => undefined);
       // The window takes its blur when it is built: see `glassWindowOptions`.
       if (process.platform === "darwin" && !localServerChild)
         setInitialWindowGlass(
@@ -1737,7 +1739,7 @@ if (!hasSingleInstanceLock) {
         reopenMainWindow();
       });
     })
-    .catch((error) => {
+    .catch(async (error) => {
       // A quit during the start, such as `docker stop`, closes the window that is still loading.
       // The quit is already running: an error box would block it, and the shutdown deadline with it.
       // Not `isQuitting`: a Windows session end that another app cancels also sets it, and then no quit runs.
@@ -1753,6 +1755,7 @@ if (!hasSingleInstanceLock) {
       if (!serverMode && !hostedServer && !localServerChild) {
         // The services, and with them the saved language, may not exist yet. Then the system language applies.
         const locale = services?.language.locale ?? resolveLocale("system", app.getLocale());
+        if (!services) await loadLocale(locale).catch(() => undefined);
         const translate = services?.language.translate ?? translateFor(locale);
         // A newer OpenBot migrated the data: install that release instead of a dead-end error (#4969).
         if (error instanceof NewerDatabaseError) {

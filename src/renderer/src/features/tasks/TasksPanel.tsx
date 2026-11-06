@@ -1,8 +1,9 @@
 import { currentText } from "@openbot/ui/text";
-import { createSignal, onCleanup } from "solid-js";
+import { createSignal, Loading, onCleanup } from "solid-js";
 import { actionToast } from "../../action-toast";
 import { appPort } from "../../app-port";
 import { useLayout } from "../../layout";
+import { TasksView } from "../../lazy-views";
 import { useNavigation } from "../../navigation";
 import { usePlatform } from "../../platform";
 import { deviceSendShortcut } from "../../send-shortcut-preference";
@@ -17,7 +18,7 @@ import { EMPTY_DRAFT } from "../conversation/composer-draft";
 import { composerDraftKey } from "../conversation/conversation-keys";
 import type { ComposerDraft } from "../conversation/conversation-types";
 import { createVoiceStore, VOICE_LEVEL_COUNT, type VoiceStoreDeps } from "../conversation/stores/voice-store";
-import { TasksView, type TasksVoiceAdapter, type TasksVoiceControls } from "./TasksView";
+import type { TasksVoiceAdapter, TasksVoiceControls } from "./TasksView";
 import { desktopTasksSource } from "./tasks-port";
 
 /** The voice store dictates for one composer. The Tasks composer is not an agent's, so it has its own key. */
@@ -57,42 +58,44 @@ export function TasksPanel(props: TasksPanelProps) {
   });
 
   return (
-    <TasksView
-      {...props}
-      source={desktopTasksSource()}
-      agents={agentList()}
-      voice={createTasksVoice}
-      onOpenLink={(url) => void appPort().openUrl(url)}
-      onAttachmentAction={attachmentFiles.open}
-      downloads={attachmentFiles.downloads}
-      files={{
-        accepted: threads.filesAccepted,
-        import: (data, serverId) => window.openbot.agent.importAttachmentData(data, serverId),
-        discard: (id, serverId) => window.openbot.agent.discardDraftAttachment(id, serverId),
-      }}
-      approvals={approvals()}
-      // A question and a browser takeover wait by thread, as the thread tab reads them.
-      waitsForAnswer={(task) => pendingPrompts()[attentionKey(task.agentId, task.threadId)] !== undefined}
-      // The tab is written first, so the chat opens on it. Opening the chat closes the page.
-      onOpenInChat={(task) => {
-        tabs.open(task.agentId, task.id);
-        // The Routines view covers the chat.
-        layout.setSidebarView("agents");
-        selectAgent(task.agentId);
-      }}
-      sendShortcut={deviceSendShortcut(platform.appInfo()?.platform)}
-      // The thread state reaches the active server, which the page follows.
-      onRead={(input, messageId) => threads.markTaskRead(input.agentId, input.taskId, messageId)}
-      // The page covers the chat, so a failed answer shows as a toast, not in the chat.
-      onRespondApproval={(approval, decision) =>
-        respondToApprovalRequest(approval.agentId, approval.requestId, decision, {
-          onError: (error) => {
-            const { t, errorMessage } = currentText();
-            actionToast.error(errorMessage(error, t("app.errorStatus.approval")));
-          },
-        })
-      }
-    />
+    <Loading>
+      <TasksView
+        {...props}
+        source={desktopTasksSource()}
+        agents={agentList()}
+        voice={createTasksVoice}
+        onOpenLink={(url) => void appPort().openUrl(url)}
+        onAttachmentAction={attachmentFiles.open}
+        downloads={attachmentFiles.downloads}
+        files={{
+          accepted: threads.filesAccepted,
+          import: (data, serverId) => window.openbot.agent.importAttachmentData(data, serverId),
+          discard: (id, serverId) => window.openbot.agent.discardDraftAttachment(id, serverId),
+        }}
+        approvals={approvals()}
+        // A question and a browser takeover wait by thread, as the thread tab reads them.
+        waitsForAnswer={(task) => pendingPrompts()[attentionKey(task.agentId, task.threadId)] !== undefined}
+        // The tab is written first, so the chat opens on it. Opening the chat closes the page.
+        onOpenInChat={(task) => {
+          tabs.open(task.agentId, task.id);
+          // The Routines view covers the chat.
+          layout.setSidebarView("agents");
+          selectAgent(task.agentId);
+        }}
+        sendShortcut={deviceSendShortcut(platform.appInfo()?.platform)}
+        // The thread state reaches the active server, which the page follows.
+        onRead={(input, messageId) => threads.markTaskRead(input.agentId, input.taskId, messageId)}
+        // The page covers the chat, so a failed answer shows as a toast, not in the chat.
+        onRespondApproval={(approval, decision) =>
+          respondToApprovalRequest(approval.agentId, approval.requestId, decision, {
+            onError: (error) => {
+              const { t, errorMessage } = currentText();
+              actionToast.error(errorMessage(error, t("app.errorStatus.approval")));
+            },
+          })
+        }
+      />
+    </Loading>
   );
 }
 
