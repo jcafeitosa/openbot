@@ -285,7 +285,7 @@ export class MemoryConsolidation {
       .run(agentId, day, now.toISOString());
     if (inserted.changes === 1) return true;
     const row = this.#rowOf(agentId, day);
-    if (!row || row.status !== "running" || !isStale(row.createdAt, now)) return false;
+    if (row?.status !== "running" || !isStale(row.createdAt, now)) return false;
     connection
       .prepare(
         `UPDATE memory_consolidation_runs SET status = 'failed', finished_at = ?
