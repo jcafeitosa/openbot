@@ -116,7 +116,7 @@ function skillToolDetail(skill: MarketplaceSkillDetail) {
 /**
  * `agentId` is the calling agent: it owns the skills it creates and revises. `targetAgent` resolves
  * the agent that an install, enable, or uninstall changes, which is the caller when `agentId` is omitted.
- * `requirePersonRequest` runs before an install or enable that changes another agent, and throws unless a person asked.
+ * `requirePersonRequest` runs before every install or enable, and before a change to another agent, and throws unless a person asked.
  */
 export const runLocalSkillTool = Effect.fn("SkillTools.run")(function* (
   api: LocalSkillTools,
@@ -151,7 +151,7 @@ export const runLocalSkillTool = Effect.fn("SkillTools.run")(function* (
     case "install_local_skill": {
       const input = yield* toolStep(() => installLocalSkillSchema.parse(args));
       const target = yield* toolStep(() => targetAgent(input.agentId));
-      if (target !== agentId) yield* toolStep(requirePersonRequest);
+      yield* toolStep(requirePersonRequest);
       const skill = yield* api.install({ ...input, agentId: target });
       onChanged?.({
         action: "installed",
@@ -166,7 +166,7 @@ export const runLocalSkillTool = Effect.fn("SkillTools.run")(function* (
     case "set_skill_enabled": {
       const input = yield* toolStep(() => setSkillEnabledSchema.parse(args));
       const target = yield* toolStep(() => targetAgent(input.agentId));
-      if (target !== agentId) yield* toolStep(requirePersonRequest);
+      if (input.enabled || target !== agentId) yield* toolStep(requirePersonRequest);
       return yield* api.setEnabled({ ...input, agentId: target });
     }
     case "uninstall_skill": {

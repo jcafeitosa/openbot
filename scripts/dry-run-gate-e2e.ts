@@ -392,6 +392,41 @@ try {
     );
   }
 
+  // 4b. A local responder (a script on this computer) cannot answer a dry-run card: the card is not listed for it,
+  // and its accept is refused, so the forget does not run.
+  const beforeLocalMemory = memoryIds(alpha.id);
+  await callFromChat("remember a fact for the local responder", alpha.id, "remember", {
+    text: "The review room is Friday.",
+  });
+  const localMemoryId = memoryIds(alpha.id).find((id) => !beforeLocalMemory.includes(id)) ?? "";
+  const askedBeforeLocal = approvals.length;
+  const localCall = callFromChat("forget with a local responder", alpha.id, "forget_memory", {
+    memoryId: localMemoryId,
+  });
+  const localCard = await waitFor("the forget card for the local responder", () => approvals[askedBeforeLocal]);
+  const listedForLocal = agents
+    .getLocalAttention(alpha.id)
+    .approvals.some((approval) => approval.reason === localCard.reason);
+  pass("A dry-run card is not listed for a local responder", !listedForLocal, { reason: localCard.reason });
+  const localAccepted = await runCauseEffect(
+    agents.respondToLocalAttention(alpha.id, {
+      kind: "approval",
+      requestId: String(localCard.requestId),
+      decision: "accept",
+    }),
+  ).then(
+    () => true,
+    () => false,
+  );
+  pass("A local responder's accept of a dry-run card is refused", !localAccepted);
+  await runCauseEffect(agents.respondToApproval({ requestId: localCard.requestId, decision: "decline" }));
+  const localOutcome = await localCall;
+  pass(
+    "A dry-run forget that a local responder tried to accept does not run",
+    !localOutcome.success && memoryIds(alpha.id).includes(localMemoryId),
+    { memories: memoryIds(alpha.id), text: localOutcome.text },
+  );
+
   // A messaging_forget_memory outside an external chat is refused before any approval card.
   const askedBeforeLinkless = approvals.length;
   const linkless = await callFromChat("messaging_forget_memory outside a chat", alpha.id, "messaging_forget_memory", {

@@ -27,6 +27,7 @@
 //  14. A secret that the agent remembers is stored redacted or refused, and a refusal is reported. A review
 //      does not forget a memory that it sees only redacted, and does not add the text of a saved memory again.
 //  15. Stopping the service during a slow review applies nothing and shows no error.
+//  16. An agent's remember with a memory id cannot overwrite a memory the user wrote or chose; both are refused.
 // No provider, account or network is used. `bun run test:memory-review`.
 // Writes .openbot-build/memory-review-e2e/report.json.
 import assert from "node:assert/strict";
@@ -664,6 +665,45 @@ try {
     assert.equal(memories.filter((memory) => memory.text === manualText).length, 1, "No copy was added.");
     assert.equal(inclusion(), before, "The user's choice stays.");
     return { memories: memories.length, inclusion: before, refused };
+  });
+
+  await check("an agent cannot overwrite a manual or a user-controlled memory", async () => {
+    const writer = await createAgent("Writer");
+    await send(writer.id, `Save it. ${calls({ tool: "remember", arguments: { text: "The user works in Oslo." } })}`);
+    const automatic = service.listMemories(writer.id).find((memory) => memory.text === "The user works in Oslo.");
+    assert.ok(automatic, "The agent saved its memory.");
+    const selection = service.getMemorySelection(writer.id).selections.find((entry) => entry.memoryId === automatic.id);
+    assert.ok(selection);
+    service.setMemoryInclusion({
+      agentId: writer.id,
+      changes: [{ memoryId: automatic.id, inclusion: "essential", expectedRevision: selection.revision }],
+    });
+    const manual = service.createMemory({ agentId: writer.id, text: "The user's cat is called Miso." }).id;
+    const resultsBefore = logged("toolResult").length;
+    await send(
+      writer.id,
+      `Overwrite the cat. ${calls({ tool: "remember", arguments: { text: "The user's cat is called Biscuit.", memoryId: manual } })}`,
+    );
+    await send(
+      writer.id,
+      `Overwrite the work. ${calls({ tool: "remember", arguments: { text: "The user works in Bergen.", memoryId: automatic.id } })}`,
+    );
+    const refusals = logged("toolResult")
+      .slice(resultsBefore)
+      .filter((entry) => isDynamicRecord(entry.result) && entry.result.success === false);
+    assert.equal(refusals.length, 2, "Both overwrites are refused.");
+    const memories = service.listMemories(writer.id);
+    assert.equal(
+      memories.find((memory) => memory.id === manual)?.text,
+      "The user's cat is called Miso.",
+      "The manual memory keeps its text.",
+    );
+    assert.equal(
+      memories.find((memory) => memory.id === automatic.id)?.text,
+      "The user works in Oslo.",
+      "The user-controlled memory keeps its text.",
+    );
+    return { refusals: refusals.length };
   });
 
   await check("stopping the service during a slow review applies nothing", async () => {

@@ -998,7 +998,7 @@ export class OpenBotToolRouter {
     if (!senderAgentId) throw new Error("The sending OpenBot agent is unknown.");
 
     // An irreversible call runs only after a person approves its dry-run preview. The approval waits for
-    // the person even with Full access, so a grant given earlier does not answer it.
+    // the person even with Full access, so a grant given earlier does not answer it. Only the owner answers it.
     if (isIrreversibleTool(params.tool)) {
       const refused = this.#refusedBeforeApproval(params, senderAgentId);
       if (refused) return refused;
@@ -1019,7 +1019,7 @@ export class OpenBotToolRouter {
             grantRoot: null,
             permissions: null,
           },
-          { alwaysAsk: true },
+          { alwaysAsk: true, ownerOnly: true },
         )
         .pipe(
           Effect.map((decision) => decision === "accept"),
@@ -1394,8 +1394,8 @@ export class OpenBotToolRouter {
                 grantRoot: null,
                 permissions: null,
               },
-              // A delete loses the run history, so Full access does not answer for the user.
-              { alwaysAsk: true },
+              // A delete loses the run history, so Full access does not answer for the user, and only the owner answers it.
+              { alwaysAsk: true, ownerOnly: true },
             )
             .pipe(
               Effect.map((decision) => decision === "accept"),
@@ -2296,7 +2296,7 @@ export class OpenBotToolRouter {
           null,
         );
       const chain = { id: parentChain?.id ?? randomUUID(), hop: (parentChain?.hop ?? 0) + 1 };
-      if (expectsReply !== false && chain.hop > AGENT_MESSAGE_HOP_LIMIT) {
+      if (chain.hop > AGENT_MESSAGE_HOP_LIMIT) {
         this.#hooks.emitError(
           "agent_hop_refused",
           new Error(`Chain ${chain.id} reached hop ${chain.hop}.`),

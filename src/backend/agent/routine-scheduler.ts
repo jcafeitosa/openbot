@@ -618,7 +618,7 @@ export class RoutineScheduler implements RoutineDueSource {
         "runIn",
       ]);
       const agentId = this.#toolAgentId(args, senderAgentId);
-      this.#requirePeerRequest(agentId, senderAgentId, params);
+      this.#requirePersonRequest(senderAgentId, params);
       const active = args.active === undefined ? true : args.active;
       if (!isBoolean(active)) throw new RoutineInputError("active must be a boolean.");
       const timezone =
@@ -750,7 +750,7 @@ export class RoutineScheduler implements RoutineDueSource {
       ]);
       const policies = { ...routineToolPolicies(args), ...routineToolRunPlace(args) };
       const agentId = this.#toolAgentId(args, senderAgentId);
-      this.#requirePeerRequest(agentId, senderAgentId, params);
+      this.#requirePersonRequest(senderAgentId, params);
       const input: UpdateRoutineInput = {
         agentId,
         routineId: routineToolString(args.routineId, "routineId", INPUT_LIMITS.identifier, "routineId is required."),
@@ -1280,13 +1280,21 @@ export class RoutineScheduler implements RoutineDueSource {
   }
 
   /**
-   * A change to another agent's routine: only a person's request may make it. An agent may still
-   * change its own routines without one.
+   * A create or change of a routine, on this agent or another: only a person's request may make it. A routine
+   * run or an agent message never does, so an agent cannot schedule or edit its own routines.
+   */
+  #requirePersonRequest(senderAgentId: string, params: DynamicToolCallParams): void {
+    if (!this.personRequestTurn(senderAgentId, params.threadId, params.turnId))
+      throw new RoutineInputError(sourceText("error.backend.routinePersonOnly"));
+  }
+
+  /**
+   * A delete of another agent's routine: only a person's request may make it. An agent may still delete its own
+   * routine; the approval card asks the person for that.
    */
   #requirePeerRequest(agentId: string, senderAgentId: string, params: DynamicToolCallParams): void {
     if (agentId === senderAgentId) return;
-    if (!this.personRequestTurn(senderAgentId, params.threadId, params.turnId))
-      throw new RoutineInputError(sourceText("error.backend.routinePersonOnly"));
+    this.#requirePersonRequest(senderAgentId, params);
   }
 
   /**

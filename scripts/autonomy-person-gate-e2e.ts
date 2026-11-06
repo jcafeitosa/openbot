@@ -54,6 +54,8 @@ const rememberCalls = [
  * - `PLAN:person TARGET:<agentId>` or `PLAN:injected TARGET:<agentId>` makes the agent install a skill on
  *   and create a routine for the target;
  * - `PLAN:remember` makes the agent remember two texts.
+ * - `PLAN:selfroutine TARGET:<agentId>` in a person's message creates a routine on that agent, whose instruction is
+ *   `PLAN:routine TARGET:<agentId>`; a routine run of it makes the agent try to install, create, update and enable on itself;
  */
 const FAKE_CODEX = `#!/usr/bin/env node
 const { appendFileSync } = require("node:fs");
@@ -97,15 +99,24 @@ const peerCalls = (agentId, name) => [
   { tool: "create_routine", arguments: { agentId, name, instruction: "Check the peer.", schedule: { kind: "daily", time: "09:00" }, active: false, timezone: "UTC" } },
 ];
 const callsFor = (text) => {
-  const relay = /RELAY:(\\S+) (PLAN:\\w+ TARGET:\\S+)/.exec(text);
+  // A routine run's prompt carries the chat history before its task: only the task's own text names a plan.
+  const scope = text.split("--- routine task ---").pop();
+  const relay = /RELAY:(\\S+) (PLAN:\\w+ TARGET:\\S+)/.exec(scope);
   if (relay) return [{ tool: "send_message", arguments: { recipientAgentIds: [relay[1]], text: relay[2] } }];
-  const plan = /PLAN:(\\w+)/.exec(text);
-  const target = /TARGET:(\\S+)/.exec(text);
+  const plan = /PLAN:(\\w+)/.exec(scope);
+  const target = /TARGET:(\\S+)/.exec(scope);
   if (!plan) return [];
   if (plan[1] === "remember") return REMEMBER.slice();
   if (plan[1] === "person" && target) return peerCalls(target[1], "Person peer check");
   if (plan[1] === "injected" && target) return peerCalls(target[1], "Injected peer check");
   if (plan[1] === "uninstall" && target) return [{ tool: "uninstall_skill", arguments: { agentId: target[1], skillId: "local-skill-00000000-0000-0000-0000-000000000000" } }];
+  if (plan[1] === "selfroutine" && target) return [{ tool: "create_routine", arguments: { agentId: target[1], name: "Self routine", instruction: "Run the self check. PLAN:routine TARGET:" + target[1], schedule: { kind: "daily", time: "09:00" }, active: false, timezone: "UTC" } }];
+  if (plan[1] === "routine" && target) return [
+    { tool: "install_local_skill", arguments: { agentId: target[1], skillId: "local-skill-00000000-0000-0000-0000-000000000000", revision: 1 } },
+    { tool: "create_routine", arguments: { agentId: target[1], name: "Routine run check", instruction: "Check.", schedule: { kind: "daily", time: "09:00" }, active: false, timezone: "UTC" } },
+    { tool: "update_routine", arguments: { agentId: target[1], routineId: "routine-check", instruction: "Changed by a run." } },
+    { tool: "set_skill_enabled", arguments: { agentId: target[1], skillId: "local-skill-00000000-0000-0000-0000-000000000000", enabled: true } },
+  ];
   return [];
 };
 const answer = (message) => {
@@ -435,6 +446,65 @@ try {
       remembered[0]?.includes("[redacted]") === true,
     { stored: remembered },
   );
+
+  // A routine run is not a person's message: on its own agent it still cannot create or update a routine, or install
+  // or enable a skill.
+  await runCauseEffect(
+    agents.sendMessage({
+      agentId: alpha.id,
+      text: `Make a routine for this agent. PLAN:selfroutine TARGET:${alpha.id}`,
+    }),
+  );
+  const selfRoutine = await waitFor(
+    "the person's own routine",
+    () => agents.listRoutines(alpha.id).find((routine) => routine.name === "Self routine") ?? null,
+  );
+  const before = {
+    install: toolResults("install_local_skill").length,
+    create: toolResults("create_routine").length,
+    update: toolResults("update_routine").length,
+    enable: toolResults("set_skill_enabled").length,
+  };
+  const installsBeforeRun = installs.length;
+  await runCauseEffect(agents.testRoutine({ agentId: alpha.id, routineId: selfRoutine.id }));
+  await waitFor("the routine run's calls", () =>
+    toolResults("set_skill_enabled").length > before.enable && idle([alpha.id]) ? true : null,
+  );
+  const [runInstall] = toolResults("install_local_skill").slice(before.install);
+  const [runCreate] = toolResults("create_routine").slice(before.create);
+  const [runUpdate] = toolResults("update_routine").slice(before.update);
+  const [runEnable] = toolResults("set_skill_enabled").slice(before.enable);
+  pass(
+    "A routine run cannot install a skill on its own agent",
+    runInstall !== undefined &&
+      !runInstall.success &&
+      resultText(runInstall).includes("Only a person's message can install, enable or uninstall a skill"),
+    { install: runInstall && resultText(runInstall) },
+  );
+  pass(
+    "A routine run cannot create a routine on its own agent",
+    runCreate !== undefined &&
+      !runCreate.success &&
+      resultText(runCreate).includes("Only a person's message can create, change or delete a routine"),
+    { create: runCreate && resultText(runCreate) },
+  );
+  pass(
+    "A routine run cannot update its own routine",
+    runUpdate !== undefined &&
+      !runUpdate.success &&
+      resultText(runUpdate).includes("Only a person's message can create, change or delete a routine"),
+    { update: runUpdate && resultText(runUpdate) },
+  );
+  pass(
+    "A routine run cannot enable a skill on its own agent",
+    runEnable !== undefined &&
+      !runEnable.success &&
+      resultText(runEnable).includes("Only a person's message can install, enable or uninstall a skill"),
+    { enable: runEnable && resultText(runEnable) },
+  );
+  pass("A routine run's skill install never reaches the skill store", installs.length === installsBeforeRun, {
+    installs,
+  });
 
   report.installs = installs.length;
   report.stored = remembered.length;

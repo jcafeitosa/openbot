@@ -495,6 +495,34 @@ try {
       (await stored(workflowId)) !== null,
     `${declined.reason} ${declined.text}`,
   );
+  // A local responder (a script on this computer) cannot answer a workflow delete card: the card is not listed for it,
+  // and its accept is refused, so the delete does not run.
+  const askedBeforeLocal = approvals.length;
+  const localResult = callFromChat("delete from a local responder", agent.id, "delete_workflow", { workflowId });
+  const localCard = await waitFor("the local responder's delete card", () => approvals[askedBeforeLocal]);
+  const listedForLocal = agents
+    .getLocalAttention(agent.id)
+    .approvals.some((approval) => approval.reason === localCard.reason);
+  pass("A workflow delete card is not listed for a local responder", !listedForLocal, localCard.reason ?? "");
+  const localAccepted = await runCauseEffect(
+    agents.respondToLocalAttention(agent.id, {
+      kind: "approval",
+      requestId: String(localCard.requestId),
+      decision: "accept",
+    }),
+  ).then(
+    () => true,
+    () => false,
+  );
+  pass("A local responder's accept of a workflow delete card is refused", !localAccepted);
+  await runCauseEffect(agents.respondToApproval({ requestId: localCard.requestId, decision: "decline" }));
+  const localOutcome = await localResult;
+  pass(
+    "A workflow delete a local responder tried to accept does not run",
+    !localOutcome.success && (await stored(workflowId)) !== null,
+    localOutcome.text,
+  );
+
   const removed = await deleteWithAnswer("delete from the person", agent.id, workflowId, "accept");
   pass(
     "A person's message can delete a workflow after the approval",

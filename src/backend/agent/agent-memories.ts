@@ -348,6 +348,8 @@ export class AgentMemories {
       const duplicateEntry = [...planned.all].find(([key, memory]) => key !== memoryId && memory.text === text);
       const duplicate = duplicateEntry?.[1];
       const sourceSelection = current ? this.#memories.getSelection(senderAgentId, current.id) : null;
+      if (current && (current.origin === "manual" || sourceSelection?.userControlled))
+        return openBotToolFailure("This memory was saved by the person, so an agent cannot change it.");
       const duplicateSelection = duplicate ? this.#memories.getSelection(senderAgentId, duplicate.id) : null;
       const selectedId = duplicate?.id ?? current?.id;
       const selectedKey = duplicateEntry?.[0] ?? current?.id;
@@ -660,7 +662,8 @@ export class AgentMemories {
           !current ||
           !selection ||
           selection.revision !== mutation.expectedSelectionRevision ||
-          (duplicate && selection.userControlled)
+          selection.userControlled ||
+          current.origin === "manual"
         )
           return;
         // An explicit move to searchable can make room for a longer corrected text.

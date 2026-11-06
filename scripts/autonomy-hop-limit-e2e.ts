@@ -85,6 +85,10 @@ const callsFor = (text) => {
   const teammate = /Message from OpenBot teammate [^\\n]* \\(([^()\\s]+)\\)\\.\\nMessage ID: \\S+\\n/.exec(text);
   const hop = /HOP:(\\d+)/.exec(text);
   if (teammate && hop) return [sendTo(teammate[1], "HOP:" + (Number(hop[1]) + 1))];
+  const quietStart = /QUIET_START:(\\S+)/.exec(text);
+  if (quietStart) return [{ tool: "send_message", arguments: { recipientAgentIds: [quietStart[1]], text: "QUIET:1", expectsReply: false } }];
+  const quiet = /QUIET:(\\d+)/.exec(text);
+  if (teammate && quiet) return [{ tool: "send_message", arguments: { recipientAgentIds: [teammate[1]], text: "QUIET:" + (Number(quiet[1]) + 1), expectsReply: false } }];
   return [];
 };
 const answer = (message) => {
@@ -375,6 +379,41 @@ try {
     "Accepted hops share one chain id and count 1 to 5",
     chainId !== "" && chains.every((chain) => chain?.id === chainId) && hops.every((hop, index) => hop === index + 1),
     { hops },
+  );
+
+  // A message that expects no reply counts toward the same limit: a quiet chain is refused at the sixth hop too.
+  const beforeQuiet = sendResults().length;
+  await runCauseEffect(
+    agents.sendMessage({ agentId: alpha.id, text: `Start the quiet chain. QUIET_START:${bravo.id}` }),
+  );
+  await waitFor("the quiet chain to settle", () => {
+    const results = sendResults().slice(beforeQuiet);
+    const idle = [alpha, bravo].every((agent) =>
+      agents.listQueue(agent.id).deliveries.every((delivery) => ended(delivery.status)),
+    );
+    return idle && results.length >= AGENT_MESSAGE_HOP_LIMIT + 1;
+  });
+  await Bun.sleep(1_000);
+  const quietAttempts = sendResults().slice(beforeQuiet);
+  pass(
+    "The quiet chain makes exactly one attempt past the limit",
+    quietAttempts.length === AGENT_MESSAGE_HOP_LIMIT + 1,
+    {
+      attempts: quietAttempts.length,
+    },
+  );
+  pass(
+    `The first ${AGENT_MESSAGE_HOP_LIMIT} quiet hops are accepted`,
+    quietAttempts.slice(0, AGENT_MESSAGE_HOP_LIMIT).every((result) => result.success),
+    { attempts: quietAttempts.map((result) => ({ success: result.success, text: resultText(result) })) },
+  );
+  const quietRefused = quietAttempts[AGENT_MESSAGE_HOP_LIMIT];
+  pass(
+    "The sixth quiet hop is refused with the limit text",
+    quietRefused !== undefined &&
+      !quietRefused.success &&
+      resultText(quietRefused).includes(`stop after ${AGENT_MESSAGE_HOP_LIMIT} hops`),
+    quietRefused ? resultText(quietRefused) : null,
   );
 
   report.legacy = await legacyFixture(since, store.sharedRoot);

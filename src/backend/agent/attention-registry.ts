@@ -542,7 +542,7 @@ export class AttentionRegistry {
           requiresOpenBot: pending.questions.some(localQuestionNeedsOpenBot),
         })),
       approvals: [...this.#approvals.values()]
-        .filter((pending) => pending.approval.agentId === agentId)
+        .filter((pending) => pending.approval.agentId === agentId && !pending.ownerOnly)
         .map((pending) => ({ ...structuredClone(pending.approval), requestId: this.#localHandle(pending) })),
       browserTakeovers: [...this.#takeovers.values()]
         .filter((pending) => pending.request.agentId === agentId)
