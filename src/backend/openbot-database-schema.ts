@@ -624,6 +624,24 @@ const AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL = `
     ON agent_instructions_snapshots(agent_id, file_path, sha256);
 `;
 
+// Migration 62 keeps the text an agent's memory had before each change to it, with the source it came from and the
+// reason for the change. Only creates a table, so no foreign-key pause and no vacuum. The foreign key clears a
+// memory's revisions with the memory, so forgetting it, clearing the agent's memories and deleting the agent leave
+// none behind. IF NOT EXISTS throughout, because this text is both migration 62 and the tail of the latest schema.
+const AGENT_MEMORY_REVISIONS_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_memory_revisions (
+    memory_id TEXT NOT NULL REFERENCES projection_agent_memories(memory_id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL CHECK(seq >= 1),
+    text TEXT NOT NULL,
+    origin TEXT NOT NULL CHECK(origin IN ('automatic', 'manual')),
+    source_kind TEXT CHECK(source_kind IS NULL OR source_kind IN ('turn', 'review', 'reflection', 'manual')),
+    source_thread_id TEXT,
+    reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 64),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(memory_id, seq)
+  );
+`;
+
 // Migration 61 records where each memory came from: a turn, a background review, a reflection or the user.
 // Frozen with the migration. ADD COLUMN puts the declaration after the last column and before the UNIQUE
 // constraint that ends the table, so the latest schema puts it there as well.
@@ -695,7 +713,8 @@ const LATEST_SCHEMA_SQL =
   BROWSER_PROXY_SCHEMA_SQL +
   AGENT_SKILL_LOADS_SCHEMA_SQL +
   TURN_OUTCOMES_SCHEMA_SQL +
-  AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL;
+  AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL +
+  AGENT_MEMORY_REVISIONS_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -1061,6 +1080,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // Adds one column with no default and backfills it from the origins and source turn ids already stored. No
     // rebuild, so no foreign-key pause and no vacuum. Every source turn id keeps its text, prefix included.
     up: addMemorySourceKind,
+  },
+  {
+    version: 62,
+    // Only creates a table, so no foreign-key pause and no vacuum. No memory had a revision before it, so the table
+    // starts empty and no existing row changes.
+    up: (db) => db.exec(AGENT_MEMORY_REVISIONS_SCHEMA_SQL),
   },
 ];
 

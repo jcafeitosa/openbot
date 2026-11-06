@@ -9,6 +9,7 @@ import {
   type MemoryEntry,
 } from "@openbot/contracts/ipc";
 import { sourceText } from "@openbot/i18n/source";
+import { containsRegisteredSecret, redactText } from "@openbot/logging";
 import { Schema } from "effect";
 import { initializeAgentMemorySelection } from "./agent-memory-selection";
 import { databaseRows, requiredNumberColumn, requiredStringColumn } from "./database/database-rows";
@@ -306,6 +307,9 @@ export class AgentMemoryStore extends MemoryStore {
       const duplicate = input.memoryId
         ? this.list(agentId).find((memory) => memory.id !== input.memoryId && memory.text === input.text.trim())
         : undefined;
+      const previous = input.memoryId ? this.get(agentId, input.memoryId) : null;
+      // A save that folds the memory into a duplicate removes it, and a save with the same text changes nothing.
+      if (previous && !duplicate && previous.text !== input.text.trim()) this.#recordRevision(previous, input);
       const mergeSelection =
         input.memoryId && duplicate ? this.#mergedSelection(agentId, input.memoryId, duplicate.id) : null;
       if (!duplicate && input.memoryId && this.getSelection(agentId, input.memoryId)?.inclusion === "essential") {
@@ -338,6 +342,28 @@ export class AgentMemoryStore extends MemoryStore {
       }
       return memory;
     });
+  }
+
+  /**
+   * Keeps the text a save is about to replace, in the save's transaction, so a revision exists only with the change it
+   * records. A text that matches a registered secret is not kept, as `remember` refuses it, and known secret patterns
+   * are masked before it is stored.
+   */
+  #recordRevision(previous: MemoryEntry, input: SaveMemoryInput): void {
+    if (containsRegisteredSecret(previous.text)) return;
+    this.database.connection
+      .prepare(
+        `INSERT INTO agent_memory_revisions (memory_id, seq, text, origin, source_kind, source_thread_id, reason, created_at)
+         SELECT m.memory_id, COALESCE((SELECT MAX(r.seq) FROM agent_memory_revisions r WHERE r.memory_id = m.memory_id), 0) + 1,
+           ?, m.origin, m.source_kind, m.source_thread_id, ?, ?
+         FROM projection_agent_memories m WHERE m.memory_id = ?`,
+      )
+      .run(
+        redactText(previous.text),
+        input.origin === "manual" ? "manual-edit" : `automatic-${input.sourceKind}`,
+        new Date().toISOString(),
+        previous.id,
+      );
   }
 
   #mergedSelection(agentId: string, sourceId: string, targetId: string): AgentMemorySelection {
