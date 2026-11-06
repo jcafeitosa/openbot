@@ -62,7 +62,7 @@ const SELECTIONS_SQL = `SELECT memory_id, inclusion, user_controlled, revision F
 const REVISION_COUNT_SQL = "SELECT COUNT(*) AS count FROM agent_memory_revisions";
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 63 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 64 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
 }
@@ -134,7 +134,7 @@ describe("memory revisions migration", () => {
     migrateOpenBotDatabase(db);
     seed(db);
     const memories = db.prepare(MEMORY_ROWS_SQL).all();
-    db.exec("DELETE FROM schema_migrations WHERE version IN (62, 63)");
+    db.exec("DELETE FROM schema_migrations WHERE version IN (62, 63, 64)");
 
     expect(() => migrateOpenBotDatabase(db)).not.toThrow();
 

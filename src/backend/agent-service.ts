@@ -260,6 +260,7 @@ import { canConfineProcesses } from "./process-confinement";
 import { decodeRecordResponse, getString } from "./protocol";
 import { NO_PROVIDER_CREDENTIALS, type ProviderClientContext, requireProviderDriver } from "./provider-drivers";
 import { providerHistoryPersistence } from "./provider-history-persistence";
+import { ResearchSourceStore } from "./research-sources/research-sources";
 import { recordAgentRestartActivity } from "./restart-activity";
 import type { RoutineFlowTools } from "./routine-flows/routine-flow-tools";
 import { RoutineRecords } from "./routine-records";
@@ -1560,6 +1561,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       usageLimits: this.#usageLimits,
       planContinuation: this.#planContinuation,
       ledger: turnLedger,
+      research: new ResearchSourceStore(store.database),
       hooks: {
         emitFailure: (failure) => this.emit("failure", failure),
         emit: (event) => this.#emit(event),

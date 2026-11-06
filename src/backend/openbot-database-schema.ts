@@ -662,6 +662,24 @@ const AGENT_GOALS_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS agent_goals_agent ON agent_goals(agent_id, created_at);
 `;
 
+// Migration 64 keeps each web source an agent's search fetched: the query that found it, its url and title, a
+// fingerprint of the snippet and when it was fetched. The query and url are stored after `redactText`, and the snippet
+// is kept only as its SHA-256, so a row never holds page text. No foreign key to the agent, as with the goal table:
+// the cache is an optimisation and outlives roster rewrites. IF NOT EXISTS throughout, because this text is both
+// migration 64 and the tail of the latest schema.
+const RESEARCH_SOURCES_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS research_sources (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    query TEXT NOT NULL CHECK(length(query) BETWEEN 1 AND 500),
+    url TEXT,
+    title TEXT CHECK(title IS NULL OR length(title) <= 300),
+    snippet_hash TEXT NOT NULL CHECK(length(snippet_hash) = 64 AND snippet_hash NOT GLOB '*[^0-9a-f]*'),
+    fetched_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS research_sources_agent_query ON research_sources(agent_id, query);
+`;
+
 // Migration 61 records where each memory came from: a turn, a background review, a reflection or the user.
 // Frozen with the migration. ADD COLUMN puts the declaration after the last column and before the UNIQUE
 // constraint that ends the table, so the latest schema puts it there as well.
@@ -735,7 +753,8 @@ const LATEST_SCHEMA_SQL =
   TURN_OUTCOMES_SCHEMA_SQL +
   AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL +
   AGENT_MEMORY_REVISIONS_SCHEMA_SQL +
-  AGENT_GOALS_SCHEMA_SQL;
+  AGENT_GOALS_SCHEMA_SQL +
+  RESEARCH_SOURCES_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -1113,6 +1132,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // Only creates a table and an index, so no foreign-key pause and no vacuum. No goal existed before it, so the table
     // starts empty and no existing row changes.
     up: (db) => db.exec(AGENT_GOALS_SCHEMA_SQL),
+  },
+  {
+    version: 64,
+    // Only creates a table and an index, so no foreign-key pause and no vacuum. No web source was recorded before it, so
+    // the table starts empty and no existing row changes.
+    up: (db) => db.exec(RESEARCH_SOURCES_SCHEMA_SQL),
   },
 ];
 

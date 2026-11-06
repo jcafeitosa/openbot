@@ -42,6 +42,7 @@ import {
   isRecord,
   type ThreadItem,
 } from "../protocol";
+import type { ResearchSourceStore } from "../research-sources/research-sources";
 import type { AgentMemories } from "./agent-memories";
 import { answerFilePaths } from "./answer-file-paths";
 import type { AttentionBrowserHost, AttentionRegistry } from "./attention-registry";
@@ -284,6 +285,7 @@ export interface TurnLifecycleOptions {
   planContinuation: PlanContinuation;
   hooks: TurnHooks;
   ledger: TurnLedger;
+  research: ResearchSourceStore;
 }
 
 /**
@@ -312,6 +314,7 @@ export class TurnLifecycle {
   readonly #planContinuation: PlanContinuation;
   readonly #hooks: TurnHooks;
   readonly #ledger: TurnLedger;
+  readonly #research: ResearchSourceStore;
   readonly fileHistory = new ThreadFileHistory();
   readonly #failedTurns = new Map<string, string>();
   readonly #observedCompactions = new Map<string, string>();
@@ -415,6 +418,7 @@ export class TurnLifecycle {
     this.#planContinuation = options.planContinuation;
     this.#hooks = options.hooks;
     this.#ledger = options.ledger;
+    this.#research = options.research;
   }
 
   failedTurns(): ReadonlyMap<string, string> {
@@ -1928,6 +1932,28 @@ export class TurnLifecycle {
     }
   });
 
+  /**
+   * Keeps the query and url of a completed web search for the agent's later turns. The store refuses a
+   * registered secret and a query it cannot hold; such a search costs only the cache, and the turn goes on.
+   */
+  #recordWebSearch(agentId: string, item: ThreadItem): void {
+    const query = getString(item, "query");
+    if (!query) return;
+    try {
+      this.#research.record({
+        agentId,
+        query,
+        url: getString(getRecord(item, "action"), "url"),
+        title: null,
+        snippet: JSON.stringify(item),
+      });
+    } catch (error) {
+      logger.warn("A web search source was not kept.", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   readonly #applyItem = Effect.fn("TurnLifecycle.applyItem")(function* (
     this: TurnLifecycle,
     agentId: string,
@@ -1938,6 +1964,7 @@ export class TurnLifecycle {
   ) {
     const usage = completed ? toolUsage(item) : null;
     if (usage) this.#hooks.emitToolUsage({ ...usage, agentId, turnId });
+    if (completed && item.type === "webSearch") this.#recordWebSearch(agentId, item);
     if (yield* this.#images.handleItem(agentId, threadId, turnId, item, completed)) return;
     const toolProgress = toolProgressText(item, completed);
     this.#observeTraceStep(turnId, item, completed, toolProgress);

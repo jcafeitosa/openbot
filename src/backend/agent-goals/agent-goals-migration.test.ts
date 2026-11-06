@@ -64,7 +64,7 @@ function goalObjects(db: DatabaseSync) {
 }
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 63 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 64 });
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -108,7 +108,7 @@ describe("agent goals migration", () => {
       if (version < 62) migrateUpTo(db, 62);
       const before = contents(db);
       migrateOpenBotDatabase(db);
-      expect(contents(db)).toEqual({ ...before, agent_goals: [] });
+      expect(contents(db)).toEqual({ ...before, agent_goals: [], research_sources: [] });
       expectHealthy(db);
     },
   );
@@ -181,7 +181,7 @@ describe("agent goals migration", () => {
     expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
     db.exec("DROP TRIGGER fail_marker");
     migrateOpenBotDatabase(db);
-    expect(contents(db)).toEqual({ ...before, agent_goals: [] });
+    expect(contents(db)).toEqual({ ...before, agent_goals: [], research_sources: [] });
     expect(goalObjects(db)).toEqual([
       { type: "table", name: "agent_goals" },
       { type: "index", name: "agent_goals_agent" },
@@ -193,7 +193,7 @@ describe("agent goals migration", () => {
     const db = databaseAt(62);
     seed(db);
     const before = contents(db);
-    db.exec("INSERT INTO schema_migrations VALUES(64,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(65,'now')");
     expect(() => migrateOpenBotDatabase(db)).toThrow("newer than this application supports");
     expect(contents(db)).toEqual(before);
     expect(goalObjects(db)).toEqual([]);
