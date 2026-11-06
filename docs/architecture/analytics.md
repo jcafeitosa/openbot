@@ -33,7 +33,7 @@ platforms use `unknown`. No referral signal retains the coarse `direct` category
 not prove a visitor typed the address.
 
 An article reports its own path, so one article can be told from another. `safeScreenPath` and the
-`slug` property check resolve the path against the `src/lib/news.ts` and `src/lib/guides.ts`
+`slug` property check resolve the path against the `apps/auth-api/src/lib/news.ts` and `apps/auth-api/src/lib/guides.ts`
 registries, so the reportable set stays closed: an unknown slug reports `/` and is dropped from the
 payload. `articleFromPath` gives the delegated click listener the same lookup, which is what lets it
 track article cards at all; their hrefs carry a slug and cannot be matched by the exact-href
@@ -51,7 +51,7 @@ See [PRIVACY.md](../../PRIVACY.md) for the data boundary.
 `rememberLandingFirstTouch` saves the first visit in `localStorage` (`@openbot/contracts/first-touch`
 owns the shape, the parser and the 90-day age). The web client sends it with `email/verify`, and
 `/billing/return` sends it with the Checkout Session ID to `POST /api/browser/checkout-attribution`.
-`AccountAttribution` (`src/server/account-attribution.ts`) checks it again, keeps the first value
+`AccountAttribution` (`apps/auth-api/src/server/account-attribution.ts`) checks it again, keeps the first value
 for each account in D1 `account_attribution`, and sends `account_attributed`. `BillingSales` copies
 it to the `payment_succeeded` and `revenue` ledger events. The flow and its limits are in
 [ANALYTICS.md](../../ANALYTICS.md#first-touch-attribution).

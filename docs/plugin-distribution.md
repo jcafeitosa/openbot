@@ -191,7 +191,7 @@ only if the catalog moves to a host that OpenBot does not control.
 
 ### 2.6 Fetch and cache in the app
 
-A new `src/main/plugin-catalog-service.ts` owns this. `src/main/application-services.ts` builds it.
+A new `src/main/plugin-catalog-service.ts` will own this. The file does not exist yet. `src/main/application-services.ts` builds it.
 It does not use `CentralAuthManager`, because the browse path must work when the user is not signed
 in.
 
@@ -213,7 +213,7 @@ The renderer shows three failure states:
 
 ### 2.7 Contracts and IPC
 
-The plugin types move from the renderer to `packages/contracts/src/ipc-plugin-catalog.ts`. The
+The plugin types will move from the renderer to `packages/contracts/src/ipc-plugin-catalog.ts`, which does not exist yet. The
 renderer file exports them again, in the way that `src/renderer/src/features/servers/mcp-servers.ts`
 does over `packages/contracts/src/ipc-mcp-servers.ts`.
 
@@ -475,7 +475,7 @@ Ordered by cost.
    (`apps/auth-api/src/routes/plugins/`) and the sitemap entries (`apps/auth-api/src/server/content-feed.ts`)
    read the generated catalog. The JSON route does not exist.
 4. The contract types, the channels, the decoders, the preload and the mock.
-5. `src/main/plugin-catalog-service.ts`: the request, the cache and the snapshot.
+5. `src/main/plugin-catalog-service.ts` (not yet created): the request, the cache and the snapshot.
 6. ~~Connect the Plugins tab (now the Apps tab) to the real data. Keep the fixtures for Storybook.~~ Partly done: the
    tab reads the generated `src/renderer/src/features/settings/marketplace-plugin-catalog.ts`,
    built from `marketplace/plugin-catalog/`. Steps 3 to 5 replace that generated
