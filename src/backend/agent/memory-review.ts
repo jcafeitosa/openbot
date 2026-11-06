@@ -13,6 +13,7 @@ import { extractJsonObject } from "../structured-output";
 import type { AgentMemories, MemoryReviewBase } from "./agent-memories";
 import { backgroundModel } from "./background-model";
 import { memoryChangesMessage } from "./memory-changes-message";
+import type { MemoryConsolidation } from "./memory-consolidation";
 import { MemoryReviewResult, memoryReflectionPrompt, memoryReviewPrompt } from "./memory-review-prompt";
 import type { ProfileClients } from "./profile-clients";
 import { type GenerationObserver, GenerationUsageLimitError, generateTextWithoutTools } from "./profile-generation";
@@ -57,6 +58,8 @@ export interface MemoryReviewOptions {
    * reviews, also after a pause, a clear and a closed side thread. Omitted, `MEMORY_REVIEW_INTERVAL`.
    */
   interval?(): number;
+  /** The daily consolidation of the agent's memories. Omitted, no consolidation runs. */
+  consolidation?: MemoryConsolidation;
 }
 
 /** One conversation that a review reads: the agent's own chat (`threadId` null) or one side thread. */
@@ -117,6 +120,14 @@ export class MemoryReview {
     counts: boolean,
     memoryCommitted: boolean,
   ) {
+    if (threadId === null && !this.#off()) {
+      yield* this.#consolidateToday(agentId).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => logger.warn("Could not consolidate the agent's memories.", { error })),
+        ),
+        Effect.forkIn(this.#scope),
+      );
+    }
     const conversation = this.#conversation(agentId, threadId);
     yield* this.#stopIdle(conversation);
     this.#flush(conversation);
@@ -347,7 +358,7 @@ export class MemoryReview {
         redacted.base,
         excerpt.map((message) => ({ ...message, text: options.redact(message.text) })),
       );
-      const result = yield* this.#answer(agent, model, prompt);
+      const result = yield* this.answer(agent, model, prompt);
       const operations = result.operations.filter(
         (operation) => operation.type === "add" || !redacted.hidden.has(operation.memoryId),
       );
@@ -416,7 +427,7 @@ export class MemoryReview {
         errorClass: failed.errorClass,
         toolSteps: failed.toolSteps.map((step) => options.redact(step)),
       });
-      const result = yield* this.#answer(agent, model, prompt);
+      const result = yield* this.answer(agent, model, prompt);
       const lesson = result.operations.flatMap((operation) => (operation.type === "add" ? [operation] : []))[0];
       if (!lesson || options.stopping()) return;
       if (!options.listAgents().some((candidate) => candidate.id === agentId)) return;
@@ -435,8 +446,11 @@ export class MemoryReview {
     Effect.mapError((failure) => new MemoryReviewFailed({ cause: failure })),
   ).bind(this);
 
-  /** One generation without tools, answered as the JSON object of changes that the review decodes. */
-  readonly #answer = Effect.fn("MemoryReview.answer")(function* (
+  /**
+   * One generation without tools, answered as the JSON object of changes that the review decodes. Public so
+   * that a consolidation of the memories runs the same generation as a review.
+   */
+  readonly answer = Effect.fn("MemoryReview.answer")(function* (
     this: MemoryReview,
     agent: AgentSummary,
     model: AgentModelOption,
@@ -456,6 +470,27 @@ export class MemoryReview {
     return yield* Effect.try(() => extractJsonObject(answer)).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(MemoryReviewResult)),
     );
+  }).bind(this);
+
+  /**
+   * The daily consolidation of the agent's memories, checked at the end of each of its own turns. It runs once per
+   * local day on the background model, with the production generation, and waits while the agent has a turn running.
+   * Nothing runs when no consolidation is wired.
+   */
+  readonly #consolidateToday = Effect.fn("MemoryReview.consolidateToday")(function* (
+    this: MemoryReview,
+    agentId: string,
+  ) {
+    const options = this.#options;
+    const consolidation = options.consolidation;
+    if (!consolidation || options.stopping()) return;
+    const agent = options.listAgents().find((candidate) => candidate.id === agentId);
+    if (!agent) return;
+    const day = localDay(new Date());
+    if (!consolidation.isDue(agentId, day) || !options.profileClients.hasSpare()) return;
+    const model = backgroundModel(agent, yield* options.models(agent));
+    if (!model) return;
+    yield* consolidation.run(agent, day, (generating, prompt) => this.answer(generating, model, prompt));
   }).bind(this);
 
   #moveCursor(conversation: ReviewedConversation, messages: readonly ConversationMessage[]): void {
@@ -540,7 +575,7 @@ function failedTurnOf(
  * The memories of a review with their texts redacted, and the ids of those whose text the redaction
  * changed. The model sees only the redacted text of these, so it must not write or forget them.
  */
-function redactedBase(base: MemoryReviewBase, redact: (text: string) => string) {
+export function redactedBase(base: MemoryReviewBase, redact: (text: string) => string) {
   const memories = base.memories.map((entry) => ({
     ...entry,
     memory: { ...entry.memory, text: redact(entry.memory.text) },
@@ -551,4 +586,11 @@ function redactedBase(base: MemoryReviewBase, redact: (text: string) => string) 
       .map((entry) => entry.memory.id),
   );
   return { base: { ...base, memories }, hidden };
+}
+
+/** The local calendar day of `date`, as `YYYY-MM-DD`. */
+export function localDay(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }

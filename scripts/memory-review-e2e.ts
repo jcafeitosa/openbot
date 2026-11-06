@@ -37,6 +37,7 @@ import { join, resolve } from "node:path";
 import { AGENT_PROVIDERS, type AgentEvent, CONVERSATION_MEMORY_CHANGES_ITEM_TYPE } from "@openbot/contracts/ipc";
 import { isDynamicRecord } from "@openbot/contracts/runtime-values";
 import { Effect } from "effect";
+import { CONSOLIDATION_PROMPT_MARKER } from "../src/backend/agent/memory-consolidation";
 import type { AgentBrowserHost } from "../src/backend/agent/turn-lifecycle";
 
 const OUT = resolve(import.meta.dirname, "../.openbot-build/memory-review-e2e");
@@ -127,6 +128,10 @@ const answer = (message) => {
       write({ id: message.id, result: { turn: { id: turnId, status: "inProgress", items: [] } } });
       write({ method: "turn/started", params: { threadId: params.threadId, turn: { id: turnId } } });
       const turn = { threadId: params.threadId, turnId, calls: [] };
+      if (text.includes(${JSON.stringify(CONSOLIDATION_PROMPT_MARKER)})) {
+        log({ method: "consolidation", text, model: params.model });
+        return setTimeout(() => finish(turn, '{"operations":[]}'), 5);
+      }
       if (text.includes(${JSON.stringify(REVIEW_MARKER)})) {
         const control = JSON.parse(fs.readFileSync(CONTROL, "utf8"));
         log({ method: "review", text, model: params.model });
@@ -352,6 +357,21 @@ try {
     assert.equal(shown[0]?.memoryChanges?.[0]?.action, "saved");
     assert.equal(errorsFor(first.id, since).length, 0, "No error shows.");
     return { line: shown[0]?.id };
+  });
+
+  await check("the first turn of a day runs one consolidation, and the next turn the same day runs none", async () => {
+    // The consolidation is a generation of its own: it is counted apart from the reviews above.
+    await waitFor("the day's consolidation", () => {
+      const row = database.connection
+        .prepare("SELECT status FROM memory_consolidation_runs WHERE agent_id = ?")
+        .get(first.id);
+      return isDynamicRecord(row) && row.status === "done";
+    });
+    assert.equal(logged("consolidation").length, 1, "The first turn of the day runs one consolidation.");
+    await send(first.id, "A turn later the same day.");
+    await settle();
+    assert.equal(logged("consolidation").length, 1, "The next turn the same day runs no consolidation.");
+    return { consolidations: logged("consolidation").length };
   });
 
   await check("a review's memory records the reviewed thread and turn as its source", async () => {

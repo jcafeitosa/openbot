@@ -178,6 +178,7 @@ import { LiveVoice, type LiveVoiceReply } from "./agent/live-voice";
 import { MailboxSync } from "./agent/mailbox-sync";
 import { type GitHubConnectorSource, McpGateway, type TestMcpServerOptions } from "./agent/mcp-gateway";
 import { type MarketplaceAppServer, mcpServersFromGateway } from "./agent/mcp-tools";
+import { MemoryConsolidation } from "./agent/memory-consolidation";
 import { MemoryHold } from "./agent/memory-hold";
 import { MEMORY_REVIEW_MESSAGES, MemoryReview } from "./agent/memory-review";
 import { MessageDeletion } from "./agent/message-deletion";
@@ -649,6 +650,21 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
       ...(options.agentMemoryLimit ? { limit: options.agentMemoryLimit } : {}),
     });
+    const reviewChat = (agentId: string, sideThreadId: string | null) => {
+      const loaded = sideThreadId
+        ? this.#conversation.loadedExecutionSnapshot(sideThreadId)
+        : this.#conversation.loadedSnapshot(agentId);
+      // The next turn can start before the review reads: it reads that turn after it ends.
+      if (loaded)
+        return loaded.activeTurnId
+          ? loaded.messages.filter((message) => message.turnId !== loaded.activeTurnId)
+          : loaded.messages;
+      const threadId = sideThreadId ?? this.#store.list().find((agent) => agent.id === agentId)?.threadId;
+      return threadId
+        ? this.#store.database.readConversationPage(agentId, threadId, { type: "latest" }, MEMORY_REVIEW_MESSAGES)
+            .messages
+        : [];
+    };
     this.#memoryReview = new MemoryReview({
       memories: this.#memories,
       profileClients: this.#profileClients,
@@ -658,21 +674,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       createProfileClient: (agent) => this.#providers.createProfileClient(agent.provider, agent.providerAccountId),
       usageObserver: (agent, model) =>
         memoryReviewUsageObserver(this.#store.database.usage, agent.id, agent.provider, model.id),
-      chat: (agentId, sideThreadId) => {
-        const loaded = sideThreadId
-          ? this.#conversation.loadedExecutionSnapshot(sideThreadId)
-          : this.#conversation.loadedSnapshot(agentId);
-        // The next turn can start before the review reads: it reads that turn after it ends.
-        if (loaded)
-          return loaded.activeTurnId
-            ? loaded.messages.filter((message) => message.turnId !== loaded.activeTurnId)
-            : loaded.messages;
-        const threadId = sideThreadId ?? this.#store.list().find((agent) => agent.id === agentId)?.threadId;
-        return threadId
-          ? this.#store.database.readConversationPage(agentId, threadId, { type: "latest" }, MEMORY_REVIEW_MESSAGES)
-              .messages
-          : [];
-      },
+      chat: reviewChat,
       turnActive: (agentId, sideThreadId) =>
         Boolean(
           (sideThreadId
@@ -688,6 +690,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       stopping: () => this.#stopping,
       ...(options.memoryReviewIdleMs === undefined ? {} : { idleMs: options.memoryReviewIdleMs }),
       ...(options.memoryReviewInterval ? { interval: options.memoryReviewInterval } : {}),
+      consolidation: new MemoryConsolidation({
+        database: this.#store.database,
+        memories: this.#memories,
+        chat: (agentId) => reviewChat(agentId, null),
+        turnActive: (agentId) => Boolean(this.#conversation.loadedSnapshot(agentId)?.activeTurnId),
+        redact: (text) => this.#mcp.redact(text),
+      }),
     });
     // One timer for every routine owner. The sources are read lazily because `channels` and its
     // scheduler are built further down, and because an owner's earliest routine changes constantly.

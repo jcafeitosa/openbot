@@ -82,8 +82,8 @@ describe("memory proposals migration", () => {
 
     migrateOpenBotDatabase(db);
 
-    expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 65 });
-    expect(contents(db)).toEqual({ ...before, memory_proposals: [] });
+    expect(db.prepare("SELECT version FROM schema_migrations WHERE version = 65").get()).toEqual({ version: 65 });
+    expect(contents(db)).toEqual({ ...before, memory_consolidation_runs: [], memory_proposals: [] });
   });
 
   it("refuses a status outside pending, approved and rejected", () => {

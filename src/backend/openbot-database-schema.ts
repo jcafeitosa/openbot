@@ -707,6 +707,25 @@ const MEMORY_PROPOSALS_SCHEMA_SQL = `
     ON memory_proposals(target_scope, target_id, fingerprint) WHERE status = 'pending';
 `;
 
+// Migration 66 keeps one row per agent and local day for the daily consolidation of an agent's memory: the run's status,
+// the last turn it read, and the operations it applied with the text each one replaced, so that an undo can restore them.
+// The primary key allows one run per agent and day, so a second attempt on the same day changes nothing. Only creates a
+// table, so no foreign-key pause and no vacuum. IF NOT EXISTS throughout, because this text is both migration 66 and the
+// tail of the latest schema.
+const MEMORY_CONSOLIDATION_RUNS_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS memory_consolidation_runs (
+    agent_id TEXT NOT NULL,
+    run_day TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('running', 'done', 'failed', 'undone')),
+    cursor_turn_id TEXT,
+    applied_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(applied_json)),
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    attempts INTEGER NOT NULL DEFAULT 1 CHECK(attempts IN (1, 2)),
+    PRIMARY KEY(agent_id, run_day)
+  );
+`;
+
 // Migration 61 records where each memory came from: a turn, a background review, a reflection or the user.
 // Frozen with the migration. ADD COLUMN puts the declaration after the last column and before the UNIQUE
 // constraint that ends the table, so the latest schema puts it there as well.
@@ -782,7 +801,8 @@ const LATEST_SCHEMA_SQL =
   AGENT_MEMORY_REVISIONS_SCHEMA_SQL +
   AGENT_GOALS_SCHEMA_SQL +
   RESEARCH_SOURCES_SCHEMA_SQL +
-  MEMORY_PROPOSALS_SCHEMA_SQL;
+  MEMORY_PROPOSALS_SCHEMA_SQL +
+  MEMORY_CONSOLIDATION_RUNS_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -1172,6 +1192,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // Only creates a table and its indexes, so no foreign-key pause and no vacuum. No promotion proposal existed before it,
     // so the table starts empty and no existing row changes.
     up: (db) => db.exec(MEMORY_PROPOSALS_SCHEMA_SQL),
+  },
+  {
+    version: 66,
+    // Only creates a table, so no foreign-key pause and no vacuum. No consolidation ran before it, so the table starts
+    // empty and no existing row changes.
+    up: (db) => db.exec(MEMORY_CONSOLIDATION_RUNS_SCHEMA_SQL),
   },
 ];
 
