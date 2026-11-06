@@ -44,6 +44,7 @@ import {
   listWaitsToolSchema,
 } from "./agent-waits/agent-waits";
 import { CHANNEL_TOOL_DEFINITIONS } from "./channel-tools";
+import { EXACT_COMPUTE_MAX_LENGTH } from "./exact-compute";
 import { MESSAGING_TOOL_DEFINITIONS } from "./messaging/messaging-tools";
 import { ROUTINE_FLOW_TOOL_DEFINITIONS } from "./routine-flows/routine-flow-tools";
 import {
@@ -300,6 +301,11 @@ export const sendToChannelToolSchema = z.strictObject({
   text: z.string().trim().min(1).max(INPUT_LIMITS.messageText),
   recipientAgentIds: z.array(z.string().min(1).max(INPUT_LIMITS.identifier)).max(INPUT_LIMITS.agents).optional(),
   paths: z.array(z.string().min(1).max(INPUT_LIMITS.path)).max(INPUT_LIMITS.attachments).optional(),
+});
+
+/** `compute_exact`: one expression. `computeExact` refuses everything the grammar does not allow. */
+export const computeExactToolSchema = z.strictObject({
+  expression: z.string().min(1).max(EXACT_COMPUTE_MAX_LENGTH).describe("One expression, such as 0.1 + 0.2 or 2 ^ 100."),
 });
 
 /** The Marketplace apps that the chat draws a card for: the bundled catalog plugins and the connectors. */
@@ -751,6 +757,18 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
         )
         .optional(),
     },
+  },
+  {
+    name: "compute_exact",
+    description: [
+      "Evaluate one arithmetic or boolean expression exactly, instead of computing it in text.",
+      "Numbers: + - * / % ^ with parentheses and unary minus, on decimals of any size: 0.1 + 0.2 is 0.3. The exponent of ^ is a whole number.",
+      "A result that no finite decimal holds, such as 1/3, comes back as a fraction.",
+      "Booleans: true, false, not, and, or, ==, !=, <, <=, >, >=. Compare numbers with numbers and booleans with booleans.",
+      "Identifiers, function calls and properties are refused.",
+      'The result is JSON {"value":"<exact result>","type":"number"|"boolean"}. A bad expression or a division by zero fails with "code":"validation".',
+    ].join(" "),
+    shape: computeExactToolSchema.shape,
   },
 ];
 

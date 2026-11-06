@@ -42,6 +42,7 @@ import { attachmentCall, attachmentFailure } from "../attachment-effects";
 import { OPENBOT_BROWSER_NAMESPACE } from "../browser-tools";
 import type { ChannelService } from "../channel-service";
 import type { ProviderSession } from "../database/provider-sessions";
+import { computeExact } from "../exact-compute";
 import type { MailboxStore, MessageChain } from "../mailbox-store";
 import { agentMcpServers, codexDeferredMcpServers } from "../mcp-provider-shapes";
 import type { MessagingThreads } from "../messaging/messaging-threads";
@@ -51,6 +52,7 @@ import {
   acknowledgeRequestToolSchema,
   askUiToolSchema,
   CHAT_VISUAL_PREVIEW_DEFAULT_WIDTH,
+  computeExactToolSchema,
   htmlPreviewToolSchema,
   htmlRenderToolSchema,
   MARKETPLACE_APP_IDS,
@@ -1416,6 +1418,20 @@ export class OpenBotToolRouter {
             ? "The card is in the chat. End your answer: tell the user to connect GitHub in Server settings, Connectors. This connection also signs in gh and git."
             : "The card is in the chat. End your answer: tell the user to connect the app with the card or in Marketplace, on the Apps tab, so that every agent can use it directly. You have no tools for it until then.",
       });
+    }
+
+    if (params.tool === "compute_exact") {
+      const parsed = computeExactToolSchema.safeParse(params.arguments);
+      const outcome = parsed.success
+        ? computeExact(parsed.data.expression)
+        : { ok: false as const, code: "validation" as const, message: profileToolErrorMessage(parsed.error) };
+      if (!outcome.ok) {
+        return {
+          success: false,
+          contentItems: [{ type: "inputText", text: JSON.stringify({ error: outcome.message, code: outcome.code }) }],
+        };
+      }
+      return openBotToolResult({ value: outcome.value, type: outcome.type });
     }
 
     if (params.tool === "react_to_user_message") return yield* this.#react(params, senderAgentId);
