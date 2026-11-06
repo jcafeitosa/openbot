@@ -1,12 +1,16 @@
 // Checks the tool error taxonomy through the real OpenBot tool router. Runs the real agent service on a
 // temporary profile with a fake Codex app-server, the same pattern as `exact-compute-e2e.ts`. The fake
-// calls three tools through the `openbot` namespace, and the dispatch in `openbot-tool-router.ts`
+// calls six tools through the `openbot` namespace, and the dispatch in `openbot-tool-router.ts`
 // answers each call. The checks read the answer the model sees: the `tool-result` the fake logs.
 //   1. An invalid argument to `compute_exact` is code `validation`, not retryable.
-//   2. A handler that throws a seeded fake secret is code `internal`, not retryable, and its text holds
+//   2. A handler that throws a seeded fake secret is code `not_found`, not retryable, and its text holds
 //      no secret. `send_message` throws `Unknown OpenBot agent: <recipient>` for an unknown recipient id,
 //      so the seeded secret is passed as that id.
 //   3. Division by zero through `compute_exact` is code `validation`.
+//   4. `suggest_marketplace_app` without an app slug is code `validation`.
+//   5. A `channel_*` tool in a chat with no channel assignment is code `denied`, not retryable.
+//   6. A defect whose message carries a seeded fake secret (an unknown dynamic tool namespace) is code
+//      `internal`, not retryable, and its text holds no secret.
 // `bun scripts/tool-error-taxonomy-router-e2e.ts`. Writes .openbot-build/tool-error-taxonomy-router-e2e/report.json.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -47,6 +51,9 @@ const CALLS = [
     arguments: { recipientAgentIds: [SECRET], text: "Hello." },
   },
   { name: "division by zero", tool: "compute_exact", arguments: { expression: "1/0" } },
+  { name: "marketplace app slug missing", tool: "suggest_marketplace_app", arguments: {} },
+  { name: "channel tool outside a channel", tool: "channel_assign", arguments: {} },
+  { name: "unknown namespace carries a seeded secret", tool: "noop", namespace: `corp-${SECRET}`, arguments: {} },
 ] as const;
 
 /**
@@ -87,7 +94,7 @@ const callNext = (turn) => {
   write({
     id,
     method: "item/tool/call",
-    params: { threadId: turn.threadId, turnId: turn.turnId, callId: "call-" + id, namespace: "openbot", tool: call.tool, arguments: call.arguments || {} },
+    params: { threadId: turn.threadId, turnId: turn.turnId, callId: "call-" + id, namespace: call.namespace || "openbot", tool: call.tool, arguments: call.arguments || {} },
   });
 };
 const answer = (message) => {
@@ -270,7 +277,11 @@ try {
   await runCauseEffect(agents.initialize());
 
   // One agent turn makes every call in order through the real router.
-  const calls = CALLS.map(({ tool, arguments: args }) => ({ tool, arguments: args }));
+  const calls = CALLS.map((call) => ({
+    tool: call.tool,
+    arguments: call.arguments,
+    namespace: "namespace" in call ? call.namespace : undefined,
+  }));
   await runCauseEffect(
     agents.createAgent({
       name: "Calculator",
@@ -288,7 +299,7 @@ try {
   CALLS.forEach(({ name }, index) => {
     report.results[name] = publish(answers[index]);
   });
-  const [invalid, thrown, divZero] = answers;
+  const [invalid, thrown, divZero, marketplace, channelOutside, defect] = answers;
 
   check(
     "(1) an invalid argument to compute_exact returns code validation, retryable false",
@@ -296,9 +307,21 @@ try {
     publish(invalid),
   );
   check(
-    "(2) a handler that throws a seeded secret returns code internal, retryable false",
-    thrown?.success === false && thrown.body?.code === "internal" && thrown.body.retryable === false,
+    "(2) a handler that throws a seeded secret returns code not_found, retryable false",
+    thrown?.success === false && thrown.body?.code === "not_found" && thrown.body.retryable === false,
     publish(thrown),
+  );
+  check(
+    "(4) suggest_marketplace_app without an app slug returns code validation",
+    marketplace?.success === false && marketplace.body?.code === "validation",
+    publish(marketplace),
+  );
+  check(
+    "(5) a channel tool outside a channel returns code denied, retryable false",
+    channelOutside?.success === false &&
+      channelOutside.body?.code === "denied" &&
+      channelOutside.body.retryable === false,
+    publish(channelOutside),
   );
   check(
     "(2) the handler's own message reaches the answer, so the handler really threw",
@@ -306,6 +329,15 @@ try {
     publish(thrown),
   );
   check("(2) the text of that answer holds no seeded secret", thrown?.text != null && !thrown.text.includes(SECRET));
+  check(
+    "(2) a defect with a seeded secret in its message returns code internal, retryable false",
+    defect?.success === false && defect.body?.code === "internal" && defect.body.retryable === false,
+    publish(defect),
+  );
+  check(
+    "(2) the text of the defect answer holds no seeded secret",
+    defect?.text != null && !defect.text.includes(SECRET),
+  );
   check(
     "(3) division by zero through compute_exact returns code validation",
     divZero?.success === false && divZero.body?.code === "validation",

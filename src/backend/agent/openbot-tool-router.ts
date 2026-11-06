@@ -506,10 +506,13 @@ export class OpenBotToolRouter {
               return;
             }
             if (this.#attention.hasBrowserTakeoverForAgent(agentId)) {
-              client.respond(toolRequest.id, {
-                success: false,
-                contentItems: [{ type: "inputText", text: "Browser tools are unavailable during user takeover." }],
-              });
+              client.respond(
+                toolRequest.id,
+                openBotToolFailure("Browser tools are unavailable during user takeover.", {
+                  code: "unavailable",
+                  retryable: true,
+                }),
+              );
               return;
             }
             const params = {
@@ -882,7 +885,11 @@ export class OpenBotToolRouter {
 
   #requireAgent(agentId: string): AgentSummary {
     const agent = this.#hooks.listAgents().find((candidate) => candidate.id === agentId);
-    if (!agent) throw new Error(sourceText("error.agent.unknown", { id: agentId }));
+    if (!agent)
+      throw new ToolFailureError(
+        { code: "not_found", retryable: false },
+        sourceText("error.agent.unknown", { id: agentId }),
+      );
     return agent;
   }
 
@@ -1118,7 +1125,8 @@ export class OpenBotToolRouter {
     }
     const channelId = this.#channels.store.channelForThread(executionThreadId);
     if (channelId && (params.tool.startsWith("channel_") || params.tool === "send_message")) {
-      if (params.tool === "send_message") throw new Error("Use channel_assign or channel_transfer for channel work.");
+      if (params.tool === "send_message")
+        throw invalidToolArgument("Use channel_assign or channel_transfer for channel work.");
       return openBotToolResult(
         yield* this.#channels.tool(
           channelId,
@@ -1131,15 +1139,10 @@ export class OpenBotToolRouter {
       );
     }
     if (params.tool.startsWith("channel_")) {
-      return {
-        success: false,
-        contentItems: [
-          {
-            type: "inputText",
-            text: "This chat has no active channel assignment. Channel tools work only inside a channel task. To give work to a channel from this chat, use openbot.list_channels and openbot.send_to_channel. Use openbot.send_message for direct teammate work.",
-          },
-        ],
-      };
+      return openBotToolFailure(
+        "This chat has no active channel assignment. Channel tools work only inside a channel task. To give work to a channel from this chat, use openbot.list_channels and openbot.send_to_channel. Use openbot.send_message for direct teammate work.",
+        { code: "denied", retryable: false },
+      );
     }
 
     if (params.tool === "list_channels") {
@@ -1215,7 +1218,9 @@ export class OpenBotToolRouter {
         args.paths.length > INPUT_LIMITS.attachments ||
         !args.paths.every((path) => isString(path) && path.trim().length > 0 && path.length <= INPUT_LIMITS.path)
       ) {
-        throw new Error(`paths must contain between 1 and ${INPUT_LIMITS.attachments} valid local file paths.`);
+        throw invalidToolArgument(
+          `paths must contain between 1 and ${INPUT_LIMITS.attachments} valid local file paths.`,
+        );
       }
 
       const messageId = responseAttachmentMessageId(params.threadId, params.turnId, params.callId);
@@ -1458,7 +1463,7 @@ export class OpenBotToolRouter {
 
     if (params.tool === "suggest_marketplace_app") {
       const args = params.arguments;
-      if (!isRecord(args) || !isString(args.app)) throw new Error("app must be a Marketplace app slug.");
+      if (!isRecord(args) || !isString(args.app)) throw invalidToolArgument("app must be a Marketplace app slug.");
       if (!MARKETPLACE_APP_IDS.includes(args.app)) {
         return openBotToolResult({
           status: "not_found",
@@ -2013,7 +2018,7 @@ export class OpenBotToolRouter {
                 // The new agent can keep a stored default that its provider does not list. The error names
                 // that model and the listed ones, so the caller can name a model and try again.
                 if (!model) {
-                  throw new Error(
+                  throw invalidToolArgument(
                     sourceText("error.agent.modelNotListed", {
                       model: agent.model,
                       models: modelList(models, agent.provider),
@@ -2066,7 +2071,7 @@ export class OpenBotToolRouter {
         ...fields
       } = args;
       if (avatarPath !== undefined && (args.avatarSeed !== undefined || avatarHue !== undefined)) {
-        throw new Error("Use avatarPath or generated avatar settings, not both.");
+        throw invalidToolArgument("Use avatarPath or generated avatar settings, not both.");
       }
       const runtimeRequest = { provider, model, reasoningEffort };
       if (
@@ -2079,10 +2084,11 @@ export class OpenBotToolRouter {
         avatarHue === undefined &&
         avatarPath === undefined
       ) {
-        throw new Error("At least one profile field is required.");
+        throw invalidToolArgument("At least one profile field is required.");
       }
       const sender = this.#hooks.listAgents().find((agent) => agent.id === senderAgentId);
-      if (!sender) throw new Error("The calling agent no longer exists.");
+      if (!sender)
+        throw new ToolFailureError({ code: "not_found", retryable: false }, "The calling agent no longer exists.");
       const target = this.#requireAgent(agentId);
       if (widensAgentSettings(target, access, computerUse)) {
         return openBotToolFailure(sourceText("error.agent.onlyUserWidensSettings"), {
@@ -2179,7 +2185,11 @@ export class OpenBotToolRouter {
       const delivery = this.#mailbox
         .findDeliveriesByTurn(senderAgentId, params.turnId)
         .findLast((candidate) => candidate.delivery.sender.kind === "user");
-      if (!delivery) throw new Error("Only the current user message can receive an agent reaction.");
+      if (!delivery)
+        throw new ToolFailureError(
+          { code: "denied", retryable: false },
+          "Only the current user message can receive an agent reaction.",
+        );
       const emoji = args.emoji;
       yield* this.#mailbox
         .setReaction(senderAgentId, delivery.delivery.id, { kind: "agent", agentId: senderAgentId }, emoji)
@@ -2200,7 +2210,7 @@ export class OpenBotToolRouter {
       senderAgentId: string,
     ): Effect.fn.Return<OpenBotToolResponse, ToolOperationFailed> {
       if (params.tool !== "send_message" || !isRecord(params.arguments)) {
-        throw new Error(`Unsupported OpenBot tool: ${params.tool}`);
+        throw invalidToolArgument(`Unsupported OpenBot tool: ${params.tool}`);
       }
       const recipientValues = params.arguments.recipientAgentIds;
       if (!Array.isArray(recipientValues) || !recipientValues.every((item) => isString(item))) {
@@ -2213,10 +2223,14 @@ export class OpenBotToolRouter {
       const known = new Map(this.#hooks.listAgents().map((agent) => [agent.id, agent]));
       for (const recipient of recipientValues) {
         const agent = known.get(recipient);
-        if (!agent) throw new Error(`Unknown OpenBot agent: ${recipient}`);
+        if (!agent)
+          throw new ToolFailureError({ code: "not_found", retryable: false }, `Unknown OpenBot agent: ${recipient}`);
         // A hidden agent receives no new messages until the user restores it.
         if (agent.hiddenAt !== undefined)
-          throw new Error(`${recipient}: ${sourceText("error.backend.recipientHidden")}`);
+          throw new ToolFailureError(
+            { code: "denied", retryable: false },
+            `${recipient}: ${sourceText("error.backend.recipientHidden")}`,
+          );
       }
       const paths = params.arguments.paths ?? [];
       if (!Array.isArray(paths) || !paths.every((item) => isString(item))) {
@@ -2288,7 +2302,10 @@ export class OpenBotToolRouter {
           new Error(`Chain ${chain.id} reached hop ${chain.hop}.`),
           senderAgentId,
         );
-        throw new Error(sourceText("error.backend.agentHopLimit", { limit: AGENT_MESSAGE_HOP_LIMIT }));
+        throw new ToolFailureError(
+          { code: "denied", retryable: false },
+          sourceText("error.backend.agentHopLimit", { limit: AGENT_MESSAGE_HOP_LIMIT }),
+        );
       }
       const text = params.arguments.text;
       const receipt = yield* this.#mailbox
