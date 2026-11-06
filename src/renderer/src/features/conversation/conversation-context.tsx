@@ -63,6 +63,54 @@ const LATEST_PAGE_SIZE = 50;
  */
 const INACTIVE_SNAPSHOT_TAIL = LATEST_PAGE_SIZE * 4;
 
+/** True when both lists are the same message objects in the same order. */
+function sameMessageList(current: readonly AgentMessage[], next: readonly AgentMessage[]): boolean {
+  if (current.length !== next.length) return false;
+  for (let index = 0; index < current.length; index += 1) {
+    if (current[index] !== next[index]) return false;
+  }
+  return true;
+}
+
+/** True when both records hold the same message objects under the same ids. */
+function sameMessageRecord(
+  current: Readonly<Record<string, AgentMessage>> | undefined,
+  next: Readonly<Record<string, AgentMessage>>,
+): boolean {
+  const stored = current ?? {};
+  const keys = Object.keys(next);
+  if (Object.keys(stored).length !== keys.length) return false;
+  for (const key of keys) {
+    if (stored[key] !== next[key]) return false;
+  }
+  return true;
+}
+
+/** True when both records hold the same ids. The value is always `true`. */
+function sameIdRecord(
+  current: Readonly<Record<string, true>> | undefined,
+  next: Readonly<Record<string, true>>,
+): boolean {
+  const stored = current ?? {};
+  const keys = Object.keys(next);
+  if (Object.keys(stored).length !== keys.length) return false;
+  for (const key of keys) {
+    if (stored[key] !== true) return false;
+  }
+  return true;
+}
+
+/** True when the scroll rail can keep the page info it already has. */
+function samePageInfo(current: ConversationPageInfo | undefined, next: ConversationPageInfo): boolean {
+  return (
+    current !== undefined &&
+    current.hasOlder === next.hasOlder &&
+    current.olderCursor === next.olderCursor &&
+    current.olderCount === next.olderCount &&
+    current.oldestAt === next.oldestAt
+  );
+}
+
 function trimToLatestPage(conversation: ConversationState): void {
   if (conversation.messages.length <= LATEST_PAGE_SIZE) return;
   const kept = conversation.messages.slice(-LATEST_PAGE_SIZE);
@@ -550,7 +598,8 @@ const Conversation = createSimpleContext({
           kind: "text",
         });
         appended = true;
-        conversation.messages = [...messages, message];
+        // `push` notifies the new index. A fresh array would re-run every row of the open chat.
+        messages.push(message);
         if (event.agentId !== activeAgentId()) trimToLatestPage(conversation);
       });
       if (appended) {
@@ -686,30 +735,37 @@ const Conversation = createSimpleContext({
         // A delta that came before this page can show a commentary item as its own message. The page
         // groups that item under its turn's thinking message, so the loaded copy goes.
         const pageItemIds = new Set(page.messages.map((message) => message.id));
-        conversation.messages = mergeConversationPage(
+        const nextMessages = mergeConversationPage(
           currentMessages.filter((message) => !pageItemIds.has(message.id)),
           pageMessages,
           merge,
         );
-        conversation.references = {
+        // A page of the open chat often carries the same objects. A new array re-runs every row.
+        if (!sameMessageList(currentMessages, nextMessages)) conversation.messages = nextMessages;
+        const nextReferences: Record<string, AgentMessage> = {
           ...(merge === "replace" ? {} : conversation.references),
-          ...Object.fromEntries(
-            Object.entries(page.references).map(([id, message]) => [id, toAgentMessage(message, page.agentId)]),
-          ),
         };
-        conversation.missingReferences = {
+        for (const [id, message] of Object.entries(page.references)) {
+          const reference = toAgentMessage(message, page.agentId);
+          const existing = conversation.references?.[id] ?? nextReferences[id];
+          nextReferences[id] = existing && agentMessagesEqual(existing, reference) ? existing : reference;
+        }
+        if (!sameMessageRecord(conversation.references, nextReferences)) conversation.references = nextReferences;
+        const nextMissing = {
           ...(merge === "replace" ? {} : conversation.missingReferences),
           ...missingReplyOriginals(page),
         };
-        conversation.page = page.pageInfo;
+        if (!sameIdRecord(conversation.missingReferences, nextMissing)) conversation.missingReferences = nextMissing;
+        if (!samePageInfo(conversation.page, page.pageInfo)) conversation.page = page.pageInfo;
         if (windowMode) conversation.windowMode = windowMode;
         conversation.revision = page.revision;
         conversation.loaded = true;
       });
-      setActiveTurns((current) => ({
-        ...current,
-        [page.agentId]: completedTurnByAgent.get(page.agentId) === page.activeTurnId ? null : page.activeTurnId,
-      }));
+      setActiveTurns((current) => {
+        const nextTurnId = completedTurnByAgent.get(page.agentId) === page.activeTurnId ? null : page.activeTurnId;
+        if (Object.hasOwn(current, page.agentId) && current[page.agentId] === nextTurnId) return current;
+        return { ...current, [page.agentId]: nextTurnId };
+      });
       if (page.readState && merge !== "older") {
         const trackedAutoRead = autoReadAgentMessages.get(agentConversationKey(activeServerId(), page.agentId));
         const latestIncomingMessage = latestIncomingConversationMessage(page.messages);
