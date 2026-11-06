@@ -26,12 +26,31 @@ export interface MemoryTables {
   /** Read at each save, because the agent cap is an app setting the user can change. */
   limit: () => number;
   limitMessage: (limit: number) => string;
+  /**
+   * Whether the table has the `source_kind` and `source_thread_id` columns. Only the agent table does; the others
+   * keep their SQL unchanged.
+   */
+  recordsSource?: boolean;
+}
+
+/** Where a memory came from: a turn of the owner's chat, a background review, a reflection, or the user. */
+export type MemorySourceKind = "turn" | "review" | "reflection" | "manual";
+
+/** The source a memory records: its kind, the thread of the conversation it came from, and the turn it is about. */
+export interface MemorySource {
+  kind: MemorySourceKind;
+  threadId: string | null;
+  turnId: string | null;
 }
 
 export interface SaveAutomaticMemory {
   memoryId?: string;
   text: string;
-  sourceTurnId: string;
+  sourceTurnId: string | null;
+  /** Read only by a table that records the source kind. A save without one records a turn's memory. */
+  sourceKind?: MemorySourceKind;
+  /** Read only by a table that records its source. A save without one records the thread as none. */
+  sourceThreadId?: string | null;
   expectedUpdatedAt?: string | null;
   /**
    * A deterministic command id makes the write exactly-once. A channel tool passes the id of its
@@ -46,6 +65,8 @@ export interface SaveMemoryInput {
   text: string;
   origin: AgentMemoryOrigin;
   sourceTurnId: string | null;
+  sourceKind: MemorySourceKind;
+  sourceThreadId: string | null;
   commandId?: string | undefined;
   uncapped?: boolean;
 }
@@ -100,7 +121,13 @@ export class MemoryStore {
   }
 
   createManual(ownerId: string, text: string): MemoryEntry {
-    return this.save(ownerId, { text, origin: "manual", sourceTurnId: null });
+    return this.save(ownerId, {
+      text,
+      origin: "manual",
+      sourceTurnId: null,
+      sourceKind: "manual",
+      sourceThreadId: null,
+    });
   }
 
   /**
@@ -109,12 +136,26 @@ export class MemoryStore {
    */
   duplicate(sourceOwnerId: string, targetOwnerId: string): MemoryEntry[] {
     return this.list(sourceOwnerId).map((memory) =>
-      this.save(targetOwnerId, { text: memory.text, origin: memory.origin, sourceTurnId: null, uncapped: true }),
+      this.save(targetOwnerId, {
+        text: memory.text,
+        origin: memory.origin,
+        sourceTurnId: null,
+        sourceKind: memory.origin === "manual" ? "manual" : "turn",
+        sourceThreadId: null,
+        uncapped: true,
+      }),
     );
   }
 
   updateManual(ownerId: string, memoryId: string, text: string): MemoryEntry {
-    return this.save(ownerId, { memoryId, text, origin: "manual", sourceTurnId: null });
+    return this.save(ownerId, {
+      memoryId,
+      text,
+      origin: "manual",
+      sourceTurnId: null,
+      sourceKind: "manual",
+      sourceThreadId: null,
+    });
   }
 
   /**
@@ -133,6 +174,8 @@ export class MemoryStore {
       text: automaticMemoryText(input.text),
       origin: "automatic",
       sourceTurnId: input.sourceTurnId,
+      sourceKind: input.sourceKind ?? "turn",
+      sourceThreadId: input.sourceThreadId ?? null,
       ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
     });
   }
@@ -214,6 +257,13 @@ export class MemoryStore {
       updatedAt,
     };
     const { aggregateType, table, ownerColumn } = this.tables;
+    // Only a table that records its source names the source columns, so every other table keeps the SQL it had.
+    const recordsSource = this.tables.recordsSource === true;
+    const sourceColumns = recordsSource ? ", source_kind, source_thread_id" : "";
+    const sourcePlaceholders = recordsSource ? ", ?, ?" : "";
+    const sourceUpdate = recordsSource
+      ? ",\n             source_kind = excluded.source_kind,\n             source_thread_id = excluded.source_thread_id"
+      : "";
     const eventType = `${aggregateType}.${previous ? "updated" : "created"}`;
     this.database.dispatch(
       input.commandId ?? `${aggregateType}:${eventType}:${randomUUID()}`,
@@ -229,15 +279,15 @@ export class MemoryStore {
         db.prepare(
           `INSERT INTO ${table} (
              memory_id, ${ownerColumn}, text, normalized_text, origin, source_turn_id,
-             created_at, updated_at, last_event_sequence
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             created_at, updated_at, last_event_sequence${sourceColumns}
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?${sourcePlaceholders})
            ON CONFLICT(memory_id) DO UPDATE SET
              text = excluded.text,
              normalized_text = excluded.normalized_text,
              origin = excluded.origin,
              source_turn_id = excluded.source_turn_id,
              updated_at = excluded.updated_at,
-             last_event_sequence = excluded.last_event_sequence`,
+             last_event_sequence = excluded.last_event_sequence${sourceUpdate}`,
         ).run(
           memory.id,
           ownerId,
@@ -248,6 +298,7 @@ export class MemoryStore {
           memory.createdAt,
           memory.updatedAt,
           sequences[0] ?? 0,
+          ...(recordsSource ? [input.sourceKind, input.sourceThreadId] : []),
         );
         return memory;
       },

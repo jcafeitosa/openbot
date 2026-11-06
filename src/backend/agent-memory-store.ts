@@ -12,7 +12,7 @@ import { sourceText } from "@openbot/i18n/source";
 import { Schema } from "effect";
 import { initializeAgentMemorySelection } from "./agent-memory-selection";
 import { databaseRows, requiredNumberColumn, requiredStringColumn } from "./database/database-rows";
-import { MemoryStore, type MemoryTables, type SaveMemoryInput } from "./memory-store";
+import { type MemorySourceKind, MemoryStore, type MemoryTables, type SaveMemoryInput } from "./memory-store";
 import type { OpenBotDatabase } from "./openbot-database";
 
 export class AgentMemorySelectionError extends Schema.TaggedError<AgentMemorySelectionError>()(
@@ -27,7 +27,11 @@ export interface SaveAutomaticMemoryInput {
   agentId: string;
   memoryId?: string;
   text: string;
-  sourceTurnId: string;
+  sourceTurnId: string | null;
+  /** A save without one records a turn's memory, as the scripts that seed memories do. */
+  sourceKind?: MemorySourceKind;
+  /** The thread of the conversation the memory came from, when a review or a reflection saved it. */
+  sourceThreadId?: string | null;
   expectedUpdatedAt?: string | null;
   expectedSelectionRevision?: number;
 }
@@ -55,6 +59,7 @@ function agentMemoryTables(limit: () => number): MemoryTables {
     aggregateType: "agent-memory",
     limit,
     limitMessage: (current) => sourceText("error.backend.agentMemoryLimit", { limit: current }),
+    recordsSource: true,
   };
 }
 

@@ -358,11 +358,15 @@ try {
     const threadId = store.list().find((agent) => agent.id === first.id)?.threadId;
     const saved = service.listMemories(first.id).find((memory) => memory.text === "The user prefers green tea.");
     assert.ok(saved, "The review saved the memory.");
-    const [kind, sourceThread, sourceTurn] = (saved.sourceTurnId ?? "").split(":");
-    assert.equal(kind, "review", "The source names a review.");
-    assert.equal(sourceThread, threadId, "The source thread is the reviewed thread.");
-    assert.ok(sourceTurn?.startsWith("turn-"), "The source names a turn of the chat.");
-    return { source: saved.sourceTurnId };
+    const provenance = database.connection
+      .prepare(
+        "SELECT source_kind, source_thread_id, source_turn_id FROM projection_agent_memories WHERE memory_id = ?",
+      )
+      .get(saved.id);
+    assert.equal(provenance?.source_kind, "review", "The source names a review.");
+    assert.equal(provenance?.source_thread_id, threadId, "The source thread is the reviewed thread.");
+    assert.ok(String(provenance?.source_turn_id).startsWith("turn-"), "The source names a turn of the chat.");
+    return { source: provenance?.source_turn_id };
   });
 
   await check("the review prompt has no secret", async () => {

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import {
   type AgentModelOption,
   type AgentSummary,
@@ -9,6 +8,7 @@ import {
 import { createOpenBotLogger } from "@openbot/logging";
 import { Effect, Exit, Fiber, Schema, Scope } from "effect";
 import type { AgentClient } from "../agent-client";
+import type { MemorySource } from "../memory-store";
 import { extractJsonObject } from "../structured-output";
 import type { AgentMemories, MemoryReviewBase } from "./agent-memories";
 import { backgroundModel } from "./background-model";
@@ -78,7 +78,7 @@ interface ReviewedConversation {
 
 /** The failed turn that a reflection reads: where its lesson goes, its error class and its tool steps. */
 interface FailedTurn {
-  readonly source: string;
+  readonly source: MemorySource;
   readonly errorClass: string;
   readonly toolSteps: readonly string[];
 }
@@ -354,11 +354,11 @@ export class MemoryReview {
       if (operations.length === 0 || options.stopping()) return;
       if (!options.listAgents().some((candidate) => candidate.id === agentId)) return;
       const turnId = `memory-review-${randomUUID()}`;
-      const source = provenance(
-        "review",
-        conversation.threadId ?? agent.threadId,
-        lastTurnId(excerpt) ?? lastTurnId(messages),
-      );
+      const source: MemorySource = {
+        kind: "review",
+        threadId: conversation.threadId ?? agent.threadId,
+        turnId: lastTurnId(excerpt) ?? lastTurnId(messages) ?? null,
+      };
       const changes = yield* Effect.try(() => options.memories.applyReview(agentId, base, operations, turnId, source));
       const line = memoryChangesMessage(turnId, changes, options.redact);
       if (!line) return;
@@ -383,7 +383,7 @@ export class MemoryReview {
     if (!turn) return;
     const agent = this.#options.listAgents().find((candidate) => candidate.id === conversation.agentId);
     conversation.failedTurn = {
-      source: provenance("reflection", conversation.threadId ?? agent?.threadId ?? null, turn.turnId),
+      source: { kind: "reflection", threadId: conversation.threadId ?? agent?.threadId ?? null, turnId: turn.turnId },
       errorClass: turn.failed ? "tool_failed" : "turn_failed",
       toolSteps: turn.toolSteps,
     };
@@ -534,17 +534,6 @@ function failedTurnOf(
         `${(step.command ?? step.text ?? "tool").slice(0, 200)} (${step.endedAt === null ? "interrupted" : step.failed ? "failed" : "completed"})`,
     ),
   };
-}
-
-/**
- * The source that a memory records: the kind of change, the thread of the reviewed conversation and
- * the last turn of the chat it read. A source over the identifier bound keeps the thread only.
- * The `review:` and `reflection:` prefixes are temporary debt: the source kind has no column yet. Phase 4
- * adds `source_kind` (migration S1); move these values to it then, and add no other prefix.
- */
-function provenance(kind: "review" | "reflection", threadId: string | null, turnId: string | undefined): string {
-  const full = `${kind}:${threadId ?? ""}:${turnId ?? ""}`;
-  return full.length <= INPUT_LIMITS.identifier ? full : `${kind}:${threadId ?? ""}`.slice(0, INPUT_LIMITS.identifier);
 }
 
 /**

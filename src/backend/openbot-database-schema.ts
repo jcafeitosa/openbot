@@ -624,12 +624,30 @@ const AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL = `
     ON agent_instructions_snapshots(agent_id, file_path, sha256);
 `;
 
+// Migration 61 records where each memory came from: a turn, a background review, a reflection or the user.
+// Frozen with the migration. ADD COLUMN puts the declaration after the last column and before the UNIQUE
+// constraint that ends the table, so the latest schema puts it there as well.
+const V61_AGENT_MEMORY_SOURCE_KIND_COLUMN_SQL = `source_kind TEXT CHECK(source_kind IN ('turn', 'review', 'reflection', 'manual'))`;
+const V61_AGENT_MEMORY_SOURCE_THREAD_COLUMN_SQL = `source_thread_id TEXT`;
+
+// The memory table's end as migration 8 declares it, and as migration 61 declares it.
+const BASELINE_AGENT_MEMORIES_END_SQL = `    last_event_sequence INTEGER NOT NULL,
+    UNIQUE(agent_id, normalized_text)`;
+const V61_AGENT_MEMORIES_END_SQL = `    last_event_sequence INTEGER NOT NULL,
+    ${V61_AGENT_MEMORY_SOURCE_KIND_COLUMN_SQL},
+    ${V61_AGENT_MEMORY_SOURCE_THREAD_COLUMN_SQL},
+    UNIQUE(agent_id, normalized_text)`;
+
 const LATEST_SCHEMA_SQL =
   substituteOnce(
     substituteOnce(
       substituteOnce(
         substituteOnce(
-          substituteOnce(BASELINE_V8_SCHEMA_SQL, BASELINE_REACTIONS_TABLE_SQL, V12_REACTIONS_TABLE_SQL),
+          substituteOnce(
+            substituteOnce(BASELINE_V8_SCHEMA_SQL, BASELINE_REACTIONS_TABLE_SQL, V12_REACTIONS_TABLE_SQL),
+            BASELINE_AGENT_MEMORIES_END_SQL,
+            V61_AGENT_MEMORIES_END_SQL,
+          ),
           BASELINE_THREAD_MESSAGES_END_SQL,
           withThreadMessageOrderColumns(BASELINE_THREAD_MESSAGES_END_SQL),
         ),
@@ -1037,6 +1055,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // Only creates a table and its indexes, so no foreign-key pause and no vacuum. No instruction file was
     // saved before it, so the table starts empty and no agent's file changes.
     up: (db) => db.exec(AGENT_INSTRUCTIONS_HISTORY_SCHEMA_SQL),
+  },
+  {
+    version: 61,
+    // Adds one column with no default and backfills it from the origins and source turn ids already stored. No
+    // rebuild, so no foreign-key pause and no vacuum. Every source turn id keeps its text, prefix included.
+    up: addMemorySourceKind,
   },
 ];
 
@@ -1452,6 +1476,38 @@ function addAgentRoutineRunPlace(db: DatabaseSync): void {
   const columns = db.prepare("PRAGMA table_info(projection_agent_routines)").all();
   if (columns.some((existing) => isDynamicRecord(existing) && existing.name === "run_in")) return;
   db.exec(`ALTER TABLE projection_agent_routines ADD COLUMN ${V57_AGENT_ROUTINE_RUN_IN_COLUMN_SQL}`);
+}
+
+// Migration 61 gives every memory its source kind and source thread. A row written before it takes the kind named by
+// the prefix of its source turn id, then its origin; its thread stays NULL. The source turn id itself is not rewritten.
+function addMemorySourceKind(db: DatabaseSync): void {
+  // A replay over a database that the latest schema built, or a development profile that ran this version before it
+  // shipped, has one or both columns already. Each missing column is added. The backfill runs only when this migration
+  // adds the kind: a kind that is there already belongs to the writer that recorded it, and must not be rewritten.
+  const names = db
+    .prepare("PRAGMA table_info(projection_agent_memories)")
+    .all()
+    .flatMap((column) => (isDynamicRecord(column) && isString(column.name) ? [column.name] : []));
+  const addsKind = !names.includes("source_kind");
+  if (addsKind) db.exec(`ALTER TABLE projection_agent_memories ADD COLUMN ${V61_AGENT_MEMORY_SOURCE_KIND_COLUMN_SQL}`);
+  if (!names.includes("source_thread_id"))
+    db.exec(`ALTER TABLE projection_agent_memories ADD COLUMN ${V61_AGENT_MEMORY_SOURCE_THREAD_COLUMN_SQL}`);
+  if (!addsKind) return;
+  // The update trigger of migration 32 would add one to the selection revision of every memory the backfill
+  // touches, a change the user never made. It is dropped for the backfill and created again from its own declaration.
+  const trigger = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'agent_memory_update'")
+    .get();
+  if (!isDynamicRecord(trigger) || !isString(trigger.sql))
+    throw new Error("The agent memory update trigger is missing.");
+  db.exec("DROP TRIGGER agent_memory_update");
+  db.exec(`UPDATE projection_agent_memories SET source_kind = CASE
+    WHEN instr(source_turn_id, 'reflection:') = 1 THEN 'reflection'
+    WHEN instr(source_turn_id, 'review:') = 1 THEN 'review'
+    WHEN origin = 'manual' THEN 'manual'
+    ELSE 'turn'
+  END`);
+  db.exec(trigger.sql);
 }
 
 // Migration 28 removes the provider CHECK. It rebuilds the table with no guard: every shipped table has the

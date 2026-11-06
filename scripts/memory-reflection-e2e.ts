@@ -314,11 +314,14 @@ try {
       .readConversation(agent.id, threadId)
       .messages.find((message) => message.text === "Failed.")?.turnId;
     assert.ok(failedTurnId, "The failed turn has its answer.");
-    assert.equal(
-      lesson.sourceTurnId,
-      `reflection:${threadId}:${failedTurnId}`,
-      "The lesson's source is the reflection's thread and failed turn.",
-    );
+    const provenance = database.connection
+      .prepare(
+        "SELECT source_kind, source_thread_id, source_turn_id FROM projection_agent_memories WHERE memory_id = ?",
+      )
+      .get(lesson.id);
+    assert.equal(provenance?.source_kind, "reflection", "The lesson's source kind is a reflection.");
+    assert.equal(provenance?.source_thread_id, threadId, "The lesson's source is the reflection's thread.");
+    assert.equal(provenance?.source_turn_id, failedTurnId, "The lesson's source is the failed turn, with no prefix.");
 
     const selection = service.getMemorySelection(agent.id).selections.find((entry) => entry.memoryId === lesson.id);
     assert.equal(selection?.inclusion, "searchable", "The lesson is never essential.");
