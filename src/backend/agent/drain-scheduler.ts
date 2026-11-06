@@ -35,6 +35,7 @@ import {
   providerForAgent,
 } from "./thread-items";
 import type { ThreadLifecycle } from "./thread-lifecycle";
+import type { TurnLedger } from "./turn-ledger";
 import type { DeliveryStart } from "./turn-lifecycle";
 import { TurnSlots } from "./turn-slots";
 import type { UsageLimitGate } from "./usage-limit-gate";
@@ -151,6 +152,7 @@ export interface DrainSchedulerOptions {
   hooks: DrainHooks;
   channels?: ChannelService;
   messaging?: MessagingThreads;
+  turnLedger: TurnLedger;
 }
 
 /**
@@ -188,6 +190,7 @@ export class DrainScheduler {
   readonly #hooks: DrainHooks;
   readonly #channels: ChannelService | undefined;
   readonly #messaging: MessagingThreads | undefined;
+  readonly #turnLedger: TurnLedger;
   readonly #drainingLanes = new Set<string>();
   /**
    * Agents whose channel task a spent plan refused and gave back to its channel. Their queue can be
@@ -230,6 +233,7 @@ export class DrainScheduler {
     this.#planContinuation = options.planContinuation;
     this.#tasks = options.tasks;
     this.#hooks = options.hooks;
+    this.#turnLedger = options.turnLedger;
     this.#channels = options.channels;
     this.#messaging = options.messaging;
     this.#slots = new TurnSlots({
@@ -798,6 +802,8 @@ export class DrainScheduler {
           item.sender.kind === "agent" && item.replyToMessageId ? [item.replyToMessageId] : [],
         ),
       );
+      // A recurring failure gives its note to the next delivery only: a plan continuation sends no delivery.
+      const recurring = planNote === undefined ? this.#turnLedger.takeRecurringFailure(agent.id) : null;
       const promptInput = (executionText: string | undefined) => {
         // The deliveries of one interrupted turn share its continuation, so the prompt states it once.
         const continued = new Set<string>();
@@ -818,6 +824,7 @@ export class DrainScheduler {
           }),
           [...requestIds].flatMap((requestId) => this.#mailbox.unansweredRecipients(requestId)),
           agentNames,
+          recurring,
         );
       };
       // The request is already in the session, so a plan continuation sends only its note.

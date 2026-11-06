@@ -1426,6 +1426,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       memory: this.#memoryHold,
       usageLimits: this.#usageLimits,
       planContinuation: this.#planContinuation,
+      turnLedger,
       tasks: this.#tasks,
       hooks: {
         emitError: (code, error, agentId) => this.#emitError(code, error, agentId),

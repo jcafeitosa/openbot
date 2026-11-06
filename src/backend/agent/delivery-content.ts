@@ -15,6 +15,7 @@ import { wokenWaitsPromptText } from "../agent-waits/agent-waits";
 import { homeSkillRoot, homeSkillTagSlug } from "../home-skills";
 import type { DeliveryContext } from "../mailbox-store";
 import { quietRoutineRun, ROUTINE_NO_UPDATE_TOOL, ROUTINE_REPORT_FAILURE_TOOL } from "./routine-quiet-runs";
+import type { RecurringFailure } from "./turn-ledger";
 
 export function responseAttachmentMessageId(threadId: string, turnId: string, callId: string): string {
   const digest = createHash("sha256").update(`${threadId}\0${turnId}\0${callId}`).digest("hex").slice(0, 32);
@@ -422,9 +423,14 @@ export function combinedPromptInput(
   inputs: readonly DeliveryInputItem[][],
   unanswered: readonly string[],
   agentNames: ReadonlyMap<string, string>,
+  recurrence: RecurringFailure | null = null,
 ): DeliveryInputItem[] {
   const [only] = inputs;
-  if (inputs.length === 1 && only && unanswered.length === 0) return only;
+  // The note is its own text item, after the messages. A teammate prompt is read from its start to its
+  // end, so the note cannot sit inside the combined text.
+  const note: DeliveryInputItem[] =
+    recurrence === null ? [] : [{ type: "text", text: recurringFailureNote(recurrence) }];
+  if (inputs.length === 1 && only && unanswered.length === 0) return [...only, ...note];
   const texts = inputs.flatMap((items) => items.flatMap((item) => (item.type === "text" ? [item.text] : [])));
   const names = unanswered.map((agentId) => agentNames.get(agentId) ?? agentId);
   const text = [
@@ -434,7 +440,19 @@ export function combinedPromptInput(
   ]
     .filter(Boolean)
     .join("\n\n");
-  return [{ type: "text", text }, ...inputs.flatMap((items) => items.filter((item) => item.type !== "text"))];
+  return [{ type: "text", text }, ...inputs.flatMap((items) => items.filter((item) => item.type !== "text")), ...note];
+}
+
+/**
+ * The note of a recurring failure: its count, its codes and the change of approach. It holds no user text,
+ * no tool argument and no answer, because the ledger keeps none of them.
+ */
+export function recurringFailureNote(failure: RecurringFailure): string {
+  return [
+    "OpenBot note, not a message from the user.",
+    `${failure.count} of your last 20 turns failed with cause ${failure.causeCode} and tool failure ${failure.toolFailureCode}.`,
+    "Change your approach: do not repeat the same action unchanged. Try another way to reach the goal, or say in one short line what blocks you.",
+  ].join(" ");
 }
 
 export function displayMessageReferences(

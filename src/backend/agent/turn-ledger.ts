@@ -20,6 +20,19 @@ export interface ApprovalCounts {
 /** Approval counts of turns that have not ended yet. Past this many, the oldest go first. */
 const APPROVAL_LIMIT = 256;
 
+/** The recent turns of an agent that a recurrence looks back over. */
+const RECURRENCE_WINDOW = 20;
+/** The failed turns with one key in that window that make a recurrence. */
+const RECURRENCE_MIN = 3;
+
+/** A failure that repeats: failed turns with one cause and one most frequent tool failure code. */
+export interface RecurringFailure {
+  causeCode: string;
+  toolFailureCode: string;
+  /** The failed turns with this key in the window. */
+  count: number;
+}
+
 export interface TurnOutcomeInput {
   agentId: string;
   /** The public thread of the turn: the agent's own chat or a task. */
@@ -45,6 +58,8 @@ export interface TurnOutcomeInput {
 export class TurnLedger {
   readonly #database: OpenBotDatabase;
   readonly #approvals = new Map<string, ApprovalCounts>();
+  /** The recurrence last handed out to each agent, as a signature. A recurrence gives one note only. */
+  readonly #noted = new Map<string, string>();
 
   constructor(options: { database: OpenBotDatabase }) {
     this.#database = options.database;
@@ -113,6 +128,41 @@ export class TurnLedger {
         input.createdAt,
       );
   }
+
+  /**
+   * The failure that repeats in the agent's last 20 turns, at least 3 times, or null. A failed turn counts
+   * under its cause and its most frequent tool failure code; a turn without either counts for no key. A
+   * recurrence is taken once: the next take gives null until its count changes.
+   */
+  takeRecurringFailure(agentId: string): RecurringFailure | null {
+    const rows = this.#database.connection
+      .prepare(
+        `SELECT outcome, cause_code, tool_failure_codes_json FROM turn_outcomes
+         WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+      )
+      .all(agentId, RECURRENCE_WINDOW);
+    const keys = new Map<string, RecurringFailure>();
+    for (const row of rows) {
+      const causeCode = row.cause_code;
+      if (row.outcome !== "failed" || typeof causeCode !== "string") continue;
+      const toolFailureCode = dominantToolFailureCode(String(row.tool_failure_codes_json));
+      if (toolFailureCode === null) continue;
+      const key = JSON.stringify([causeCode, toolFailureCode]);
+      const failure = keys.get(key) ?? { causeCode, toolFailureCode, count: 0 };
+      failure.count += 1;
+      keys.set(key, failure);
+    }
+    let recurring: RecurringFailure | null = null;
+    for (const failure of keys.values()) {
+      if (failure.count < RECURRENCE_MIN) continue;
+      if (recurring === null || failure.count > recurring.count) recurring = failure;
+    }
+    if (recurring === null) return null;
+    const signature = JSON.stringify([recurring.causeCode, recurring.toolFailureCode, recurring.count]);
+    if (this.#noted.get(agentId) === signature) return null;
+    this.#noted.set(agentId, signature);
+    return recurring;
+  }
 }
 
 /** The code of a failed tool step. */
@@ -130,4 +180,19 @@ export function toolFailureCode(item: ThreadItem): ToolFailureCode {
 
 function approvalKey(agentId: string, turnId: string): string {
   return JSON.stringify([agentId, turnId]);
+}
+
+/** The tool failure code with the most failed steps of a turn; the lower code wins a tie. Null: none. */
+function dominantToolFailureCode(json: string): string | null {
+  const codes: Record<string, number> = JSON.parse(json);
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const code of Object.keys(codes).sort()) {
+    const count = codes[code] ?? 0;
+    if (count > bestCount) {
+      best = code;
+      bestCount = count;
+    }
+  }
+  return best;
 }

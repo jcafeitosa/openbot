@@ -1425,12 +1425,7 @@ export class OpenBotToolRouter {
       const outcome = parsed.success
         ? computeExact(parsed.data.expression)
         : { ok: false as const, code: "validation" as const, message: profileToolErrorMessage(parsed.error) };
-      if (!outcome.ok) {
-        return {
-          success: false,
-          contentItems: [{ type: "inputText", text: JSON.stringify({ error: outcome.message, code: outcome.code }) }],
-        };
-      }
+      if (!outcome.ok) return openBotToolFailure(outcome.message, VALIDATION_FAILURE);
       return openBotToolResult({ value: outcome.value, type: outcome.type });
     }
 
