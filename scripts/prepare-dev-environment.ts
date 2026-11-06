@@ -15,7 +15,7 @@ export type DevelopmentCommandRunner = (
   options: { cwd: string; stdio: "inherit"; env?: NodeJS.ProcessEnv },
 ) => void;
 
-export const supportedBunVersion = "1.4.2";
+export const supportedBunVersion = "1.4.4";
 
 // A stamp holds the fingerprint of the inputs of the last command that succeeded. `bun run dev`
 // skips the command while the fingerprint is the same, which saves several seconds on each start.

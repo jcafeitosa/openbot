@@ -288,19 +288,19 @@ For setup problems, data reset, and uninstall instructions, see
 
 ## Development
 
-Development requires stable [Bun](https://bun.sh/) 1.4.2, Node.js 24 (the version in `.nvmrc`, matching
+Development requires stable [Bun](https://bun.sh/) 1.4.4, Node.js 24 (the version in `.nvmrc`, matching
 the Node that Electron bundles - run `nvm use`), and at least one supported agent CLI.
 
 Install the exact Bun version on macOS or Linux:
 
 ```bash
-curl -fsSL https://bun.com/install | bash -s "bun-v1.4.2"
+curl -fsSL https://bun.com/install | bash -s "bun-v1.4.4"
 ```
 
 Install it on Windows in PowerShell:
 
 ```powershell
-iex "& {$(irm https://bun.com/install.ps1)} -Version 1.4.2"
+iex "& {$(irm https://bun.com/install.ps1)} -Version 1.4.4"
 ```
 
 ```bash

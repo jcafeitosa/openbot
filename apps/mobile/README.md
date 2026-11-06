@@ -5,7 +5,7 @@ React Native app built with Expo SDK 58, Expo Router, TypeScript 7, Biome, and B
 ## Requirements
 
 - Node.js 24 or newer (the repository pins 24 in `.nvmrc`)
-- Bun 1.4.2 (the version in the root `packageManager`)
+- Bun 1.4.4 (the version in the root `packageManager`)
 - Expo Go for device testing, including the WebRTC server connection
 
 ## Development
@@ -14,7 +14,7 @@ The repository uses Bun’s hoisted linker so native Expo modules resolve to one
 React Native Skia 2.14 needs no install step. CocoaPods copies its prebuilt libraries from the
 `react-native-skia-apple-*` packages, and Gradle reads them from `react-native-skia-android`.
 
-EAS profiles pin Bun 1.4.2 to match the root `packageManager`. Use the same Bun version
+EAS profiles pin Bun 1.4.4 to match the root `packageManager`. Use the same Bun version
 locally: dependency paths and package patch metadata affect the runtime fingerprint.
 After switching from the isolated linker to the hoisted linker, move the old
 `apps/mobile/node_modules` directory out of the app and run `bun install --frozen-lockfile`
