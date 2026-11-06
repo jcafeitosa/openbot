@@ -122,6 +122,10 @@ SQLite migration history starts at the frozen version 8 compatibility baseline. 
 schema unchanged, append every later migration in numeric order, and update the separate latest
 schema used for new databases. Never remove or rewrite a migration that may have shipped.
 
+Migration `0034` has a duplicate prefix: both `apps/auth-api/migrations/0034_server_claims.sql`
+and `apps/auth-api/migrations/0034_account_attribution.sql` exist. Keep both files and do not
+rename either one.
+
 At startup, chat recovery reads all saved provider sessions for each thread, including inactive
 sessions from an upgrade or a provider change. It uses each session's provider and merges the
 messages into SQLite without activating the old session. A failed read reports an error, keeps
