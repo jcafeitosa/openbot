@@ -177,6 +177,8 @@ export const messages = {
   "error.backend.memoryTextTooLong": "메모리 내용이 너무 길어요.",
   "error.backend.memorySecretRefused":
     "이 텍스트에는 OpenBot이 보관하는 비밀 정보가 있어 기억하지 않았어요. 값은 빼고 사실만 기억해 주세요.",
+  "error.backend.messageSecretRefused":
+    "이 메시지에는 OpenBot이 보관하는 비밀 정보가 있어 보내지 않았어요. 값은 빼고 요청을 보내 주세요.",
   "error.backend.agentHopLimit":
     "에이전트 간 요청은 한 연쇄에서 {limit}회 전달되면 멈춰요. 직접 작업을 마치거나 채팅에서 사용자에게 물어보세요.",
   "error.backend.skillPersonOnly":

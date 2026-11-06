@@ -189,6 +189,8 @@ export const messages = {
   "error.backend.memoryTextTooLong": "El texto del recuerdo es demasiado largo.",
   "error.backend.memorySecretRefused":
     "Este texto contiene un secreto que OpenBot guarda, así que no se recordó. Recuerda el dato sin el valor.",
+  "error.backend.messageSecretRefused":
+    "Este mensaje contiene un secreto que OpenBot guarda, así que no se envió. Envía la solicitud sin el valor.",
   "error.backend.agentHopLimit":
     "Las solicitudes entre agentes se detienen tras {limit} saltos en una cadena. Termina tú el trabajo o pregunta al usuario en el chat.",
   "error.backend.skillPersonOnly":

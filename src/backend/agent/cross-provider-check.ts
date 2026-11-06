@@ -1,5 +1,5 @@
 import { sourceText } from "@openbot/i18n/source";
-import { createOpenBotLogger } from "@openbot/logging";
+import { createOpenBotLogger, redactText } from "@openbot/logging";
 import { Effect, Schema } from "effect";
 import { extractJsonObject } from "../structured-output";
 
@@ -23,6 +23,12 @@ const QUESTION =
 /** The words of a request for a number: a count, a total, a sum, an average or a percentage. */
 const NUMERIC_CUE =
   /\b(?:how many|how much|how long|number of|count|total|sum|average|percent|percentage|quanto|quanta|quantos|quantas|soma|média|porcentagem|percentual|quantidade|número de)\b|%/i;
+/** The most gaps a check may name. A verdict that names more is cut to this many, so the note stays short. */
+export const CROSS_PROVIDER_MAX_GAPS = 5;
+/** The longest gap that the note shows, in characters. A longer gap is cut to this length. */
+export const CROSS_PROVIDER_MAX_GAP_LENGTH = 200;
+/** How long the second provider may take before the check is abandoned and counted as not run. */
+export const CROSS_PROVIDER_TIMEOUT_MS = 60_000;
 
 export type CrossProviderTrigger = "marker" | "numeric";
 
@@ -66,7 +72,10 @@ export interface CrossProviderVerdict {
  */
 export function crossProviderVerdict(answer: string): CrossProviderVerdict {
   const verdict = Schema.decodeUnknownSync(Verdict)(extractJsonObject(answer));
-  const gaps = verdict.gaps.map((gap) => gap.trim()).filter((gap) => gap.length > 0);
+  const gaps = verdict.gaps
+    .map((gap) => redactText(gap.trim()).slice(0, CROSS_PROVIDER_MAX_GAP_LENGTH).trim())
+    .filter((gap) => gap.length > 0)
+    .slice(0, CROSS_PROVIDER_MAX_GAPS);
   if (!verdict.agrees && gaps.length === 0) throw new Error("The check disagreed without naming a gap.");
   return { agrees: verdict.agrees, gaps: verdict.agrees ? [] : gaps };
 }
@@ -90,8 +99,14 @@ export function runCrossProviderCheck(input: {
   request: string;
   answer: string;
   generate: (prompt: string) => Effect.Effect<string, unknown>;
+  /** Overrides `CROSS_PROVIDER_TIMEOUT_MS`. The E2E sets it short so the timeout check does not wait a minute. */
+  timeoutMs?: number;
 }): Effect.Effect<CrossProviderResult> {
   return input.generate(crossProviderPrompt(input.request, input.answer)).pipe(
+    Effect.timeoutOrElse({
+      duration: input.timeoutMs ?? CROSS_PROVIDER_TIMEOUT_MS,
+      orElse: () => Effect.fail(new Error("The second provider did not answer in time.")),
+    }),
     Effect.flatMap((text) => Effect.try(() => crossProviderVerdict(text))),
     Effect.map((verdict): CrossProviderResult => ({ ran: true, ...verdict })),
     Effect.catch((failure) =>

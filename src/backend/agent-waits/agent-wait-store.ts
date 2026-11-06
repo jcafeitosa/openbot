@@ -170,14 +170,17 @@ export class AgentWaitStore {
   }
 
   /**
-   * The wait that a script event names, when a run of this routine may wake it. The routine column does not
-   * limit a named wait, as before; its predicate still does.
+   * The wait that a script event names, when a run of this routine may wake it. The routine column and the
+   * predicate both still apply, as for an unnamed run: a wait bound to routine A is not woken by a run of B.
    */
   forNamedRun(agentId: string, waitId: string, routineId: string): AgentWait[] {
     return databaseRows(
       this.#database.connection
-        .prepare(`SELECT * FROM agent_waits WHERE agent_id = ? AND wait_id = ? AND ${PREDICATE_ALLOWS_ROUTINE}`)
-        .all(agentId, waitId, routineId),
+        .prepare(
+          `SELECT * FROM agent_waits WHERE agent_id = ? AND wait_id = ? AND (routine_id IS NULL OR routine_id = ?)
+           AND ${PREDICATE_ALLOWS_ROUTINE}`,
+        )
+        .all(agentId, waitId, routineId, routineId),
     ).map(toWait);
   }
 

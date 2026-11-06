@@ -179,6 +179,8 @@ export const messages = defineMessages("error.backend", {
   "error.backend.memoryTextTooLong": "Memory text is too long.",
   "error.backend.memorySecretRefused":
     "This text holds a secret that OpenBot keeps, so it was not remembered. Remember the fact without the value.",
+  "error.backend.messageSecretRefused":
+    "This message holds a secret that OpenBot keeps, so it was not sent. Send the request without the value.",
   "error.backend.agentHopLimit":
     "Requests between agents stop after {limit} hops in one chain. Finish the work yourself, or ask the user in the chat.",
   "error.backend.skillPersonOnly":

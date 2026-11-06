@@ -172,6 +172,8 @@ export const messages = {
   "error.backend.memoryTextRequired": "يلزم نص الذكرى.",
   "error.backend.memoryTextTooLong": "نص الذكرى طويل جدًا.",
   "error.backend.memorySecretRefused": "يحتوي هذا النص على سر يحتفظ به OpenBot، لذلك لم يُحفظ. احفظ الحقيقة دون القيمة.",
+  "error.backend.messageSecretRefused":
+    "تحتوي هذه الرسالة على سر يحتفظ به OpenBot، لذلك لم تُرسل. أرسل الطلب دون القيمة.",
   "error.backend.agentHopLimit":
     "تتوقف الطلبات بين الوكلاء بعد {limit} قفزات في سلسلة واحدة. أنجز العمل بنفسك، أو اسأل المستخدم في المحادثة.",
   "error.backend.skillPersonOnly":

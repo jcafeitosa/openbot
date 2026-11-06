@@ -1450,14 +1450,15 @@ export class TurnLifecycle {
       // A final answer that the request flags gets a second opinion from another provider before it is
       // relayed, previewed, attached or saved. A disagreeing check adds its abstention note to the answer.
       if (outcome === "completed" && latestAssistant && !quiet && !markerAnswer && !continuation) {
-        const request = snapshot.messages
+        const userRequests = snapshot.messages
           .filter((message) => message.turnId === turnId && message.author === "user")
-          .map((message) => message.text)
-          .join("\n");
+          .map((message) => message.text);
+        const request = userRequests.join("\n");
         const usedTool = trace?.steps.some((step) => step.kind === "tool") ?? false;
         if (crossProviderTrigger({ request, usedTool }) !== null) {
           const crossCheck = yield* this.#hooks.crossProviderCheck(agentId, {
-            request: this.#hooks.redactMcp(request),
+            // Only the turn's last request goes to the second provider. The trigger still reads every request.
+            request: this.#hooks.redactMcp(userRequests.at(-1) ?? ""),
             answer: this.#hooks.redactMcp(latestAssistant.text),
           });
           if (crossCheck.ran && !crossCheck.agrees)

@@ -183,6 +183,8 @@ export const messages = {
   "error.backend.memoryTextTooLong": "Текст записи памяти слишком длинный.",
   "error.backend.memorySecretRefused":
     "Этот текст содержит секрет, который хранит OpenBot, поэтому его не запомнили. Запомните факт без значения.",
+  "error.backend.messageSecretRefused":
+    "Это сообщение содержит секрет, который хранит OpenBot, поэтому оно не отправлено. Отправьте запрос без значения.",
   "error.backend.agentHopLimit":
     "Запросы между агентами останавливаются после {limit} переходов в одной цепочке. Завершите работу сами или спросите пользователя в чате.",
   "error.backend.skillPersonOnly":

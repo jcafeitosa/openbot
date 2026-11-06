@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { AgentStore } from "../agent-store";
 import type { ChannelService } from "../channel-service";
-import type { DeliveryContext, MailboxStore } from "../mailbox-store";
+import type { DeliveryContext, MailboxStore, MessageChain } from "../mailbox-store";
 import type { DynamicToolCallParams } from "../protocol";
 import type { ConversationRuntime } from "./conversation-runtime";
 import type { DrainScheduler } from "./drain-scheduler";
@@ -159,6 +159,24 @@ export class AgentInterruptTool {
   }
 
   /**
+   * The chain the notice continues. It is the interrupted delivery's chain, so the recipient's next send counts on
+   * from it. A delivery with no chain gives the sender's own chain instead: the newest chain of its active turn.
+   */
+  #noticeChain(callerAgentId: string, messageId: string | null): MessageChain | null {
+    const interrupted = messageId ? this.#mailbox.messageChain(messageId) : null;
+    if (interrupted) return interrupted;
+    const turnId = this.#activeTurnId(callerAgentId);
+    if (!turnId) return null;
+    return this.#mailbox
+      .findDeliveriesByTurn(callerAgentId, turnId)
+      .map(({ delivery }) => this.#mailbox.messageChain(delivery.messageId))
+      .reduce<MessageChain | null>(
+        (newest, chain) => (chain && (!newest || chain.hop > newest.hop) ? chain : newest),
+        null,
+      );
+  }
+
+  /**
    * Tells the interrupted agent why its turn stopped. The notice is a normal message that expects no
    * reply, so it starts one short turn when the agent has nothing else queued: the provider thread
    * then records the stop, and a later turn does not pick the abandoned work up again. It queues
@@ -181,6 +199,7 @@ export class AgentInterruptTool {
     ]
       .filter(Boolean)
       .join("\n");
+    const chain = this.#noticeChain(callerAgentId, messageId);
     yield* this.#mailbox
       .enqueue({
         sender: { kind: "agent", agentId: callerAgentId },
@@ -188,6 +207,7 @@ export class AgentInterruptTool {
         text,
         replyToMessageId: null,
         expectsReply: false,
+        ...(chain ? { chain } : {}),
         idempotencyKey: toolCallIdempotencyKey(params),
       })
       .pipe(toToolOperationFailed);

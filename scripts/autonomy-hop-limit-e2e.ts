@@ -43,7 +43,7 @@ const { OpenBotDatabase } = await import("../src/backend/openbot-database");
  * calls the tools it is given in order, logs each result, then answers.
  */
 const FAKE_CODEX = `#!/usr/bin/env node
-const { appendFileSync } = require("node:fs");
+const { appendFileSync, readFileSync } = require("node:fs");
 if (process.argv.includes("--version")) {
   process.stdout.write("codex-cli 0.160.1\\n");
   process.exit(0);
@@ -67,9 +67,25 @@ const finish = (turn) => {
   write({ method: "item/completed", params: { threadId, turnId, item } });
   write({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } });
 };
+const hangStarted = () => {
+  try {
+    return readFileSync(LOG, "utf8").includes('"method":"turn/hang"');
+  } catch {
+    return false;
+  }
+};
 const callNext = (turn) => {
   const call = turn.calls.shift();
   if (!call) return setTimeout(() => finish(turn), 20);
+  if (call.waitForHang && !hangStarted()) {
+    turn.calls.unshift(call);
+    return setTimeout(() => callNext(turn), 25);
+  }
+  if (call.waitForHang && !call.settled) {
+    call.settled = true;
+    turn.calls.unshift(call);
+    return setTimeout(() => callNext(turn), 300);
+  }
   const id = "tool-" + turn.turnId + "-" + turn.calls.length;
   waiting.set(id, { turn, tool: call.tool });
   write({
@@ -80,9 +96,12 @@ const callNext = (turn) => {
 };
 const sendTo = (agentId, text) => ({ tool: "send_message", arguments: { recipientAgentIds: [agentId], text } });
 const callsFor = (text) => {
+  const interruptStart = /INTERRUPT_START:(\\S+)/.exec(text);
+  if (interruptStart) return [sendTo(interruptStart[1], "HANG:1"), { tool: "interrupt_agent", arguments: { agentId: interruptStart[1] }, waitForHang: true }];
   const relay = /RELAY:(\\S+)/.exec(text);
   if (relay) return [sendTo(relay[1], "HOP:1")];
   const teammate = /Message from OpenBot teammate [^\\n]* \\(([^()\\s]+)\\)\\.\\nMessage ID: \\S+\\n/.exec(text);
+  if (teammate && /I interrupted your turn/.test(text)) return [sendTo(teammate[1], "AFTER_INTERRUPT")];
   const hop = /HOP:(\\d+)/.exec(text);
   if (teammate && hop) return [sendTo(teammate[1], "HOP:" + (Number(hop[1]) + 1))];
   const quietStart = /QUIET_START:(\\S+)/.exec(text);
@@ -113,6 +132,10 @@ const answer = (message) => {
       log({ method: "turn/start", threadId: params.threadId, turnId, text });
       write({ id: message.id, result: { turn: { id: turnId, status: "inProgress", items: [] } } });
       write({ method: "turn/started", params: { threadId: params.threadId, turn: { id: turnId } } });
+      if (/HANG:\\d+/.test(text)) {
+        log({ method: "turn/hang", turnId });
+        return;
+      }
       return callNext({ threadId: params.threadId, turnId, calls: callsFor(text) });
     }
     case "turn/interrupt": {
@@ -164,6 +187,7 @@ const report: {
   refusal: { hop: number; text: string } | null;
   chain: { id: string; hops: number[] } | null;
   legacy: { messageId: string; chain: boolean; stored: boolean } | null;
+  interrupt: { hangHop: number; afterHop: number } | null;
   checks: { name: string; passed: boolean }[];
   passed: boolean;
   error?: string;
@@ -173,6 +197,7 @@ const report: {
   refusal: null,
   chain: null,
   legacy: null,
+  interrupt: null,
   checks: [],
   passed: false,
 };
@@ -414,6 +439,32 @@ try {
       !quietRefused.success &&
       resultText(quietRefused).includes(`stop after ${AGENT_MESSAGE_HOP_LIMIT} hops`),
     quietRefused ? resultText(quietRefused) : null,
+  );
+
+  // An interrupt notice continues the chain of the message it interrupts. The next send that the interrupted
+  // agent makes after the notice is hop 2 of that chain, not a new chain at hop 1.
+  const beforeInterrupt = sendResults().length;
+  await runCauseEffect(
+    agents.sendMessage({ agentId: alpha.id, text: `Start the interrupt. INTERRUPT_START:${bravo.id}` }),
+  );
+  const interruptResults = await waitFor("the interrupted agent to answer the notice", () => {
+    const results = sendResults().slice(beforeInterrupt);
+    const idle = [alpha, bravo].every((agent) =>
+      agents.listQueue(agent.id).deliveries.every((delivery) => ended(delivery.status)),
+    );
+    return idle && results.length >= 2 ? results : null;
+  });
+  const [hangResult, afterResult] = interruptResults;
+  assert.ok(hangResult && afterResult, "The interrupt scenario has two sends.");
+  const hangReceipt: QueuedMessageReceipt = JSON.parse(resultText(hangResult));
+  const afterReceipt: QueuedMessageReceipt = JSON.parse(resultText(afterResult));
+  const hangChain = mailbox.messageChain(hangReceipt.messageId);
+  const afterChain = mailbox.messageChain(afterReceipt.messageId);
+  report.interrupt = { hangHop: hangChain?.hop ?? 0, afterHop: afterChain?.hop ?? 0 };
+  pass(
+    "An interrupt notice does not reset the chain: the next send continues at hop 2",
+    hangChain !== null && afterChain?.id === hangChain.id && afterChain.hop === 2,
+    report.interrupt,
   );
 
   report.legacy = await legacyFixture(since, store.sharedRoot);

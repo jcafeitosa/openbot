@@ -13,9 +13,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_PROVIDERS, type AgentEvent, defaultProviderModel, latestTurnAnswer } from "@openbot/contracts/ipc";
-import { teeLogLines } from "@openbot/logging";
+import { registerSecretValue, teeLogLines } from "@openbot/logging";
 import { Effect } from "effect";
-import { crossProviderTrigger } from "../src/backend/agent/cross-provider-check";
+import {
+  CROSS_PROVIDER_MAX_GAP_LENGTH,
+  CROSS_PROVIDER_MAX_GAPS,
+  crossProviderTrigger,
+  runCrossProviderCheck,
+} from "../src/backend/agent/cross-provider-check";
 import type { AgentBrowserHost } from "../src/backend/agent/turn-lifecycle";
 import type { AgentClient, DiagnosticOrigin } from "../src/backend/agent-client";
 import type { ClaudeCliInfo } from "../src/backend/cli";
@@ -55,6 +60,9 @@ const { runCauseEffect } = await import("../src/backend/effect-boundary");
 const { MailboxStore } = await import("../src/backend/mailbox-store");
 const { OpenBotDatabase } = await import("../src/backend/openbot-database");
 
+const GAP_SECRET = "gap-fake-secret-4417";
+registerSecretValue(GAP_SECRET);
+
 /** The requests, the answers that the agent gives, and the verdict of the check of each answer. */
 const CASES = {
   disagree: {
@@ -81,6 +89,22 @@ const CASES = {
     request: "Verify the total of the invoice. case:unavailable",
     answer: "The total is 40 dollars.",
     verdict: FAIL,
+  },
+  many: {
+    request: "Verify the byte count of the archive. case:many",
+    answer: "The archive holds 3 bytes of data.",
+    verdict: {
+      agrees: false,
+      gaps: [
+        `Gap one: the key ${GAP_SECRET} must not be shown.`,
+        `${"a".repeat(250)}TAIL-MARK`,
+        "Gap three names a claim with no support.",
+        "Gap four names a count with no listing.",
+        "Gap five names a part left unanswered.",
+        "Gap six is past the cap and must not be shown.",
+        "Gap seven is past the cap too.",
+      ],
+    },
   },
 } as const;
 
@@ -568,6 +592,32 @@ try {
     assert.ok(said, "The log says the check did not run.");
     assert.equal(errorsFor(agent.id, since).length, 0, "No error is shown for the check.");
     return { answer, logLine: said };
+  });
+
+  await check("the note holds at most five gaps, each cut to 200 characters, with secrets redacted", async () => {
+    const checksBefore = checkEntries().length;
+    const { answer } = await ask(agent.id, "many");
+    assert.equal(checkEntries().slice(checksBefore).length, 1, "The check runs once.");
+    const lines = answer.split("\n").filter((line) => line.startsWith("- "));
+    assert.equal(lines.length, CROSS_PROVIDER_MAX_GAPS, "The note lists at most five gaps.");
+    assert.ok(
+      lines.every((line) => line.length <= CROSS_PROVIDER_MAX_GAP_LENGTH + 2),
+      "Each gap is at most 200 characters.",
+    );
+    assert.ok(lines.includes(`- ${"a".repeat(CROSS_PROVIDER_MAX_GAP_LENGTH)}`), "A long gap is cut to 200 characters.");
+    assert.ok(!answer.includes("TAIL-MARK"), "The cut part of a long gap is not shown.");
+    assert.ok(!answer.includes("Gap six"), "A gap past the fifth is not shown.");
+    assert.ok(!answer.includes(GAP_SECRET), "A secret in a gap is not shown.");
+    assert.ok(answer.includes("[redacted]"), "The secret is replaced by the redaction marker.");
+    return { gaps: lines.length, lengths: lines.map((line) => line.length) };
+  });
+
+  await check("a second provider that never answers in time leaves the check not run", async () => {
+    const result = await Effect.runPromise(
+      runCrossProviderCheck({ request: "Verify it.", answer: "Done.", timeoutMs: 20, generate: () => Effect.never }),
+    );
+    assert.equal(result.ran, false, "The hung check does not run.");
+    return result;
   });
 
   report.passed = report.checks.every((entry) => entry.passed);

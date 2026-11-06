@@ -210,6 +210,36 @@ try {
     return { woken: [anyRun.id] };
   });
 
+  await step("A named script event from routine B does not wake a wait bound to routine A", async () => {
+    // A wait's routine column references a routine row, so routine A is written first.
+    const now = clock.toISOString();
+    database.connection
+      .prepare(
+        `INSERT INTO projection_agent_routines (routine_id, agent_id, name, instruction, active, timezone, created_at, updated_at, last_event_sequence)
+         VALUES (?, ?, ?, ?, 1, 'UTC', ?, ?, 0)`,
+      )
+      .run("routine-a", "agent-e", "Routine A", "Run routine A.", now, now);
+    const bound = waitStore.open({
+      agentId: "agent-e",
+      requestMessageId: "delivery-request-agent-e",
+      requestText: "The user's request.",
+      note: "Bound to routine A",
+      routineId: "routine-a",
+    });
+    waits.wakeForRun({ agentId: "agent-e", routineId: "routine-b" }, "delivery-e-named-b", bound.id);
+    const after = waitStore.get("agent-e", bound.id);
+    assert.ok(after, "The wait stays open.");
+    assert.equal(after.wakeDeliveryId, null, "A named event from routine B does not wake a wait bound to routine A.");
+    assert.deepEqual(waits.wokenBy("delivery-e-named-b"), []);
+    waits.wakeForRun({ agentId: "agent-e", routineId: "routine-a" }, "delivery-e-named-a", bound.id);
+    assert.deepEqual(
+      waits.wokenBy("delivery-e-named-a").map((wait) => wait.id),
+      [bound.id],
+      "A named event from routine A wakes the wait bound to it.",
+    );
+    return { waitId: bound.id };
+  });
+
   report.passed = true;
 } finally {
   database.close();

@@ -180,6 +180,8 @@ export const messages = {
   "error.backend.memoryTextTooLong": "Bellek metni çok uzun.",
   "error.backend.memorySecretRefused":
     "Bu metin OpenBot'un sakladığı bir sır içeriyor, bu yüzden hatırlanmadı. Bilgiyi değeri olmadan hatırla.",
+  "error.backend.messageSecretRefused":
+    "Bu ileti OpenBot'un sakladığı bir sır içeriyor, bu yüzden gönderilmedi. İsteği değeri olmadan gönder.",
   "error.backend.agentHopLimit":
     "Ajanlar arasındaki istekler, tek bir zincirde {limit} adımdan sonra durur. İşi kendiniz bitirin veya sohbette kullanıcıya sorun.",
   "error.backend.skillPersonOnly":

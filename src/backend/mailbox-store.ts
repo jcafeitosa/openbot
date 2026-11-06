@@ -33,7 +33,7 @@ import {
 import { type DynamicRecord, isNumber, isOneOf, isString } from "@openbot/contracts/runtime-values";
 import { QueueEditRejectedError } from "@openbot/contracts/team-protocol/queue-edit-v1";
 import { sourceText } from "@openbot/i18n/source";
-import { redactText } from "@openbot/logging";
+import { containsRegisteredSecret, redactText } from "@openbot/logging";
 import { Effect, Result } from "effect";
 import {
   AttachmentFiles,
@@ -535,8 +535,13 @@ export class MailboxStore {
         throw new Error("The idempotency key is too long.");
       }
 
-      const text = input.text.trim();
-      if (text.length > INPUT_LIMITS.messageText) throw new Error(sourceText("error.agent.messageTooLong"));
+      const typed = input.text.trim();
+      if (typed.length > INPUT_LIMITS.messageText) throw new Error(sourceText("error.agent.messageTooLong"));
+      // An agent's text is stored with known secret patterns masked. A registered secret is refused, as memory refuses it.
+      if (input.sender.kind === "agent" && containsRegisteredSecret(typed)) {
+        throw new Error(sourceText("error.backend.messageSecretRefused"));
+      }
+      const text = input.sender.kind === "agent" ? redactText(typed) : typed;
 
       const drafts = (input.draftIds ?? []).map((id) => {
         const draft = this.#state.drafts.find((candidate) => candidate.id === id);
