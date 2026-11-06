@@ -49,6 +49,7 @@ import type { AttentionBrowserHost, AttentionRegistry } from "./attention-regist
 import type { BrowserUploadTarget } from "./browser-uploads";
 import { type ContextCompaction, compactsOnRequest } from "./context-compaction";
 import type { ConversationRuntime } from "./conversation-runtime";
+import { abstentionNote, type CrossProviderResult, crossProviderTrigger } from "./cross-provider-check";
 import type { DeltaBuffer } from "./delta-buffer";
 import type { FailureContext, FailureSignal } from "./failure-signal";
 import { readCapturedSteps } from "./handoff-tool-steps";
@@ -220,6 +221,11 @@ export interface TurnHooks {
     agentId: string,
     input: { steps: readonly ConversationPlanStep[]; answer: string },
   ): Effect.Effect<readonly string[]>;
+  /**
+   * Asks a provider other than the agent's own to check a final answer that its request flags, with a
+   * tool-less generation. It never fails the turn: a check that cannot run says so, and the answer stays.
+   */
+  crossProviderCheck(agentId: string, input: { request: string; answer: string }): Effect.Effect<CrossProviderResult>;
   /** Whether the user stopped this turn, in the agent's own chat (`taskId` null) or in a task. */
   turnStopped(agentId: string, taskId: string | null, turnId: string): boolean;
   /** Whether the agent has an open wait for one of these deliveries. */
@@ -1441,6 +1447,23 @@ export class TurnLifecycle {
         });
       const continuation = continuationTurn ? this.#planContinuation.consider({ ...continuationTurn, gaps }) : null;
       if (!continuation) this.#planContinuation.cancel(agentId, laneTaskId);
+      // A final answer that the request flags gets a second opinion from another provider before it is
+      // relayed, previewed, attached or saved. A disagreeing check adds its abstention note to the answer.
+      if (outcome === "completed" && latestAssistant && !quiet && !markerAnswer && !continuation) {
+        const request = snapshot.messages
+          .filter((message) => message.turnId === turnId && message.author === "user")
+          .map((message) => message.text)
+          .join("\n");
+        const usedTool = trace?.steps.some((step) => step.kind === "tool") ?? false;
+        if (crossProviderTrigger({ request, usedTool }) !== null) {
+          const crossCheck = yield* this.#hooks.crossProviderCheck(agentId, {
+            request: this.#hooks.redactMcp(request),
+            answer: this.#hooks.redactMcp(latestAssistant.text),
+          });
+          if (crossCheck.ran && !crossCheck.agrees)
+            latestAssistant.text = `${latestAssistant.text}\n\n${abstentionNote(crossCheck.gaps)}`;
+        }
+      }
       if (deliveries.length > 0) {
         const terminal = outcome === "failed" ? "failed" : outcome === "interrupted" ? "interrupted" : "completed";
         for (const delivery of deliveries) {

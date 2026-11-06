@@ -158,7 +158,7 @@ describe("mailbox reconcile cleanup migration", () => {
         memory_consolidation_runs: [],
         memory_proposals: [],
       });
-      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 66 });
+      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 67 });
       expect(db.prepare("SELECT name FROM sqlite_temp_master").all()).toEqual([]);
       expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
       expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -192,9 +192,9 @@ describe("mailbox reconcile cleanup migration", () => {
     const db = databaseAt(38);
     seed(db);
     const before = contents(db);
-    db.exec("INSERT INTO schema_migrations VALUES(67,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(68,'now')");
     expect(() => migrateOpenBotDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=67; DELETE FROM schema_migrations WHERE version=20");
+    db.exec("DELETE FROM schema_migrations WHERE version=68; DELETE FROM schema_migrations WHERE version=20");
     expect(() => migrateOpenBotDatabase(db)).toThrow("missing version 20");
     expect(contents(db)).toEqual(before);
   });
@@ -234,7 +234,7 @@ describe("mailbox reconcile cleanup migration", () => {
     const legacy = new DatabaseSync(path);
     // From 38 on: migration 47 reads the task table that 38 creates.
     legacy.exec(
-      "DELETE FROM schema_migrations WHERE version IN (38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66)",
+      "DELETE FROM schema_migrations WHERE version IN (38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67)",
     );
     legacy.close();
     const migrated = new OpenBotDatabase(root);
@@ -251,7 +251,7 @@ describe("mailbox reconcile cleanup migration", () => {
     expect(kept).toEqual(events.filter((event) => !reconciled.slice(0, 2).includes(event)));
     expect(migrated.rebuildThreadProjection("openbot-thread-chief")).toEqual(replayed);
     expect(migrated.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-      version: 66,
+      version: 67,
     });
     migrated.close();
   });

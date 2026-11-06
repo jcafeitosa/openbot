@@ -86,19 +86,21 @@ export class AgentWaits {
   }
 
   /**
-   * Marks the waits that a routine run wakes, after its delivery is queued. A script event that
-   * names a wait wakes only that wait. Any other run wakes every wait of its agent that has no
-   * routine or has this routine. A wait whose last wake has not ended yet stays with that run.
+   * Marks the waits that a routine run wakes, after its delivery is queued. A wait whose expiry has passed
+   * closes here and wakes nothing. A script event that names a wait wakes only that wait. Any other run wakes
+   * every wait of its agent that has no routine or has this routine. A wait with a predicate wakes only for a
+   * run of the routine that the predicate names. A wait whose last wake has not ended yet stays with that run.
    */
   wakeForRun(run: { agentId: string; routineId: string }, deliveryId: string, waitId: string | null): void {
-    const named = waitId ? this.#store.get(run.agentId, waitId) : null;
-    const candidates = waitId ? (named ? [named] : []) : this.#store.forRoutineRun(run.agentId, run.routineId);
+    const closed = this.#store.closeExpired(run.agentId);
+    const candidates = waitId
+      ? this.#store.forNamedRun(run.agentId, waitId, run.routineId)
+      : this.#store.forRoutineRun(run.agentId, run.routineId);
     const woken = candidates
       .filter((wait) => !wait.wakeDeliveryId || !this.#isPending(wait.wakeDeliveryId))
       .map((wait) => wait.id);
-    if (woken.length === 0) return;
-    this.#store.markWoken(run.agentId, woken, deliveryId);
-    this.#changed(run.agentId);
+    if (woken.length > 0) this.#store.markWoken(run.agentId, woken, deliveryId);
+    if (closed || woken.length > 0) this.#changed(run.agentId);
   }
 
   /** The number of open waits of each agent that has one. */

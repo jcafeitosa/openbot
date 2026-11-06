@@ -111,5 +111,7 @@ export const messages = defineMessages("status.agent", {
   "status.agent.vaultField.email": "Email address",
   "status.agent.nextStepContinues": "The agent stopped before its next step. It continues ({current} of {limit}).",
   "status.agent.planContinues": "The plan has open steps. The agent continues ({current} of {limit}).",
+  "status.agent.crossCheckUnconfirmed":
+    "OpenBot cross-check: I am not sure of this answer. A second provider did not confirm it. Not confirmed:",
   "status.agent.branchTitle": "Branched chat",
 });

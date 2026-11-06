@@ -1,13 +1,14 @@
 /**
  * The open waits of every agent. Rows are written directly, not through `database.dispatch`: a wait
- * holds a copy of the user's request, and the event log is never deleted from. A closed or cancelled
- * wait is deleted. It owns no events: the runtime says when something changed.
+ * holds a copy of the user's request, and the event log is never deleted from. A closed, cancelled or
+ * expired wait is deleted. It owns no events: the runtime says when something changed.
  */
 
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type { AgentWait } from "@openbot/contracts/ipc";
-import type { DynamicRecord } from "@openbot/contracts/runtime-values";
+import { type DynamicRecord, isDynamicRecord } from "@openbot/contracts/runtime-values";
 import { sourceText } from "@openbot/i18n/source";
+import { z } from "zod";
 import {
   databaseRow,
   databaseRows,
@@ -23,6 +24,26 @@ export class AgentWaitError extends Error {}
 /** The agent already has the most open waits it may have. */
 export class AgentWaitLimitError extends AgentWaitError {}
 
+/** The longest a wait may stay open, counted from the moment it opens. */
+export const AGENT_WAIT_MAX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Which runs wake a wait, beyond the routine column of the row. A run wakes the wait only when its
+ * routine is the one named here. Stored as a JSON object in `predicate_json`.
+ */
+export const agentWaitPredicateSchema = z.strictObject({
+  routineId: z.string().trim().min(1).max(INPUT_LIMITS.identifier).optional(),
+});
+
+export type AgentWaitPredicate = z.infer<typeof agentWaitPredicateSchema>;
+
+/**
+ * A predicate row names the routine a run must have. A row without one, or with no predicate, matches any run.
+ * The `?` is the routine id of the run.
+ */
+const PREDICATE_ALLOWS_ROUTINE = `(predicate_json IS NULL OR json_extract(predicate_json, '$.routineId') IS NULL
+  OR json_extract(predicate_json, '$.routineId') = ?)`;
+
 export interface AgentWaitStoreOptions {
   database: OpenBotDatabase;
   createId?: () => string;
@@ -35,6 +56,10 @@ export interface OpenAgentWaitInput {
   requestText: string;
   note: string;
   routineId: string | null;
+  /** When the wait expires, at most 7 days after it opens. Absent or null: it stays open until closed. */
+  expiresAt?: Date | null;
+  /** Which runs wake it. Absent or null: any run that the routine column allows. */
+  predicate?: AgentWaitPredicate | null;
 }
 
 export class AgentWaitStore {
@@ -68,10 +93,14 @@ export class AgentWaitStore {
   /** One statement, so two tool calls at once cannot both pass the limit. */
   open(input: OpenAgentWaitInput): AgentWait {
     const waitId = this.#createId();
+    const createdAt = this.#now();
+    const expiresAt = input.expiresAt ? expiryText(input.expiresAt, createdAt) : null;
+    const predicateJson = predicateText(input.predicate ?? null);
     const inserted = this.#database.connection
       .prepare(
-        `INSERT INTO agent_waits (wait_id, agent_id, request_delivery_id, request_text, note, routine_id, created_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?
+        `INSERT INTO agent_waits (wait_id, agent_id, request_delivery_id, request_text, note, routine_id, created_at,
+           expires_at, predicate_json)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
          WHERE (SELECT COUNT(*) FROM agent_waits WHERE agent_id = ?) < ?`,
       )
       .run(
@@ -81,7 +110,9 @@ export class AgentWaitStore {
         input.requestText,
         input.note,
         input.routineId,
-        this.#now().toISOString(),
+        createdAt.toISOString(),
+        expiresAt,
+        predicateJson,
         input.agentId,
         INPUT_LIMITS.agentWaits,
       );
@@ -116,15 +147,37 @@ export class AgentWaitStore {
     );
   }
 
+  /** Closes the waits of this agent whose expiry has passed. True when it closed any. */
+  closeExpired(agentId: string): boolean {
+    return (
+      this.#database.connection
+        .prepare("DELETE FROM agent_waits WHERE agent_id = ? AND expires_at IS NOT NULL AND expires_at <= ?")
+        .run(agentId, this.#now().toISOString()).changes > 0
+    );
+  }
+
   /** The waits a run of this routine wakes, when no event names one wait. */
   forRoutineRun(agentId: string, routineId: string): AgentWait[] {
     return databaseRows(
       this.#database.connection
         .prepare(
           `SELECT * FROM agent_waits WHERE agent_id = ? AND (routine_id IS NULL OR routine_id = ?)
+           AND ${PREDICATE_ALLOWS_ROUTINE}
            ORDER BY created_at, wait_id`,
         )
-        .all(agentId, routineId),
+        .all(agentId, routineId, routineId),
+    ).map(toWait);
+  }
+
+  /**
+   * The wait that a script event names, when a run of this routine may wake it. The routine column does not
+   * limit a named wait, as before; its predicate still does.
+   */
+  forNamedRun(agentId: string, waitId: string, routineId: string): AgentWait[] {
+    return databaseRows(
+      this.#database.connection
+        .prepare(`SELECT * FROM agent_waits WHERE agent_id = ? AND wait_id = ? AND ${PREDICATE_ALLOWS_ROUTINE}`)
+        .all(agentId, waitId, routineId),
     ).map(toWait);
   }
 
@@ -146,6 +199,29 @@ export class AgentWaitStore {
         .all(deliveryId),
     ).map(toWait);
   }
+}
+
+/** The expiry as the column stores it, or the refusal when it is not a moment after the wait opens within the cap. */
+function expiryText(expiresAt: Date, openedAt: Date): string {
+  const remaining = expiresAt.getTime() - openedAt.getTime();
+  if (Number.isNaN(remaining)) throw new Error("A wait's expiry is not a valid date.");
+  if (remaining <= 0) throw new Error("A wait cannot expire before it opens.");
+  if (remaining > AGENT_WAIT_MAX_TTL_MS) throw new Error("A wait cannot stay open for more than 7 days.");
+  return expiresAt.toISOString();
+}
+
+/**
+ * The predicate as the column stores it. Validated before it is written, so an unknown key is refused
+ * here rather than matched as if it were absent. A run status is refused: a run wakes its waits when it is
+ * queued, so its outcome is not known yet.
+ */
+function predicateText(predicate: unknown): string | null {
+  if (predicate === null) return null;
+  if (isDynamicRecord(predicate) && "status" in predicate)
+    throw new Error("A wait's predicate cannot name a run status: a run wakes its waits when it is queued.");
+  const parsed = agentWaitPredicateSchema.safeParse(predicate);
+  if (!parsed.success) throw new Error(z.prettifyError(parsed.error));
+  return Object.keys(parsed.data).length === 0 ? null : JSON.stringify(parsed.data);
 }
 
 function toWait(row: DynamicRecord): AgentWait {

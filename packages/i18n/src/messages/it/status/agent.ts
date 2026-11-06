@@ -81,5 +81,7 @@ export const messages = {
   "status.agent.nextStepContinues":
     "L'agente si è fermato prima del passaggio successivo. Continua ({current} di {limit}).",
   "status.agent.planContinues": "Il piano ha passaggi aperti. L'agente continua ({current} di {limit}).",
+  "status.agent.crossCheckUnconfirmed":
+    "Controllo incrociato di OpenBot: non sono sicuro di questa risposta. Un secondo provider non l’ha confermata. Non confermato:",
   "status.agent.branchTitle": "Chat ramificata",
 } as const satisfies PartialTranslation<typeof source>;

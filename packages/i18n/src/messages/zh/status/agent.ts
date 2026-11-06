@@ -104,5 +104,6 @@ export const messages = {
   "status.agent.vaultField.email": "邮箱地址",
   "status.agent.nextStepContinues": "助手在下一步之前停下了。继续工作（{current}/{limit}）。",
   "status.agent.planContinues": "计划还有未完成的步骤。助手继续工作（{current}/{limit}）。",
+  "status.agent.crossCheckUnconfirmed": "OpenBot 交叉检查：我对这个回答不确定。第二个提供方没有确认它。未确认的部分：",
   "status.agent.branchTitle": "分支聊天",
 } as const satisfies PartialTranslation<typeof source>;

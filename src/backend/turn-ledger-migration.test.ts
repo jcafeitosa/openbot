@@ -76,7 +76,7 @@ function ledgerObjects(db: DatabaseSync) {
 }
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 66 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 67 });
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -163,7 +163,7 @@ describe("turn outcome ledger migration", () => {
     const db = databaseAt(58);
     seed(db, 58);
     const before = contents(db);
-    db.exec("INSERT INTO schema_migrations VALUES(67,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(68,'now')");
     expect(() => migrateOpenBotDatabase(db)).toThrow("newer than this application supports");
     expect(contents(db)).toEqual(before);
     expect(ledgerObjects(db)).toEqual([]);

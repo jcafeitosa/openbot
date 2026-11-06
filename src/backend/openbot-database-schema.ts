@@ -740,6 +740,27 @@ const V61_AGENT_MEMORIES_END_SQL = `    last_event_sequence INTEGER NOT NULL,
     ${V61_AGENT_MEMORY_SOURCE_THREAD_COLUMN_SQL},
     UNIQUE(agent_id, normalized_text)`;
 
+// Migration 67 gives an open wait its expiry and its predicate, in two nullable columns. Frozen with the migration.
+// ADD COLUMN appends them to the end of the wait table, so the latest schema declares them there too. The expiry must
+// come after the wait opened. A CHECK cannot name the keys a predicate object may have, so the store refuses an unknown
+// key.
+const V67_AGENT_WAIT_COLUMNS_SQL = [
+  "expires_at TEXT CHECK(expires_at IS NULL OR expires_at > created_at)",
+  "predicate_json TEXT CHECK(predicate_json IS NULL OR (json_valid(predicate_json) AND json_type(predicate_json) = 'object'))",
+];
+
+// The wait table's end as migration 34 declares it, and as the latest schema declares it with migration 67's columns.
+const V34_AGENT_WAITS_END_SQL = `    wake_delivery_id TEXT
+  );`;
+const V67_AGENT_WAITS_END_SQL = `    wake_delivery_id TEXT,
+    ${V67_AGENT_WAIT_COLUMNS_SQL.join(",\n    ")}
+  );`;
+const LATEST_AGENT_WAIT_SCHEMA_SQL = substituteOnce(
+  AGENT_WAIT_SCHEMA_SQL,
+  V34_AGENT_WAITS_END_SQL,
+  V67_AGENT_WAITS_END_SQL,
+);
+
 const LATEST_SCHEMA_SQL =
   substituteOnce(
     substituteOnce(
@@ -780,7 +801,7 @@ const LATEST_SCHEMA_SQL =
   WEBHOOK_SCHEMA_SQL +
   ROUTINE_FLOW_SCHEMA_SQL +
   AGENT_MEMORY_SELECTION_SCHEMA_SQL +
-  AGENT_WAIT_SCHEMA_SQL +
+  LATEST_AGENT_WAIT_SCHEMA_SQL +
   MESSAGING_MEMORY_SCHEMA_SQL +
   ROUTINE_RESULT_SCHEMA_SQL +
   V40_THREAD_MESSAGE_ORDER_INDEX_SQL +
@@ -1199,6 +1220,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // empty and no existing row changes.
     up: (db) => db.exec(MEMORY_CONSOLIDATION_RUNS_SCHEMA_SQL),
   },
+  {
+    version: 67,
+    // Only adds two nullable columns, so no foreign-key pause and no vacuum. No wait has a value in them before this,
+    // so every open wait keeps its meaning and wakes as before.
+    up: (db) => addAgentWaitTtlColumns(db),
+  },
 ];
 
 const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? BASELINE_SCHEMA_VERSION;
@@ -1613,6 +1640,17 @@ function addAgentRoutineRunPlace(db: DatabaseSync): void {
   const columns = db.prepare("PRAGMA table_info(projection_agent_routines)").all();
   if (columns.some((existing) => isDynamicRecord(existing) && existing.name === "run_in")) return;
   db.exec(`ALTER TABLE projection_agent_routines ADD COLUMN ${V57_AGENT_ROUTINE_RUN_IN_COLUMN_SQL}`);
+}
+
+// Migration 67 adds the expiry and the predicate to the open waits. Frozen with the migration. A development profile that
+// ran this version before it shipped has the columns already, so each one is added only when it is missing.
+function addAgentWaitTtlColumns(db: DatabaseSync): void {
+  const columns = db.prepare("PRAGMA table_info(agent_waits)").all();
+  for (const column of V67_AGENT_WAIT_COLUMNS_SQL) {
+    const name = column.slice(0, column.indexOf(" "));
+    if (columns.some((existing) => isDynamicRecord(existing) && existing.name === name)) continue;
+    db.exec(`ALTER TABLE agent_waits ADD COLUMN ${column}`);
+  }
 }
 
 // Migration 61 gives every memory its source kind and source thread. A row written before it takes the kind named by

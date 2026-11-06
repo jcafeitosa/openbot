@@ -67,7 +67,7 @@ describe("memory consolidation migration", () => {
 
     migrateOpenBotDatabase(db);
 
-    expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 66 });
+    expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 67 });
     expect(memoryRows(db)).toEqual(before);
     expect(db.prepare("SELECT COUNT(*) AS count FROM memory_consolidation_runs").get()).toEqual({ count: 0 });
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);

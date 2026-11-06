@@ -78,5 +78,7 @@ export const messages = {
     "Wspomnienia: zapisane {saved}, zaktualizowane {updated}, zapomniane {forgotten}, niezmienione {notChanged}, bo inny wątek zmienił je wcześniej.",
   "status.agent.nextStepContinues": "Agent zatrzymał się przed następnym krokiem. Kontynuuje ({current} z {limit}).",
   "status.agent.planContinues": "Plan ma otwarte kroki. Agent kontynuuje ({current} z {limit}).",
+  "status.agent.crossCheckUnconfirmed":
+    "Sprawdzenie krzyżowe OpenBot: nie jestem pewien tej odpowiedzi. Drugi dostawca jej nie potwierdził. Niepotwierdzone:",
   "status.agent.branchTitle": "Odgałęziony czat",
 } as const satisfies PartialTranslation<typeof source>;

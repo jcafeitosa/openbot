@@ -114,5 +114,7 @@ export const messages = {
   "status.agent.vaultField.email": "E-mailadres",
   "status.agent.nextStepContinues": "De agent stopte vóór de volgende stap en gaat verder ({current} van {limit}).",
   "status.agent.planContinues": "Het plan heeft open stappen. De agent gaat verder ({current} van {limit}).",
+  "status.agent.crossCheckUnconfirmed":
+    "OpenBot-kruiscontrole: ik weet niet zeker van dit antwoord. Een tweede aanbieder heeft het niet bevestigd. Niet bevestigd:",
   "status.agent.branchTitle": "Afgetakte chat",
 } as const satisfies PartialTranslation<typeof source>;

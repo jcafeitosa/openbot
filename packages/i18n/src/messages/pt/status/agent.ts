@@ -76,5 +76,7 @@ export const messages = {
     "Memórias: {saved} salvas, {updated} atualizadas, {forgotten} esquecidas, {notChanged} não alteradas porque outro tópico as alterou antes.",
   "status.agent.nextStepContinues": "O agente parou antes da próxima etapa. Ele continua ({current} de {limit}).",
   "status.agent.planContinues": "O plano tem etapas abertas. O agente continua ({current} de {limit}).",
+  "status.agent.crossCheckUnconfirmed":
+    "Verificação cruzada do OpenBot: não tenho certeza desta resposta. Um segundo provedor não a confirmou. Não confirmado:",
   "status.agent.branchTitle": "Chat ramificado",
 } as const satisfies PartialTranslation<typeof source>;

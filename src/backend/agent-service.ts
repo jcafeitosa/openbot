@@ -116,6 +116,7 @@ import type {
   VoiceLiveStart,
 } from "@openbot/contracts/ipc";
 import {
+  AGENT_PROVIDERS,
   type AgentDefaults,
   type AgentModelChoice,
   agentAutomationAllowed,
@@ -127,6 +128,7 @@ import {
   DEFAULT_BUSY_MESSAGE_MODE,
   DEFAULT_CUSTOM_PROVIDER_HARNESS,
   DEFAULT_PROVIDER_ACCOUNT_ID,
+  defaultProviderModel,
   isContextResetMarker,
   isCustomProviderHarness,
   MODEL_SWITCH_ITEM_TYPES,
@@ -164,6 +166,7 @@ import type { ChatVisualPreviewHost } from "./agent/chat-visual-preview";
 import { ContextCompaction } from "./agent/context-compaction";
 import { ConversationReader } from "./agent/conversation-reader";
 import { ConversationRuntime } from "./agent/conversation-runtime";
+import { runCrossProviderCheck } from "./agent/cross-provider-check";
 import { CustomEndpoints, toEndpointChangeFailed } from "./agent/custom-endpoints";
 import { agentNamesById, displayMessageReferences, type TagReferenceSource } from "./agent/delivery-content";
 import { DeltaBuffer } from "./agent/delta-buffer";
@@ -1593,6 +1596,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         conversationTurnEnded: (agentId, sideThreadId, counts, memoryCommitted) =>
           this.#memoryReview.turnEnded(agentId, sideThreadId, counts, memoryCommitted),
         verifyPlan: (agentId, input) => this.#verifyPlan(agentId, input),
+        crossProviderCheck: (agentId, input) =>
+          runCrossProviderCheck({ ...input, generate: (prompt) => this.#crossProviderGenerate(agentId, prompt) }),
         turnStopped: (agentId, taskId, turnId) =>
           this.#stoppedTurn(agentId, taskId) === turnId || (taskId === null && this.#requestedNewChats.has(agentId)),
         hasOpenWait: (agentId, deliveryIds) =>
@@ -3386,6 +3391,44 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         }),
       ),
     );
+  }
+
+  /**
+   * One tool-less generation of a cross-provider check, on the first ready provider that is not the agent's
+   * own. Without a spare generation client, or such a provider, the check does not run.
+   */
+  #crossProviderGenerate(agentId: string, prompt: string): Effect.Effect<string, unknown> {
+    const agent = this.listAgents().find((candidate) => candidate.id === agentId);
+    if (!agent || this.#stopping) return Effect.fail(new Error("The agent is not available."));
+    if (!this.#profileClients.hasSpare()) return Effect.fail(new Error("No generation client is spare."));
+    const model = this.#crossProviderModel(agent);
+    if (!model) return Effect.fail(new Error("No other provider is ready."));
+    return this.#providers.ensureProvider(model.provider).pipe(
+      Effect.flatMap(() => Effect.try(() => this.#providers.createProfileClient(model.provider))),
+      Effect.flatMap((client) =>
+        this.#profileClients.run(client, (cancelled) =>
+          generateTextWithoutTools(
+            client,
+            model,
+            prompt,
+            cancelled,
+            memoryReviewUsageObserver(this.#store.database.usage, agent.id, model.provider, model.id),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /** The model of the first provider, in catalogue order, that is not the agent's own and is ready to run. */
+  #crossProviderModel(agent: AgentSummary): AgentModelOption | undefined {
+    for (const provider of AGENT_PROVIDERS) {
+      // A custom agent runs models that the user wrote, so it is no model for a second opinion.
+      if (provider === agent.provider || provider === "acp") continue;
+      const models = this.#agentModels({ provider }).filter((option) => option.provider === provider);
+      const model = models.find((option) => option.id === defaultProviderModel(provider)) ?? models[0];
+      if (model && this.#usageLimitReady({ provider, model: model.id })) return model;
+    }
+    return undefined;
   }
 
   /**

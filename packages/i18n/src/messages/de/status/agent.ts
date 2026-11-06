@@ -79,5 +79,7 @@ export const messages = {
   "status.agent.nextStepContinues":
     "Der Agent hat vor dem nächsten Schritt angehalten. Er macht weiter ({current} von {limit}).",
   "status.agent.planContinues": "Der Plan hat offene Schritte. Der Agent macht weiter ({current} von {limit}).",
+  "status.agent.crossCheckUnconfirmed":
+    "OpenBot-Gegenprüfung: Ich bin mir bei dieser Antwort nicht sicher. Ein zweiter Anbieter hat sie nicht bestätigt. Nicht bestätigt:",
   "status.agent.branchTitle": "Abgezweigter Chat",
 } as const satisfies PartialTranslation<typeof source>;
