@@ -12,7 +12,7 @@ describe("browser diagnostics redaction", () => {
     expect(diagnostic).toBeDefined();
 
     const diagnostics = new BrowserDiagnostics();
-    diagnostics.add({ kind: "network", level: "info", message: `GET ${diagnostic}` });
+    diagnostics.add({ kind: "network", level: "error", message: `GET ${diagnostic}` });
     const snapshot = diagnostics.snapshot();
     const message = snapshot.diagnostics[0]?.message ?? "";
     expect(message).not.toContain("sk-ant-api03");
