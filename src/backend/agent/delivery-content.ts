@@ -4,14 +4,13 @@ import { expandAttachmentReferences } from "@openbot/contracts/attachment-refere
 import { expandChatTagReferences } from "@openbot/contracts/chat-tag-references";
 import type {
   AgentSummary,
-  AgentWait,
   ConversationPlanStep,
   ConversationSnapshot,
   QueueDelivery,
   RoutineRun,
 } from "@openbot/contracts/ipc";
 import { redactText } from "@openbot/logging";
-import { taskWakesPromptText, wokenWaitsPromptText } from "../agent-waits/agent-waits";
+import { taskWakesPromptText, type WokenWait, wokenWaitsPromptText } from "../agent-waits/agent-waits";
 import { homeSkillRoot, homeSkillTagSlug } from "../home-skills";
 import type { DeliveryContext } from "../mailbox-store";
 import { exactToolGuidance } from "./exact-tool-policy";
@@ -84,9 +83,9 @@ export interface DeliveryPromptSources {
   snapshot: ConversationSnapshot;
   routineRun: Pick<RoutineRun, "kind" | "source"> | null;
   /** The open waits that a routine run wakes. The run continues their requests. */
-  wokenWaits?: readonly AgentWait[];
+  wokenWaits?: readonly WokenWait[];
   /** The task-completion wakes that this prompt carries. Each one goes to one prompt, the first that takes it. */
-  taskWakes?: readonly AgentWait[];
+  taskWakes?: readonly WokenWait[];
   /** The prompt a channel task or an external message sends in place of the delivery text. */
   executionText?: string | undefined;
   /** The current state of the tabs and threads that the message tags. */

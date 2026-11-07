@@ -318,6 +318,8 @@ export class OpenBotToolRouter {
   readonly #hooks: OpenBotToolRouterHooks;
   readonly #interruptTool: AgentInterruptTool;
   readonly #workstate: WorkstateTools;
+  /** The ids of the plan cards this process showed. A plan card's start counts only for one of these ids. */
+  readonly #planCardIds = new Set<string>();
 
   constructor(options: OpenBotToolRouterOptions) {
     this.#history = new HistoryTools({
@@ -716,6 +718,11 @@ export class OpenBotToolRouter {
       );
       return;
     }
+    // A plan card's id is server-issued: an agent's ask_ui block may not take it.
+    if (this.#planCardIds.has(blockId)) {
+      refuse("This block id is in use. Omit blockId and OpenBot makes one.", VALIDATION_FAILURE);
+      return;
+    }
     this.#attention.surfaceUiBlock(client, request, { blockId, spec });
   }
 
@@ -901,10 +908,12 @@ export class OpenBotToolRouter {
       refuse("Each button needs a different label.", VALIDATION_FAILURE);
       return;
     }
+    const blockId = randomUUID();
+    this.#planCardIds.add(blockId);
     this.#attention.surfaceUiBlock(
       client,
       request,
-      { blockId: randomUUID(), spec },
+      { blockId, spec, plan: true },
       defaults.planStartAfterMs === null
         ? undefined
         : { actionId: ACKNOWLEDGE_REQUEST_ACTIONS.start, afterMs: defaults.planStartAfterMs },
@@ -1034,6 +1043,8 @@ export class OpenBotToolRouter {
       .messages.some(
         (message) =>
           message.turnId === turnId &&
+          message.uiBlock !== undefined &&
+          this.#planCardIds.has(message.uiBlock.blockId) &&
           message.uiBlock?.spec.type === "confirm" &&
           message.uiBlock.state.status === "answered" &&
           message.uiBlock.state.response?.actionId === ACKNOWLEDGE_REQUEST_ACTIONS.start &&

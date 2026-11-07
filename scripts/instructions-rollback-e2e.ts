@@ -44,7 +44,9 @@ const { OpenBotDatabase } = await import("../src/backend/openbot-database");
 const { ABSENT_INSTRUCTIONS_SHA256, instructionsTextSha256, recordInstructionsSnapshot } = await import(
   "../src/backend/instructions-history-store"
 );
-const { saveAgentInstructionsFile } = await import("../src/backend/agent/workspace-instructions");
+const { restoreAgentInstructionsSnapshot, saveAgentInstructionsFile } = await import(
+  "../src/backend/agent/workspace-instructions"
+);
 
 /**
  * A Codex app-server with the methods that the service calls. A turn whose input holds
@@ -141,6 +143,7 @@ process.stdin.on("data", (chunk) => {
 
 interface CallArguments {
   sha256?: string;
+  text?: string;
 }
 
 interface ToolLog {
@@ -412,6 +415,18 @@ try {
     { newest: alphaRows[0]?.sha256 },
   );
 
+  // (f) A change whose text holds a NUL character is refused before any card, and the file keeps its text. The
+  // absent-file snapshot holds that character, so an agent's text must never take its place.
+  const cardsBeforeNul = approvals.length;
+  const nul = await callFromChat("propose a change with a NUL character", alpha.id, "propose_instructions_change", {
+    text: `${NEW_TEXT}\u0000`,
+  });
+  pass(
+    "(f) A change whose text holds a NUL character is refused with no card, and the file keeps its text",
+    !nul.success && approvals.length === cardsBeforeNul && (await readInstructions(alpha.workspacePath)) === OLD_TEXT,
+    { cards: approvals.length - cardsBeforeNul, text: nul.text },
+  );
+
   // (e) A rollback to the absent-file state removes the file that a first write created.
   await mkdir(gamma.workspacePath, { recursive: true });
   await Effect.runPromise(
@@ -446,6 +461,27 @@ try {
     removed.text,
   );
   pass("(e) The removed text is kept, so the removal can be undone", snapshotRows(gamma.id)[0]?.text === CREATED_TEXT);
+
+  // (g) A removal keeps a file that changed after its card was shown: the restore is given the hash of the text the
+  // card showed, and the file holds other text now.
+  await Effect.runPromise(
+    saveAgentInstructionsFile(gamma.workspacePath, CREATED_TEXT, "", { agentId: gamma.id, database: connection() }),
+  );
+  const staleRemoval = await Effect.runPromise(
+    restoreAgentInstructionsSnapshot(
+      gamma.workspacePath,
+      ABSENT_INSTRUCTIONS_SHA256,
+      { agentId: gamma.id, database: connection() },
+      instructionsTextSha256(OLD_TEXT),
+    ),
+  ).then(
+    () => false,
+    () => true,
+  );
+  pass(
+    "(g) A removal is refused when the file no longer holds the text the card showed, and the file stays",
+    staleRemoval && (await readInstructions(gamma.workspacePath)) === CREATED_TEXT,
+  );
 
   report.passed = true;
 } catch (error) {

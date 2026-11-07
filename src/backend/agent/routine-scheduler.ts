@@ -4,7 +4,6 @@ import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type {
   AgentEvent,
   AgentSummary,
-  AgentWait,
   ConversationMessage,
   ConversationSnapshot,
   CreateRoutineInput,
@@ -27,7 +26,7 @@ import { Effect, Schema } from "effect";
 import { AgentGoalStore } from "../agent-goals/agent-goals";
 import { AgentRoutineStore } from "../agent-routine-store";
 import { AGENT_PREVIEW_MAX_LENGTH, type AgentStore } from "../agent-store";
-import type { AgentWaits } from "../agent-waits/agent-waits";
+import type { AgentWaits, WokenWait } from "../agent-waits/agent-waits";
 import { causeHelpers } from "../effect-boundary";
 import type { MailboxStore } from "../mailbox-store";
 import type { DynamicToolCallParams } from "../protocol";
@@ -258,12 +257,12 @@ export class RoutineScheduler implements RoutineDueSource {
   }
 
   /** The open waits that the run of this delivery continues. */
-  wokenWaits(deliveryId: string): AgentWait[] {
+  wokenWaits(deliveryId: string): WokenWait[] {
     return this.#waits.wokenBy(deliveryId);
   }
 
   /** The task-completion wakes whose note the prompt of this delivery carries. Each note goes to one prompt. */
-  taskWakes(agentId: string, deliveryId: string): AgentWait[] {
+  taskWakes(agentId: string, deliveryId: string): WokenWait[] {
     return this.#waits.takeTaskWakes(agentId, deliveryId);
   }
 

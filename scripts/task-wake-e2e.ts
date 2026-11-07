@@ -40,6 +40,7 @@ interface Step {
 
 type Sender =
   | { kind: "user" }
+  | { kind: "agent"; agentId: string }
   | { kind: "routine"; routineId: string; runId: string; routineName: string; scheduledFor: string };
 
 type TurnStatus = "completed" | "failed" | "interrupted";
@@ -330,6 +331,47 @@ try {
     assert.equal(closed.success, true, "close_wait closes a woken wait.");
     assert.equal(waitOf(worker.id, third), undefined);
     return { closed: third };
+  });
+
+  await step("An agent-sent request is labelled as sent by an agent in its wake note", async () => {
+    const sent = await startTurn(
+      worker.id,
+      deploy.taskId,
+      { kind: "agent", agentId: neighbour.id },
+      "Is the deploy ready?",
+      "turn-deploy-agent",
+    );
+    const opened = call(worker.id, "turn-deploy-agent", AWAIT_EVENT_TOOL, { note: "Deploy answer" });
+    assert.equal(opened.success, true, "The agent's request opens a wait.");
+    const waitId = String(opened.value.waitId);
+    await endTurn(worker.id, deploy, sent, "turn-deploy-agent", "completed");
+    assert.equal(waitOf(worker.id, waitId)?.wokenAt ?? null, null, "The turn that opened the wait leaves it open.");
+    const deliveryId = await startTurn(worker.id, deploy.taskId, { kind: "user" }, "Deployed?", "turn-deploy-after");
+    await endTurn(worker.id, deploy, deliveryId, "turn-deploy-after", "completed");
+    assert.ok(waitOf(worker.id, waitId)?.wokenAt, "The completed turn wakes the agent's wait.");
+    const next = await startTurn(worker.id, null, { kind: "user" }, "Any update?", "turn-own-4");
+    const context = mailbox.getDelivery(next);
+    assert.ok(context, "The message is in the mailbox.");
+    const snapshot = conversation.ensureSnapshot(
+      worker.id,
+      store.list().find((a) => a.id === worker.id)?.threadId ?? null,
+    );
+    const prompt = deliveryPromptInput(context, {
+      agentNames: new Map(),
+      snapshot,
+      routineRun: null,
+      taskWakes: waits.takeTaskWakes(worker.id, next),
+    })
+      .flatMap((item) => (item.type === "text" ? [item.text] : []))
+      .join("\n");
+    assert.equal(count(prompt, `Wait ID: ${waitId}`), 1, "The note names the agent's wait once.");
+    assert.equal(
+      count(prompt, "The request it continues, sent by an agent:"),
+      1,
+      "The agent's request is labelled as sent by an agent.",
+    );
+    assert.equal(count(prompt, "sent by a person"), 0, "The agent's request is not labelled as a person's.");
+    return { waitId };
   });
 
   report.passed = true;

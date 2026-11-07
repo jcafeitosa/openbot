@@ -122,8 +122,8 @@ export class AgentWaits {
   }
 
   /** The waits that the run of this delivery continues, read when the run starts. */
-  wokenBy(deliveryId: string): AgentWait[] {
-    return this.#store.wokenBy(deliveryId);
+  wokenBy(deliveryId: string): WokenWait[] {
+    return this.#store.wokenBy(deliveryId).map((wait) => this.#withRequestSender(wait));
   }
 
   /**
@@ -143,8 +143,8 @@ export class AgentWaits {
   }
 
   /** The task-completion wakes whose note this prompt of the agent carries. Each one goes to one prompt. */
-  takeTaskWakes(agentId: string, deliveryId: string): AgentWait[] {
-    return this.#store.claimTaskWakes(agentId, deliveryId);
+  takeTaskWakes(agentId: string, deliveryId: string): WokenWait[] {
+    return this.#store.claimTaskWakes(agentId, deliveryId).map((wait) => this.#withRequestSender(wait));
   }
 
   /** Answers `await_event`, `close_wait` and `list_waits`; null for every other tool. */
@@ -266,6 +266,12 @@ export class AgentWaits {
     return agentId;
   }
 
+  /** The wait with who sent the request it continues, read from that request's own delivery. */
+  #withRequestSender(wait: AgentWait): WokenWait {
+    const kind = this.#mailbox.getDelivery(wait.requestMessageId)?.delivery.sender.kind;
+    return { ...wait, requestSenderLabel: kind ? REQUEST_SENDER_LABELS[kind] : "an unknown sender" };
+  }
+
   #isPending(deliveryId: string): boolean {
     const status = this.#mailbox.getDelivery(deliveryId)?.delivery.status;
     return status === "queued" || status === "starting" || status === "running";
@@ -287,8 +293,14 @@ function waitSummary(wait: AgentWait) {
   };
 }
 
+/** Who sent a request, in the words of a wake note. */
+const REQUEST_SENDER_LABELS = { user: "a person", agent: "an agent", routine: "a routine run" } as const;
+
+/** A wait that a run wakes, with who sent the request that it continues, in the words of a wake note. */
+export type WokenWait = AgentWait & { requestSenderLabel: string };
+
 /** The part of a run's input that continues its woken waits. */
-export function wokenWaitsPromptText(waits: readonly AgentWait[]): string | null {
+export function wokenWaitsPromptText(waits: readonly WokenWait[]): string | null {
   if (waits.length === 0) return null;
   return [
     "--- open waits that this run wakes ---",
@@ -298,7 +310,7 @@ export function wokenWaitsPromptText(waits: readonly AgentWait[]): string | null
       `Wait ID: ${wait.id}`,
       `Opened: ${wait.createdAt}`,
       `Your note: ${wait.note}`,
-      "The request it continues:",
+      `The request it continues, sent by ${wait.requestSenderLabel}:`,
       wait.requestText,
     ]),
     "--- end of open waits ---",
@@ -307,9 +319,9 @@ export function wokenWaitsPromptText(waits: readonly AgentWait[]): string | null
 
 /**
  * The internal note that a task completion gives to the next prompt of the agent. OpenBot writes it: no person
- * and no other agent sent it, so the note names no sender, and the delivery keeps the sender that sent it.
+ * and no other agent sent it, so the note names no sender of its own. Each request names the sender that really sent it, and the delivery keeps that sender.
  */
-export function taskWakesPromptText(waits: readonly AgentWait[]): string | null {
+export function taskWakesPromptText(waits: readonly WokenWait[]): string | null {
   if (waits.length === 0) return null;
   return [
     "--- internal wake: a routine thread of yours finished a turn ---",
@@ -320,7 +332,7 @@ export function taskWakesPromptText(waits: readonly AgentWait[]): string | null 
       `Wait ID: ${wait.id}`,
       `Opened: ${wait.createdAt}`,
       `Your note: ${wait.note}`,
-      "The request it continues:",
+      `The request it continues, sent by ${wait.requestSenderLabel}:`,
       wait.requestText,
     ]),
     "--- end of internal wake ---",

@@ -17,6 +17,7 @@ import {
   ABSENT_INSTRUCTIONS_SHA256,
   ABSENT_INSTRUCTIONS_TEXT,
   findInstructionsSnapshot,
+  instructionsTextSha256,
   recordInstructionsSnapshot,
 } from "../instructions-history-store";
 import { isPathInside } from "../path-containment";
@@ -192,16 +193,22 @@ export const findAgentInstructionsSnapshot = Effect.fn("WorkspaceInstructions.fi
 
 /**
  * Removes the instruction file, which restores the absent state. The text it replaces is kept first. A
- * workspace with no file is left as it is. The entry is removed, not the file it links to.
+ * workspace with no file is left as it is. The entry is removed, not the file it links to. The file is
+ * removed only while it still holds the text with `approvedSha256`, the text the person approved.
  */
 const removeAgentInstructionsFile = Effect.fn("WorkspaceInstructions.remove")(function* (
   workspace: string,
   history: InstructionsHistory,
+  approvedSha256: string,
 ) {
   const found = yield* findFile(workspace);
   if (Option.isNone(found)) return { fileName: "AGENTS.md", exists: false, text: "" } satisfies AgentInstructionsFile;
   const { fileName } = found.value;
-  yield* snapshotBeforeWrite(history, fileName, yield* editorText(found));
+  const text = yield* editorText(found);
+  // The card showed this text. A file that changed after the card was shown is not removed.
+  if (instructionsTextSha256(text) !== approvedSha256)
+    return yield* new AgentInstructionsFileRefused({ reason: "changed" });
+  yield* snapshotBeforeWrite(history, fileName, text);
   const entry = join(yield* fileIo("write", () => realpath(workspace)), fileName);
   yield* fileIo("write", () => unlink(entry));
   return { fileName, exists: false, text: "" } satisfies AgentInstructionsFile;
@@ -211,14 +218,16 @@ const removeAgentInstructionsFile = Effect.fn("WorkspaceInstructions.remove")(fu
  * Restores the instruction file to the kept state that has this hash: its text, or the absent state, which
  * removes the file. The state that the restore replaces is kept first, as any write keeps it, so a restore
  * can itself be undone.
+ * The removal of the file also needs `approvedSha256`, the hash of the text that the person was shown.
  */
 export const restoreAgentInstructionsSnapshot = Effect.fn("WorkspaceInstructions.restore")(function* (
   workspace: string,
   sha256: string,
   history: InstructionsHistory,
+  approvedSha256: string,
 ) {
   const target = yield* findAgentInstructionsSnapshot(workspace, sha256, history);
-  if (target.text === null) return yield* removeAgentInstructionsFile(workspace, history);
+  if (target.text === null) return yield* removeAgentInstructionsFile(workspace, history, approvedSha256);
   const found = yield* findFile(workspace);
   return yield* saveAgentInstructionsFile(workspace, target.text, yield* editorText(found), history);
 });

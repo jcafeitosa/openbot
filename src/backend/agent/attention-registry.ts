@@ -130,6 +130,8 @@ export interface SurfacedUiBlock {
   spec: UiBlockSpec;
   apiKey?: { name: string; vault?: boolean };
   vault?: { kind: UiVaultRequestKind };
+  /** The plan card of `acknowledge_request`: a local script never answers it, only the person does. */
+  plan?: boolean;
 }
 
 /**
@@ -580,7 +582,8 @@ export class AttentionRegistry {
       const pending = [...this.#prompts.values()].find(
         (entry) => entry.agentId === agentId && this.#localHandles.get(entry) === input.requestId,
       );
-      if (!pending || pending.questions.some(localQuestionNeedsOpenBot)) {
+      // A plan card starts the work only when the person presses start: a local script never answers it.
+      if (!pending || pending.uiBlock?.plan === true || pending.questions.some(localQuestionNeedsOpenBot)) {
         return yield* attentionStep(() => {
           throw new InactiveAttentionRequest(sourceText("error.backend.promptInactive"));
         });

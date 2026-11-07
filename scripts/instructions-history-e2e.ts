@@ -127,7 +127,14 @@ try {
   });
 
   await check("restore by hash rewrites the file, and the file hash matches", async () => {
-    await run(restoreAgentInstructionsSnapshot(workspace, instructionsTextSha256(OLD_TEXT), history));
+    await run(
+      restoreAgentInstructionsSnapshot(
+        workspace,
+        instructionsTextSha256(OLD_TEXT),
+        history,
+        instructionsTextSha256(NEW_TEXT),
+      ),
+    );
     const restored = await readFile(file, "utf8");
     assert.equal(restored, OLD_TEXT);
     assert.equal(instructionsTextSha256(restored), instructionsTextSha256(OLD_TEXT));
@@ -139,7 +146,9 @@ try {
   });
 
   await check("a restore by an unknown hash changes nothing", async () => {
-    const failure = await failureOf(restoreAgentInstructionsSnapshot(workspace, "0".repeat(64), history));
+    const failure = await failureOf(
+      restoreAgentInstructionsSnapshot(workspace, "0".repeat(64), history, instructionsTextSha256(OLD_TEXT)),
+    );
     assert.ok(failure instanceof InstructionsSnapshotMissing, "the failure names the missing snapshot");
     assert.equal(await readFile(file, "utf8"), OLD_TEXT);
     assert.equal(snapshotCount(), 2);

@@ -343,8 +343,9 @@ const PLAN_CARD_ARGS = {
 /**
  * What the person does with the plan card of a task turn: `person` presses its start button, `timer` leaves it to
  * the host's wait, and `none` shows no plan card at all.
+ * `local` has a local script answer the card first: that answer must be refused, and then the person presses start.
  */
-type PlanCard = "person" | "timer" | "none";
+type PlanCard = "person" | "timer" | "none" | "local";
 
 /**
  * Starts a task whose first turn holds a finished two-step plan, then makes `calls` in order. `draft` answers the
@@ -356,21 +357,38 @@ async function taskTurn(
   name: string,
   agentId: string,
   calls: { tool: string; args: CallArguments }[],
-  options: { plan: PlanCard; draft: "accept" | "decline" | null; whileWaiting?: () => Promise<void> },
-): Promise<{ outcomes: CallOutcome[]; reasons: (string | null)[] }> {
+  options: { plan: PlanCard; draft: "accept" | "decline" | null; whileWaiting?: () => Promise<void>; ask?: string },
+): Promise<{ outcomes: CallOutcome[]; reasons: (string | null)[]; localPlanRefused: boolean | null }> {
   const logBefore = toolLogs().length;
   const approvalsBefore = approvals.length;
   const promptsBefore = prompts.length;
   const planCalls = options.plan === "none" ? [] : [{ tool: "acknowledge_request", args: PLAN_CARD_ARGS }];
   await runCauseEffect(agents.startTask({ agentId, text: callText([...planCalls, ...calls], true) }));
-  if (options.plan === "person") {
+  let localPlanRefused: boolean | null = null;
+  if (options.plan === "person" || options.plan === "local") {
     const card = await waitFor(`${name} plan card`, () => prompts[promptsBefore]);
-    await runCauseEffect(
-      agents.respondToPrompt({
-        requestId: card.requestId,
-        answers: { [card.questionId ?? ""]: [PLAN_CARD_ARGS.startLabel] },
-      }),
-    );
+    const answers = { [card.questionId ?? ""]: [PLAN_CARD_ARGS.startLabel] };
+    if (options.plan === "local") {
+      // The local script's answer must be refused, and the card keeps waiting for the person.
+      const handle = agents
+        .getLocalAttention(agentId)
+        .prompts.find((prompt) => prompt.questions.some((question) => question.id === card.questionId))?.requestId;
+      localPlanRefused = await runCauseEffect(
+        agents.respondToLocalAttention(agentId, { kind: "prompt", requestId: handle ?? "", answers }),
+      ).then(
+        () => false,
+        () => true,
+      );
+    }
+    // A card that a local script answered is already answered, so the person's press does not apply.
+    if (localPlanRefused !== false)
+      await runCauseEffect(agents.respondToPrompt({ requestId: card.requestId, answers }));
+  }
+  if (options.ask !== undefined) {
+    // The ask_ui block comes after the plan card of this turn, when there is one.
+    const card = await waitFor(`${name} ask card`, () => prompts[promptsBefore + (options.plan === "none" ? 0 : 1)]);
+    const answers = { [card.questionId ?? ""]: [options.ask] };
+    await runCauseEffect(agents.respondToPrompt({ requestId: card.requestId, answers }));
   }
   if (options.draft !== null) {
     const card = await waitFor(`${name} approval`, () => approvals[approvalsBefore]);
@@ -390,7 +408,7 @@ async function taskTurn(
   for (const [index, outcome] of outcomes.entries()) {
     report.calls.push({ name: `${name}: ${calls[index]?.tool ?? "?"}`, ...outcome });
   }
-  return { outcomes, reasons: approvals.slice(approvalsBefore).map((card) => card.reason) };
+  return { outcomes, reasons: approvals.slice(approvalsBefore).map((card) => card.reason), localPlanRefused };
 }
 
 /** The instruction file of the agent's workspace. */
@@ -594,7 +612,14 @@ try {
     () => false,
   );
   pass("A decided change cannot be applied a second time", !again && snapshotRows(alpha.id).length === 1);
-  await Effect.runPromise(restoreAgentInstructionsSnapshot(workspace, instructionsTextSha256(OLD_TEXT), history));
+  await Effect.runPromise(
+    restoreAgentInstructionsSnapshot(
+      workspace,
+      instructionsTextSha256(OLD_TEXT),
+      history,
+      instructionsTextSha256(NEW_TEXT),
+    ),
+  );
   pass("A rollback by hash restores the previous text", (await readInstructions()) === OLD_TEXT);
 
   // E0. A skill draft needs a finished plan: without one, nothing is asked.
@@ -656,6 +681,48 @@ try {
     { cards: claimed.reasons.length, text: claimedOutcome?.text },
   );
   pass("A claimed plan approval installs nothing", installs.length === 0);
+
+  // P2. A plan card that a local script tries to answer does not start the work: that answer is refused, and the
+  // person's start counts. An ask_ui block with a button named start does not count.
+  const localPlan = await taskTurn(
+    "a skill draft after a plan card that a local script tries to answer",
+    alpha.id,
+    [{ tool: "propose_skill", args: { sourcePath: DRAFT_FOLDER } }],
+    { plan: "local", draft: "decline" },
+  );
+  pass("A local script's answer to a plan card is refused", localPlan.localPlanRefused === true, {
+    refused: localPlan.localPlanRefused,
+  });
+  pass("The person's start of the plan card raises the approval card of the draft", localPlan.reasons.length === 1, {
+    cards: localPlan.reasons.length,
+  });
+  const askStart = await taskTurn(
+    "a skill draft after an ask_ui button named start",
+    alpha.id,
+    [
+      {
+        tool: "ask_ui",
+        args: {
+          block: {
+            type: "confirm",
+            title: "Start the draft?",
+            actions: [{ id: "start", label: "Start", style: "primary" }],
+          },
+        },
+      },
+      { tool: "propose_skill", args: { sourcePath: DRAFT_FOLDER } },
+    ],
+    { plan: "none", draft: null, ask: "Start" },
+  );
+  const askDraft = askStart.outcomes[1];
+  pass(
+    "An ask_ui button named start does not approve a skill draft: it is refused with no approval card",
+    askDraft?.success === false &&
+      askStart.reasons.length === 0 &&
+      (askDraft?.text.includes("needs the person's approval") ?? false),
+    { cards: askStart.reasons.length, text: askDraft?.text },
+  );
+  pass("An ask_ui start does not install the draft", installs.length === 0);
 
   // F2. A skill folder with a secret is refused before any card, and installs nothing. Its plan is one the person
   // started, so the check reaches the folder.

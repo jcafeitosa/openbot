@@ -65,6 +65,7 @@ const DECLINED_MESSAGE = "The person did not approve this change, so nothing was
 const REFUSAL_MESSAGES: Record<SelfImproveRefusal, string> = {
   secret:
     "The change holds a secret, so OpenBot did not show it to the person or keep it. Remove the secret and propose the change again.",
+  nul: "The change holds a NUL character, which an instruction file cannot hold. Remove it and propose the change again.",
   "too-large": "The change is too long for the person to review in one card. Propose a smaller change.",
   unchanged: "The instruction file already has this text, so there is nothing to change.",
   changed: "The instruction file changed while the change waited for approval. Read it, then propose the change again.",

@@ -41,6 +41,7 @@ type SelfImproveDecision = "accept" | "decline" | "cancel";
 type SelfImproveApproval = (reason: string) => Effect.Effect<SelfImproveDecision, ToolOperationFailed>;
 
 export type SelfImproveRefusal =
+  | "nul"
   | "secret"
   | "too-large"
   | "unchanged"
@@ -275,6 +276,8 @@ export class SelfImproveGate {
     this: SelfImproveGate,
     input: InstructionsProposal,
   ) {
+    // The absent-file snapshot holds a text with a NUL: an agent's text must never collide with it.
+    if (input.text.includes("\u0000")) return refused("nul");
     if (holdsSecret(input.text)) return refused("secret");
     const current = yield* readAgentInstructionsFile(input.workspace);
     // The replaced text is kept in the instruction history, so it must not hold a secret either.
@@ -337,7 +340,8 @@ export class SelfImproveGate {
     // The card showed the file as it is now: a change made since then is not restored over.
     const now = yield* readAgentInstructionsFile(input.workspace);
     if (now.exists !== current.exists || now.text !== current.text) return refused("changed");
-    yield* restoreAgentInstructionsSnapshot(input.workspace, input.sha256, history);
+    const shownSha256 = current.exists ? instructionsTextSha256(current.text) : ABSENT_INSTRUCTIONS_SHA256;
+    yield* restoreAgentInstructionsSnapshot(input.workspace, input.sha256, history, shownSha256);
     return {
       status: "applied" as const,
       fileName: current.fileName,
