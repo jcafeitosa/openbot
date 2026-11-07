@@ -66,6 +66,8 @@ export interface AgentTasksHooks {
   turnActive(agentId: string, threadId: string): boolean;
   /** OpenBot archived finished tasks of one agent: their memory reviews start, and a waiting task lane can start. */
   archived(agentId: string, tasks: readonly AgentThreadRecord[]): Effect.Effect<void>;
+  /** A routine thread's turn completed. The waits that its runs opened may wake. */
+  completed(agentId: string, taskId: string, turnId: string): void;
 }
 
 /** Where `start_task` was called, as the tool router knows it. */
@@ -638,6 +640,9 @@ export class AgentTasks implements TaskLanes {
           event.status === "completed" ? "completed" : event.status === "failed" ? "failed" : "interrupted",
         );
         this.changed(task.agentId);
+        // A completed routine-thread turn wakes the waits that its runs opened, and a failed or stopped one does not.
+        if (event.status === "completed" && task.routineId !== null)
+          this.#hooks.completed(task.agentId, task.taskId, event.turnId);
         // The waiters leave the map here, so a wait that a failed Stop never runs does not stay.
         const waiters = this.#turnEndWaiters.get(task.taskId);
         this.#turnEndWaiters.delete(task.taskId);

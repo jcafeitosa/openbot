@@ -123,6 +123,11 @@ routine or has this routine. A run with `waitId` wakes only that wait. When no s
 the run starts without a wait. The run's input repeats the request and the agent's note, so the
 agent can continue the request.
 
+A wait that a run opens in a routine's thread also wakes once when a later turn of that thread completes
+successfully. The turn that opened the wait does not wake it, and a failed or stopped turn does not either.
+OpenBot writes that wake note itself into the agent's next prompt, once, and the prompt's sender stays the one
+that sent the message.
+
 Answer: `202 { "runId": string, "deliveryId": string | null }`.
 
 `202` means that the run is in the queue, not that it ran. When the agent's provider account is at

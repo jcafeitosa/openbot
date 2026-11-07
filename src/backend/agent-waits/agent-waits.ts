@@ -69,8 +69,9 @@ export interface AgentWaitCaller {
 /**
  * Open waits: work an agent stopped because it waits for something outside the turn. The agent
  * opens, lists and closes them with three tools, and another local agent can list and close them
- * with `agentId`; the user cancels them from the chat; a routine run of the agent wakes them. The input of the run that wakes a wait repeats the request and the note, so
- * the agent can continue the request after its context lost it.
+ * with `agentId`; the user cancels them from the chat; a routine run of the agent wakes them, and so does a
+ * later turn that completes in the routine thread that opened a wait. The input of the run that wakes a wait
+ * repeats the request and the note, so the agent can continue the request after its context lost it.
  *
  * It never imports the agent service facade.
  */
@@ -123,6 +124,27 @@ export class AgentWaits {
   /** The waits that the run of this delivery continues, read when the run starts. */
   wokenBy(deliveryId: string): AgentWait[] {
     return this.#store.wokenBy(deliveryId);
+  }
+
+  /**
+   * A routine thread's turn completed. Each open wait that a run of that thread opened wakes once, unless the
+   * turn that opened it is the one that completed: a wait waits for a later completion. A wait that is already
+   * woken stays as it is. Its note reaches the agent's next prompt through `takeTaskWakes`.
+   */
+  taskCompleted(agentId: string, taskId: string, turnId: string): void {
+    const woken = this.#store
+      .list(agentId)
+      .filter((wait) => !wait.wokenAt && this.#mailbox.taskIdForDelivery(wait.requestMessageId) === taskId)
+      .filter((wait) => this.#mailbox.getDelivery(wait.requestMessageId)?.delivery.turnId !== turnId)
+      .map((wait) => wait.id);
+    if (woken.length === 0) return;
+    this.#store.markTaskWoken(agentId, woken);
+    this.#changed(agentId);
+  }
+
+  /** The task-completion wakes whose note this prompt of the agent carries. Each one goes to one prompt. */
+  takeTaskWakes(agentId: string, deliveryId: string): AgentWait[] {
+    return this.#store.claimTaskWakes(agentId, deliveryId);
   }
 
   /** Answers `await_event`, `close_wait` and `list_waits`; null for every other tool. */
@@ -280,5 +302,27 @@ export function wokenWaitsPromptText(waits: readonly AgentWait[]): string | null
       wait.requestText,
     ]),
     "--- end of open waits ---",
+  ].join("\n");
+}
+
+/**
+ * The internal note that a task completion gives to the next prompt of the agent. OpenBot writes it: no person
+ * and no other agent sent it, so the note names no sender, and the delivery keeps the sender that sent it.
+ */
+export function taskWakesPromptText(waits: readonly AgentWait[]): string | null {
+  if (waits.length === 0) return null;
+  return [
+    "--- internal wake: a routine thread of yours finished a turn ---",
+    "OpenBot wrote this note itself. It is not a message from a person or from another agent.",
+    `You opened these waits with openbot.${AWAIT_EVENT_TOOL} in a routine thread, and that thread has now finished a turn. Continue each request with what is now known. When a request is done, or can no longer be done, tell the user and call openbot.${CLOSE_WAIT_TOOL} with its wait id. To wait again, leave the wait open.`,
+    ...waits.flatMap((wait) => [
+      "",
+      `Wait ID: ${wait.id}`,
+      `Opened: ${wait.createdAt}`,
+      `Your note: ${wait.note}`,
+      "The request it continues:",
+      wait.requestText,
+    ]),
+    "--- end of internal wake ---",
   ].join("\n");
 }

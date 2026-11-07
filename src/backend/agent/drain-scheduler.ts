@@ -821,6 +821,7 @@ export class DrainScheduler {
               routineRun:
                 item.delivery.sender.kind === "routine" ? this.#routines.runForDelivery(item.delivery.id) : null,
               wokenWaits: item.delivery.sender.kind === "routine" ? this.#routines.wokenWaits(item.delivery.id) : [],
+              taskWakes: this.#routines.taskWakes(agent.id, item.delivery.id),
               tags,
               ...(executionText === undefined ? {} : { executionText }),
             });

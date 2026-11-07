@@ -630,6 +630,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           this.#drain.scheduleDrain(agentId);
         },
         turnActive: (agentId, threadId) => this.#store.database.readActiveTurnId(agentId, threadId) !== null,
+        // A completed routine-thread turn wakes the waits that its runs opened. Read late: the waits are built below.
+        completed: (agentId, taskId, turnId) => this.#waits.taskCompleted(agentId, taskId, turnId),
         // As `closeTask` does after its Stop: the plan continuation ends, and the memory review starts.
         archived: Effect.fn("AgentService.archivedTasks")(function* (
           this: AgentService,
