@@ -12,6 +12,10 @@ export const messages = defineMessages("status.agent", {
   "status.agent.dryRunArgument": "{name} | {value}",
   "status.agent.dryRunTextValue": { one: "text, {count} character", other: "text, {count} characters" },
   "status.agent.dryRunListValue": { one: "list, {count} item", other: "list, {count} items" },
+  "status.agent.selfImproveInstructionsPreview":
+    "Change to {file}, not applied yet. A person must approve this diff in OpenBot. It applies only when recent turns show no rise in failed turns. Changed lines:",
+  "status.agent.selfImproveSkillPreview":
+    "New skill {name} from a finished task, not installed yet. A person must approve it in OpenBot. It installs for this agent only after approval and when recent turns show no rise in failed turns. Files: {files}.",
   "status.agent.dryRunObjectValue": { one: "object, {count} field", other: "object, {count} fields" },
   "status.agent.dryRunEmptyValue": "empty",
   "status.agent.dryRunOtherValue": "value",

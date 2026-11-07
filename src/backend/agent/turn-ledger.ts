@@ -163,6 +163,14 @@ export class TurnLedger {
     this.#noted.set(agentId, signature);
     return recurring;
   }
+
+  /** The outcomes of the agent's newest turns, newest first, at most `limit`. Reads the connection at each use. */
+  recentOutcomes(agentId: string, limit: number): string[] {
+    return this.#database.connection
+      .prepare("SELECT outcome FROM turn_outcomes WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?")
+      .all(agentId, limit)
+      .map((row) => String(row.outcome));
+  }
 }
 
 /** The code of a failed tool step. */

@@ -126,14 +126,26 @@ export class AgentRoster {
         },
       ],
       (db, sequences) => {
-        db.exec("DELETE FROM projection_agents");
-        const insert = db.prepare(`
+        // An upsert, not a delete of every row: the instruction history references the roster with ON DELETE
+        // CASCADE, so a delete would erase every agent's history on each roster change. Only an agent that left
+        // the roster loses its row here.
+        db.prepare("DELETE FROM projection_agents WHERE agent_id NOT IN (SELECT value FROM json_each(?))").run(
+          JSON.stringify(agents.map((agent) => agent.id)),
+        );
+        const upsert = db.prepare(`
           INSERT INTO projection_agents
             (agent_id, thread_id, model, updated_at, sort_order, agent_json, last_event_sequence)
           VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(agent_id) DO UPDATE SET
+            thread_id = excluded.thread_id,
+            model = excluded.model,
+            updated_at = excluded.updated_at,
+            sort_order = excluded.sort_order,
+            agent_json = excluded.agent_json,
+            last_event_sequence = excluded.last_event_sequence
         `);
         agents.forEach((agent, index) => {
-          insert.run(
+          upsert.run(
             agent.id,
             agent.threadId,
             agent.model,

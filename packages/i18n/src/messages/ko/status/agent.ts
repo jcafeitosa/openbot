@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name}: {value}",
   "status.agent.dryRunTextValue": { one: "텍스트, {count}자", other: "텍스트, {count}자" },
   "status.agent.dryRunListValue": { one: "목록, {count}개", other: "목록, {count}개" },
+  "status.agent.selfImproveInstructionsPreview":
+    "{file} 변경, 아직 적용하지 않았어요. 이 차이는 OpenBot에서 사람이 승인해야 해요. 최근 턴에서 실패한 턴이 늘지 않은 경우에만 적용돼요. 바뀐 줄:",
+  "status.agent.selfImproveSkillPreview":
+    "완료한 작업에서 만든 새 스킬 {name}, 아직 설치하지 않았어요. OpenBot에서 사람이 승인해야 해요. 승인 후, 최근 턴에서 실패한 턴이 늘지 않은 경우에만 이 에이전트에 설치돼요. 파일: {files}.",
   "status.agent.dryRunObjectValue": { one: "객체, {count}개 필드", other: "객체, {count}개 필드" },
   "status.agent.dryRunEmptyValue": "비어 있음",
   "status.agent.dryRunOtherValue": "값",

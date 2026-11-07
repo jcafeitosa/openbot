@@ -10,6 +10,7 @@ import type {
   AgentSummary,
   AvatarImageInput,
   ConversationMessage,
+  ConversationPlan,
   CreateAgentInput,
   McpServerConfig,
   SidebarLayoutSnapshot,
@@ -134,6 +135,13 @@ import {
   type ScreenCaptureImage,
   type ScreenCaptureRequest,
 } from "./screen-capture";
+import type { SelfImproveGate } from "./self-improve-gate";
+import {
+  proposeInstructionsSchema,
+  proposeSkillSchema,
+  SELF_IMPROVE_TOOL_NAMES,
+  selfImproveToolResponse,
+} from "./self-improve-tools";
 import { type AgentSidebar, handleSidebarTool } from "./sidebar-tools";
 import { LOCAL_SKILL_TOOL_DEFINITIONS, type LocalSkillTools, runLocalSkillTool } from "./skill-tools";
 import { isDynamicToolCall } from "./thread-items";
@@ -245,6 +253,8 @@ export interface OpenBotToolRouterOptions {
   tables: AgentTables | null;
   sidebarLayout: AgentSidebar | null;
   localSkillTools?: (() => LocalSkillTools) | undefined;
+  /** Decides the changes an agent proposes to its own instructions or skills. */
+  selfImprove: SelfImproveGate;
   routineFlowTools?: (() => RoutineFlowTools) | undefined;
   workflowTools?: (() => WorkflowTools) | undefined;
   approvalAutomation?: ApprovalAutomationPolicy | undefined;
@@ -291,6 +301,7 @@ export class OpenBotToolRouter {
   readonly #tables: AgentTables | null;
   readonly #sidebarLayout: AgentSidebar | null;
   readonly #localSkillTools: (() => LocalSkillTools) | undefined;
+  readonly #selfImprove: SelfImproveGate;
   readonly #routineFlowTools: (() => RoutineFlowTools) | undefined;
   readonly #workflowTools: (() => WorkflowTools) | undefined;
   readonly #approvalAutomation: ApprovalAutomationPolicy;
@@ -328,6 +339,7 @@ export class OpenBotToolRouter {
     this.#tables = options.tables;
     this.#sidebarLayout = options.sidebarLayout;
     this.#localSkillTools = options.localSkillTools;
+    this.#selfImprove = options.selfImprove;
     this.#routineFlowTools = options.routineFlowTools;
     this.#workflowTools = options.workflowTools;
     this.#approvalAutomation = options.approvalAutomation ?? NO_APPROVAL_AUTOMATION;
@@ -988,6 +1000,68 @@ export class OpenBotToolRouter {
     return null;
   }
 
+  /** The plan that the turn sent last, from its own plan message, or null when it sent none. */
+  #turnPlan(agentId: string, threadId: string, turnId: string): ConversationPlan | null {
+    const messages = this.#conversation.ensureSnapshot(agentId, threadId).messages;
+    return messages.filter((message) => message.turnId === turnId && message.plan !== undefined).at(-1)?.plan ?? null;
+  }
+
+  /**
+   * `propose_instructions_change` and `propose_skill`. The approval card is owner-only: only the owner's
+   * answer decides it, so neither a local script nor an agent can approve its own change.
+   */
+  readonly #proposeSelfImprovement = Effect.fn("OpenBotToolRouter.proposeSelfImprovement")(function* (
+    this: OpenBotToolRouter,
+    client: AgentClient,
+    request: AppServerRequest,
+    params: DynamicToolCallParams,
+    agentId: string,
+  ) {
+    const threadId = this.#conversation.publicThreadId(agentId, params.threadId);
+    const approve = (reason: string) =>
+      this.#attention
+        .awaitToolApproval(
+          client,
+          request,
+          {
+            requestId: request.id,
+            agentId,
+            threadId,
+            turnId: params.turnId,
+            kind: "permissions",
+            command: null,
+            cwd: null,
+            reason,
+            grantRoot: null,
+            permissions: null,
+          },
+          { alwaysAsk: true, ownerOnly: true },
+        )
+        .pipe(toToolOperationFailed);
+    const workspace = this.#requireAgent(agentId).workspacePath;
+    if (params.tool === "propose_instructions_change") {
+      const parsed = proposeInstructionsSchema.safeParse(params.arguments);
+      if (!parsed.success) return openBotToolFailure(sourceText("error.agent.toolRequestInvalid"), VALIDATION_FAILURE);
+      return selfImproveToolResponse(
+        yield* this.#selfImprove.proposeInstructions({ agentId, workspace, text: parsed.data.text, approve }),
+      );
+    }
+    const parsed = proposeSkillSchema.safeParse(params.arguments);
+    if (!parsed.success) return openBotToolFailure(sourceText("error.agent.toolRequestInvalid"), VALIDATION_FAILURE);
+    if (!this.#localSkillTools)
+      throw new ToolFailureError({ code: "unavailable", retryable: true }, "Local skill tools are unavailable.");
+    return selfImproveToolResponse(
+      yield* this.#selfImprove.proposeSkill({
+        agentId,
+        workspace,
+        sourcePath: parsed.data.sourcePath,
+        plan: this.#turnPlan(agentId, threadId, params.turnId),
+        approve,
+        skills: this.#localSkillTools(),
+      }),
+    );
+  }).bind(this);
+
   readonly #handleOpenBotTool = Effect.fn("OpenBotToolRouter.handleOpenBotTool")(function* (
     this: OpenBotToolRouter,
     client: AgentClient,
@@ -1031,6 +1105,13 @@ export class OpenBotToolRouter {
           retryable: false,
           hint: "Tell the user that this change needs their approval in OpenBot. Do not call it again unless they ask.",
         });
+    }
+
+    if (SELF_IMPROVE_TOOL_NAMES.has(params.tool)) {
+      return yield* this.#proposeSelfImprovement(client, request, params, senderAgentId).pipe(
+        Effect.catch((failure) => Effect.sync(() => this.#failedToolResult(failure.cause))),
+        Effect.catchDefect((defect) => Effect.sync(() => this.#failedToolResult(defect))),
+      );
     }
 
     if (LOCAL_SKILL_TOOL_DEFINITIONS.some((tool) => tool.name === params.tool)) {

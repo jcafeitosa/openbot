@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name} ist {value}",
   "status.agent.dryRunTextValue": { one: "Text, {count} Zeichen", other: "Text, {count} Zeichen" },
   "status.agent.dryRunListValue": { one: "Liste, {count} Element", other: "Liste, {count} Elemente" },
+  "status.agent.selfImproveInstructionsPreview":
+    "Änderung an {file}, noch nicht angewendet. Eine Person muss diesen Unterschied in OpenBot genehmigen. Sie wird nur angewendet, wenn die letzten Turns keinen Anstieg fehlgeschlagener Turns zeigen. Geänderte Zeilen:",
+  "status.agent.selfImproveSkillPreview":
+    "Neue Fertigkeit {name} aus einer abgeschlossenen Aufgabe, noch nicht installiert. Eine Person muss sie in OpenBot genehmigen. Sie wird erst nach der Genehmigung und ohne Anstieg fehlgeschlagener Turns für diesen Agenten installiert. Dateien: {files}.",
   "status.agent.dryRunObjectValue": { one: "Objekt, {count} Feld", other: "Objekt, {count} Felder" },
   "status.agent.dryRunEmptyValue": "leer",
   "status.agent.dryRunOtherValue": "Wert",

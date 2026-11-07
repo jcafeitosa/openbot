@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name} est {value}",
   "status.agent.dryRunTextValue": { one: "texte, {count} caractère", other: "texte, {count} caractères" },
   "status.agent.dryRunListValue": { one: "liste, {count} élément", other: "liste, {count} éléments" },
+  "status.agent.selfImproveInstructionsPreview":
+    "Modification de {file}, pas encore appliquée. Une personne doit approuver ce diff dans OpenBot. Elle ne s’applique que si les tours récents ne montrent pas plus de tours échoués. Lignes modifiées :",
+  "status.agent.selfImproveSkillPreview":
+    "Nouvelle compétence {name} issue d’une tâche terminée, pas encore installée. Une personne doit l’approuver dans OpenBot. Elle s’installe pour cet agent seulement après approbation, et si les tours récents ne montrent pas plus de tours échoués. Fichiers : {files}.",
   "status.agent.dryRunObjectValue": { one: "objet, {count} champ", other: "objet, {count} champs" },
   "status.agent.dryRunEmptyValue": "vide",
   "status.agent.dryRunOtherValue": "valeur",

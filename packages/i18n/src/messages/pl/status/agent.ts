@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name} to {value}",
   "status.agent.dryRunTextValue": { one: "tekst, {count} znak", other: "tekst, {count} znaków" },
   "status.agent.dryRunListValue": { one: "lista, {count} element", other: "lista, {count} elementów" },
+  "status.agent.selfImproveInstructionsPreview":
+    "Zmiana w {file}, jeszcze nie zastosowana. Osoba musi zatwierdzić tę różnicę w OpenBot. Zostanie zastosowana tylko wtedy, gdy ostatnie tury nie pokazują wzrostu liczby nieudanych tur. Zmienione wiersze:",
+  "status.agent.selfImproveSkillPreview":
+    "Nowa umiejętność {name} z zakończonego zadania, jeszcze nie zainstalowana. Osoba musi ją zatwierdzić w OpenBot. Zostanie zainstalowana dla tego agenta dopiero po zatwierdzeniu i gdy ostatnie tury nie pokazują wzrostu liczby nieudanych tur. Pliki: {files}.",
   "status.agent.dryRunObjectValue": { one: "obiekt, {count} pole", other: "obiekt, {count} pól" },
   "status.agent.dryRunEmptyValue": "pusty",
   "status.agent.dryRunOtherValue": "wartość",

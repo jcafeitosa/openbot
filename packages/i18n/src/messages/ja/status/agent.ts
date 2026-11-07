@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name}は{value}",
   "status.agent.dryRunTextValue": { one: "テキスト、{count} 文字", other: "テキスト、{count} 文字" },
   "status.agent.dryRunListValue": { one: "リスト、{count} 件", other: "リスト、{count} 件" },
+  "status.agent.selfImproveInstructionsPreview":
+    "{file} への変更。まだ適用していません。OpenBot で人がこの差分を承認する必要があります。直近のターンで失敗が増えていない場合にのみ適用されます。変更された行:",
+  "status.agent.selfImproveSkillPreview":
+    "完了したタスクから作った新しいスキル {name}。まだインストールしていません。OpenBot で人が承認する必要があります。承認後、直近のターンで失敗が増えていない場合にのみ、このエージェントにインストールされます。ファイル: {files}。",
   "status.agent.dryRunObjectValue": { one: "オブジェクト、{count} 項目", other: "オブジェクト、{count} 項目" },
   "status.agent.dryRunEmptyValue": "空",
   "status.agent.dryRunOtherValue": "値",
