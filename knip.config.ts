@@ -28,6 +28,8 @@ const config: KnipConfig = {
     // Rewrite and inspect macOS dylib load paths.
     "otool",
     "install_name_tool",
+    // Builds the macOS agent access helper in `scripts/build-macos-agent-access.ts`.
+    "swiftc",
     // Finds the Linux libraries that the remote desktop runtime bundles.
     "ldd",
     // Stops a stuck packaged app during Windows package verification.

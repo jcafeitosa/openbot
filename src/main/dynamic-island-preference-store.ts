@@ -27,11 +27,13 @@ export const readDynamicIslandPreference = Effect.fn("readDynamicIslandPreferenc
       parsed.version !== 3 ||
       !isBoolean(parsed.hapticsEnabled) ||
       !isBoolean(parsed.idleVisible) ||
-      !isBoolean(parsed.additionalDisplaysEnabled)
+      !isBoolean(parsed.additionalDisplaysEnabled) ||
+      isBoolean(parsed.muted)
     ) {
       return { ...DEFAULT_DYNAMIC_ISLAND_PREFERENCE };
     }
     return {
+      ...DEFAULT_DYNAMIC_ISLAND_PREFERENCE,
       enabled: parsed.enabled,
       hapticsEnabled: parsed.hapticsEnabled,
       idleVisible: parsed.idleVisible,

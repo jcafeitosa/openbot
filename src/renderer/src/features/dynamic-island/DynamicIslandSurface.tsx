@@ -49,6 +49,31 @@ export function DynamicIslandSurface() {
   let keyboardInside = false;
   let queuedPresentation: DynamicIslandPresentation | undefined;
 
+  function closeInteraction(): void {
+    pointerInside = false;
+    focusInside = false;
+    keyboardInside = false;
+    if (viewState() === "compact") applyQueuedPresentation();
+    void syncInteractive();
+  }
+
+  function enterInteraction(event: MouseEvent & { currentTarget: HTMLFieldSetElement }): void {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    if (!pointerInside) performHaptic();
+    beginPointerInteraction();
+  }
+
+  function leaveInteraction(event: MouseEvent & { currentTarget: HTMLFieldSetElement }): void {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    endPointerInteraction();
+  }
+
+  function leaveFocusInteraction(event: FocusEvent & { currentTarget: HTMLFieldSetElement }): void {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    keyboardInside = false;
+    endFocusInteraction();
+  }
+
   function applyPresentation(next: DynamicIslandPresentation): void {
     if (
       interactionLocksPresentation(
@@ -127,31 +152,6 @@ export function DynamicIslandSurface() {
     void syncInteractive();
   }
 
-  function closeInteraction(): void {
-    pointerInside = false;
-    focusInside = false;
-    keyboardInside = false;
-    if (viewState() === "compact") applyQueuedPresentation();
-    void syncInteractive();
-  }
-
-  function enterInteraction(event: MouseEvent & { currentTarget: HTMLFieldSetElement }): void {
-    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-    if (!pointerInside) performHaptic();
-    beginPointerInteraction();
-  }
-
-  function leaveInteraction(event: MouseEvent & { currentTarget: HTMLFieldSetElement }): void {
-    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-    endPointerInteraction();
-  }
-
-  function leaveFocusInteraction(event: FocusEvent & { currentTarget: HTMLFieldSetElement }): void {
-    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-    keyboardInside = false;
-    endFocusInteraction();
-  }
-
   /** A press on a reply field asks main for key input, then puts the caret in the field. */
   async function requestKeyboard(event: PointerEvent): Promise<void> {
     const field = event.target;
@@ -168,7 +168,7 @@ export function DynamicIslandSurface() {
     return ++actionGeneration;
   }
 
-  /** Resolves `false` when the action failed. */
+  /** A press on a reply field asks main for key input, then puts the caret in the field. */
   async function perform(action: DynamicIslandAction): Promise<boolean> {
     performHaptic();
     const generation = clearActionError();
@@ -176,7 +176,7 @@ export function DynamicIslandSurface() {
       await dynamicIslandPort().dynamicIsland.performAction(action);
     } catch (error) {
       if (generation === actionGeneration)
-        setActionError({ message: t("island.action.failed"), reference: errorReference(error) });
+        setActionError({ message: t("island.action.failed", "Ação falhou"), reference: errorReference(error) });
       return false;
     }
     pointerInside = false;
