@@ -11,7 +11,7 @@ import type {
   RoutineRun,
 } from "@openbot/contracts/ipc";
 import { redactText } from "@openbot/logging";
-import { wokenWaitsPromptText } from "../agent-waits/agent-waits";
+import { taskWakesPromptText, wokenWaitsPromptText } from "../agent-waits/agent-waits";
 import { homeSkillRoot, homeSkillTagSlug } from "../home-skills";
 import type { DeliveryContext } from "../mailbox-store";
 import { exactToolGuidance } from "./exact-tool-policy";
@@ -85,6 +85,8 @@ export interface DeliveryPromptSources {
   routineRun: Pick<RoutineRun, "kind" | "source"> | null;
   /** The open waits that a routine run wakes. The run continues their requests. */
   wokenWaits?: readonly AgentWait[];
+  /** The task-completion wakes that this prompt carries. Each one goes to one prompt, the first that takes it. */
+  taskWakes?: readonly AgentWait[];
   /** The prompt a channel task or an external message sends in place of the delivery text. */
   executionText?: string | undefined;
   /** The current state of the tabs and threads that the message tags. */
@@ -337,6 +339,8 @@ export function deliveryPromptInput(context: DeliveryContext, sources: DeliveryP
     const waits = wokenWaitsPromptText(sources.wokenWaits ?? []);
     if (waits) text += `\n\n${waits}`;
   }
+  const taskWakes = taskWakesPromptText(sources.taskWakes ?? []);
+  if (taskWakes) text += `\n\n${taskWakes}`;
   if (managedAttachments.length) {
     text += `${ATTACHED_FILES_HEADER}${managedAttachments.map((item) => `- ${item.name}: ${item.path}`).join("\n")}`;
   }

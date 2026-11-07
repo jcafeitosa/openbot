@@ -47,6 +47,12 @@ const PREDICATE_ALLOWS_ROUTINE = `(predicate_json IS NULL OR json_extract(predic
 /** A wait whose expiry has passed is no longer open, even before a routine run closes its row. */
 const NOT_EXPIRED = "(expires_at IS NULL OR expires_at > ?)";
 
+/**
+ * The `wake_delivery_id` of a wait whose task completion woke it, once a prompt has taken its note. The
+ * prefix keeps this value apart from a delivery id, so `wokenBy` (the routine wakes) never returns it.
+ */
+const TASK_WAKE_CLAIM = "task-wake-prompt:";
+
 export interface AgentWaitStoreOptions {
   database: OpenBotDatabase;
   createId?: () => string;
@@ -208,6 +214,37 @@ export class AgentWaitStore {
       this.#database.connection
         .prepare("SELECT * FROM agent_waits WHERE wake_delivery_id = ? ORDER BY created_at, wait_id")
         .all(deliveryId),
+    ).map(toWait);
+  }
+
+  /** Wakes the waits of a task completion. Their note goes to the next prompt of the agent, once. */
+  markTaskWoken(agentId: string, waitIds: readonly string[]): void {
+    if (waitIds.length === 0) return;
+    this.#database.connection
+      .prepare(
+        `UPDATE agent_waits SET woken_at = ?
+         WHERE agent_id = ? AND woken_at IS NULL AND wait_id IN (${waitIds.map(() => "?").join(", ")})`,
+      )
+      .run(this.#now().toISOString(), agentId, ...waitIds);
+  }
+
+  /**
+   * The waits woken by a task completion whose note no prompt has taken yet, given to the prompt of this
+   * delivery. The claim stays under this delivery, so a prompt built again gets the same waits, and no later
+   * prompt gets them.
+   */
+  claimTaskWakes(agentId: string, deliveryId: string): AgentWait[] {
+    const claim = `${TASK_WAKE_CLAIM}${deliveryId}`;
+    this.#database.connection
+      .prepare(
+        `UPDATE agent_waits SET wake_delivery_id = ?
+         WHERE agent_id = ? AND woken_at IS NOT NULL AND wake_delivery_id IS NULL AND ${NOT_EXPIRED}`,
+      )
+      .run(claim, agentId, this.#now().toISOString());
+    return databaseRows(
+      this.#database.connection
+        .prepare("SELECT * FROM agent_waits WHERE agent_id = ? AND wake_delivery_id = ? ORDER BY created_at, wait_id")
+        .all(agentId, claim),
     ).map(toWait);
   }
 }

@@ -262,6 +262,11 @@ export class RoutineScheduler implements RoutineDueSource {
     return this.#waits.wokenBy(deliveryId);
   }
 
+  /** The task-completion wakes whose note the prompt of this delivery carries. Each note goes to one prompt. */
+  taskWakes(agentId: string, deliveryId: string): AgentWait[] {
+    return this.#waits.takeTaskWakes(agentId, deliveryId);
+  }
+
   /**
    * Whether the run of this delivery may end without a message, when the agent has nothing to
    * report. Not a Test run: the person who started it waits for the result.
