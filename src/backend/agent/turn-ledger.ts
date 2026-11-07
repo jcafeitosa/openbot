@@ -22,14 +22,19 @@ const APPROVAL_LIMIT = 256;
 
 /** The recent turns of an agent that a recurrence looks back over. */
 const RECURRENCE_WINDOW = 20;
-/** The failed turns with one key in that window that make a recurrence. */
+/** The turns with one key in that window that make a recurrence. */
 const RECURRENCE_MIN = 3;
+/**
+ * The cause a recurrence key carries when the turn has none. A turn that completed past a failed tool step
+ * has no cause code, and the note needs one to name the key.
+ */
+const UNCLASSIFIED_CAUSE = "unknown";
 
-/** A failure that repeats: failed turns with one cause and one most frequent tool failure code. */
+/** A failure that repeats: turns with one cause and one most frequent tool failure code. */
 export interface RecurringFailure {
   causeCode: string;
   toolFailureCode: string;
-  /** The failed turns with this key in the window. */
+  /** The turns with this key in the window. */
   count: number;
 }
 
@@ -130,23 +135,23 @@ export class TurnLedger {
   }
 
   /**
-   * The failure that repeats in the agent's last 20 turns, at least 3 times, or null. A failed turn counts
-   * under its cause and its most frequent tool failure code; a turn without either counts for no key. A
-   * recurrence is taken once: the next take gives null until its count changes.
+   * The failure that repeats in the agent's last 20 turns, at least 3 times, or null. A turn counts under its
+   * cause and its most frequent tool failure code, whether it failed or completed past a failed tool step; a turn
+   * without a tool failure counts for no key. A recurrence is taken once: the next take gives null until its
+   * count changes.
    */
   takeRecurringFailure(agentId: string): RecurringFailure | null {
     const rows = this.#database.connection
       .prepare(
-        `SELECT outcome, cause_code, tool_failure_codes_json FROM turn_outcomes
+        `SELECT cause_code, tool_failure_codes_json FROM turn_outcomes
          WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`,
       )
       .all(agentId, RECURRENCE_WINDOW);
     const keys = new Map<string, RecurringFailure>();
     for (const row of rows) {
-      const causeCode = row.cause_code;
-      if (row.outcome !== "failed" || typeof causeCode !== "string") continue;
       const toolFailureCode = dominantToolFailureCode(String(row.tool_failure_codes_json));
       if (toolFailureCode === null) continue;
+      const causeCode = typeof row.cause_code === "string" ? row.cause_code : UNCLASSIFIED_CAUSE;
       const key = JSON.stringify([causeCode, toolFailureCode]);
       const failure = keys.get(key) ?? { causeCode, toolFailureCode, count: 0 };
       failure.count += 1;

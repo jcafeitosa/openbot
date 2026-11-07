@@ -286,6 +286,11 @@ async function fakeCodexMain(dir: string): Promise<void> {
       params: { threadId, turn: { id: turnId, status: "failed", error: { message: "The deploy failed." } } },
     });
   };
+  // A turn that completes after a failed command: the tool failure is in the ledger row, the outcome is completed.
+  const completedToolFailure = (threadId: string, turnId: string): void => {
+    commandFailure(threadId, turnId);
+    finishWith(threadId, turnId, "The deploy did not run.");
+  };
   const caseAnswer = (text: string): string | undefined => {
     const id = /case:([a-z-]+)/.exec(text)?.[1];
     return readRows<CaseRow>(casesPath).find((row) => row.case === id)?.answer;
@@ -318,6 +323,11 @@ async function fakeCodexMain(dir: string): Promise<void> {
         method: "item/tool/call",
         params: { threadId, turnId, callId: `call-${turnId}`, namespace: "openbot", tool: __tool, arguments: args },
       });
+      return;
+    }
+    if (text.includes("[[TOOL_FAIL]]")) {
+      log({ method: "turn", threadId, turnId, note: isNote, text });
+      setTimeout(() => completedToolFailure(threadId, turnId), 20);
       return;
     }
     if (text.includes("[[FAIL]]")) {
@@ -956,13 +966,17 @@ async function exactToolGuidance(s: Session): Promise<Pair> {
   };
 }
 
-/** Runs failing turns, then one follow-up. Reports whether the follow-up prompt carries the recurrence note. */
-async function recurrenceRun(s: Session, name: string, failures: number) {
+/**
+ * Runs turns that end the same way, then one follow-up. Reports whether the follow-up prompt carries the
+ * recurrence note. `expected` is the status each turn must end with: a failed turn, or a completed turn that
+ * had a failed command.
+ */
+async function recurrenceRun(s: Session, name: string, failures: number, marker: string, expected: string) {
   const agent = await createAgent(s, name);
   await waitFor(`${name}'s first ledger row`, () => (ledgerRows(s, agent) >= 1 ? true : null));
   for (let index = 1; index <= failures; index++) {
-    const status = await settleDelivery(s, await send(s, agent, `${name} fail-${index} deploy [[FAIL]]`));
-    if (status !== "failed") throw new Error(`Failure ${index} of ${name} ended ${status}.`);
+    const status = await settleDelivery(s, await send(s, agent, `${name} fail-${index} deploy ${marker}`));
+    if (status !== expected) throw new Error(`Failure ${index} of ${name} ended ${status}.`);
     await waitFor(`${name}'s ledger row ${index + 1}`, () => (ledgerRows(s, agent) >= index + 1 ? true : null));
   }
   const mark = fakeEntries(s.dir).length;
@@ -971,24 +985,43 @@ async function recurrenceRun(s: Session, name: string, failures: number) {
   return { status, promptFound: prompt !== null, note: prompt?.includes(RECURRENCE_NOTE) ?? false };
 }
 
-/** Recurrence note: the delivery after three failed turns carries the note; the one after two does not. */
-async function recurrenceNote(s: Session): Promise<Pair> {
-  const recurring = await recurrenceRun(s, "Recurring", 3);
-  const twice = await recurrenceRun(s, "Twice", 2);
+/** Recurrence note over turns of one kind: three turns give the note in the next prompt, two do not. */
+async function recurrencePair(
+  s: Session,
+  prefix: string,
+  marker: string,
+  expected: string,
+  noun: string,
+): Promise<Pair> {
+  const recurring = await recurrenceRun(s, `${prefix}Recurring`, 3, marker, expected);
+  const twice = await recurrenceRun(s, `${prefix}Twice`, 2, marker, expected);
   return {
     enabled: variant(
-      "three failed turns, then the next prompt",
+      `three ${noun}, then the next prompt`,
       `note_in_next_prompt=${recurring.note}`,
       recurring.promptFound && recurring.note && recurring.status === "completed",
       { ...recurring },
     ),
     disabled: variant(
-      "two failed turns, then the next prompt",
+      `two ${noun}, then the next prompt`,
       `note_in_next_prompt=${twice.note}`,
       twice.promptFound && !twice.note && twice.status === "completed",
       { ...twice },
     ),
   };
+}
+
+/** Recurrence note: the delivery after three failed turns carries the note; the one after two does not. */
+async function recurrenceNote(s: Session): Promise<Pair> {
+  return recurrencePair(s, "", "[[FAIL]]", "failed", "failed turns");
+}
+
+/**
+ * Recurrence note on completed turns: each turn completes after a failed command, so its outcome is completed
+ * and its cause is none. The ledger still records the tool failure, and three such turns give the note.
+ */
+async function recurrenceCompleted(s: Session): Promise<Pair> {
+  return recurrencePair(s, "Completed", "[[TOOL_FAIL]]", "completed", "completed turns past a failed command");
 }
 
 /** Sends a request, waits for its turn to end, and answers the final answer of that turn. */
@@ -1252,9 +1285,9 @@ async function crossProviderSwitch(s: Session): Promise<Pair> {
 /** Recurrence switch: the same three failed turns give the note with the switch on, and none with it off. */
 async function recurrenceSwitch(s: Session): Promise<Pair> {
   await setSwitch(s, "recurrenceNote", false);
-  const off = await recurrenceRun(s, "NoteOff", 3);
+  const off = await recurrenceRun(s, "NoteOff", 3, "[[FAIL]]", "failed");
   await setSwitch(s, "recurrenceNote", true);
-  const on = await recurrenceRun(s, "NoteOn", 3);
+  const on = await recurrenceRun(s, "NoteOn", 3, "[[FAIL]]", "failed");
   return {
     enabled: variant(
       "switch on, three failed turns",
@@ -1343,6 +1376,14 @@ const ABLATIONS: Partial<Record<CapabilityId, { compared: string; run: (s: Sessi
   },
 };
 
+/** Extra trigger comparisons, run after the main one of their capability. */
+const TRIGGER_EXTRAS: Partial<Record<CapabilityId, { compared: string; run: (s: Session) => Promise<Pair> }>> = {
+  recurrence: {
+    compared: "three turns that completed past a failed command vs two, then the next prompt: the note vs none",
+    run: recurrenceCompleted,
+  },
+};
+
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** A shell wrapper that runs this script in one of its fake modes, so the service spawns a fake provider. */
@@ -1388,6 +1429,8 @@ async function runChild(capability: (typeof CAPABILITIES)[number], resultPath: s
     await b.runCauseEffect(session.service.initialize());
     const pair = await SCENARIOS[capability.id](session);
     result.comparisons.push(comparisonOf("trigger vs none", capability.compared, pair));
+    const extra = TRIGGER_EXTRAS[capability.id];
+    if (extra) result.comparisons.push(comparisonOf("trigger vs none", extra.compared, await extra.run(session)));
     const ablation = ABLATIONS[capability.id];
     if (ablation) {
       const ablated = await ablation.run(session);
