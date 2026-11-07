@@ -186,6 +186,9 @@ export const messages = {
   "settings.notch.idle.description": "Hiçbir durum etkin olmadığında OpenBot logosunu ve selamlamasını gösterin.",
   "settings.notch.displays.title": "Ek ekranlarda göster",
   "settings.notch.displays.description": "Bağlı harici ekranlarda Dynamic Island'ı gösterin.",
+  "settings.notch.quiet.title": "Sessiz mod",
+  "settings.notch.quiet.description":
+    "Yalnızca size ihtiyaç duyanı gösterir: sorular, onaylar ve hatalar. Dokunsal geri bildirim yok.",
   "settings.notch.haptics.title": "Dokunsal geri bildirim",
   "settings.notch.haptics.description":
     "Dynamic Island etkileşimlerini onaylamak için Force Touch izleme dörtgenini kullanın.",

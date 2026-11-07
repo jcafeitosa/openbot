@@ -27,8 +27,7 @@ export const readDynamicIslandPreference = Effect.fn("readDynamicIslandPreferenc
       parsed.version !== 3 ||
       !isBoolean(parsed.hapticsEnabled) ||
       !isBoolean(parsed.idleVisible) ||
-      !isBoolean(parsed.additionalDisplaysEnabled) ||
-      isBoolean(parsed.muted)
+      !isBoolean(parsed.additionalDisplaysEnabled)
     ) {
       return { ...DEFAULT_DYNAMIC_ISLAND_PREFERENCE };
     }
@@ -38,6 +37,9 @@ export const readDynamicIslandPreference = Effect.fn("readDynamicIslandPreferenc
       hapticsEnabled: parsed.hapticsEnabled,
       idleVisible: parsed.idleVisible,
       additionalDisplaysEnabled: parsed.additionalDisplaysEnabled,
+      // Optional like the size: a file from before the mute choice has none, and a bad value does not
+      // discard the switches beside it.
+      muted: isBoolean(parsed.muted) ? parsed.muted : DEFAULT_DYNAMIC_ISLAND_PREFERENCE.muted,
       // The size is optional so that 0.18.0 and earlier, which refuse any version but 3, still read
       // this file. A missing or out-of-range size resets only the size, so a bad value cannot make
       // the island too small to find and does not discard the switches beside it.

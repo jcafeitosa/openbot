@@ -38,6 +38,8 @@ export interface GeneralSettingsValue {
   notificationPreview: boolean;
   macBookNotch: boolean;
   macBookNotchHaptics: boolean;
+  /** Quiet mode: the island shows only what needs the user, and makes no haptic feedback. */
+  macBookNotchQuiet: boolean;
   macBookNotchIdle: boolean;
   macBookNotchAdditionalDisplays: boolean;
   /** The compact Dynamic Island size, as percents of the default. */
@@ -82,6 +84,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsValue = {
   notificationPreview: true,
   macBookNotch: true,
   macBookNotchHaptics: true,
+  macBookNotchQuiet: false,
   macBookNotchIdle: true,
   macBookNotchAdditionalDisplays: true,
   macBookNotchWidthPercent: 100,
