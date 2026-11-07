@@ -40,18 +40,18 @@ export const SELF_IMPROVE_TOOL_DEFINITIONS = [
   {
     name: "propose_instructions_change",
     description:
-      "Propose a new full text of your instruction file (AGENTS.md, or CLAUDE.md in an older workspace) when the user asks for a standing rule change, or when a rule you follow keeps failing. A person must approve the diff in OpenBot, and the change applies only when recent turns show no rise in failed turns. Returns status applied, or an error that says why nothing changed.",
+      "Propose a new full text of your instruction file (AGENTS.md, or CLAUDE.md in an older workspace) when the user asks for a standing rule change, or when a rule you follow keeps failing. OpenBot offers the diff only after 20 recorded turns. A person must approve the diff in OpenBot, and the change applies only when recent turns show no rise in failed turns. Returns status applied, or an error that says why nothing changed.",
     shape: proposeInstructionsSchema.shape,
   },
   {
     name: "propose_instructions_rollback",
-    description: `Propose restoring your instruction file to an earlier text that OpenBot kept, by its sha256: a previousSha256 from an applied change. Use ${ABSENT_INSTRUCTIONS_SHA256} to remove the file as it was before it was first created. A person must approve the restore in OpenBot, and nothing changes until they do. Returns status applied, or an error that says why nothing changed.`,
+    description: `Propose restoring your instruction file to an earlier text that OpenBot kept, by its sha256: a previousSha256 from an applied change. Use ${ABSENT_INSTRUCTIONS_SHA256} to remove the file as it was before it was first created. OpenBot offers a restore only after 20 recorded turns. A person must approve the restore in OpenBot, and nothing changes until they do. Returns status applied, or an error that says why nothing changed.`,
     shape: proposeInstructionsRollbackSchema.shape,
   },
   {
     name: "propose_skill",
     description:
-      "Propose a skill from a folder inside your workspace that holds SKILL.md, after a task whose plan has at least two steps, all of them completed in this turn, and whose plan the person started with its card in this same turn. A person must approve it in OpenBot, and it installs for you only after approval. Never run the folder's scripts.",
+      "Propose a skill from a folder inside your workspace that holds SKILL.md, after a task whose plan has at least two steps, all of them completed in this turn, and whose plan the person started with its card in this same turn. OpenBot offers the draft only after 20 recorded turns. A person must approve it in OpenBot, and it installs for you only after approval. Never run the folder's scripts.",
     shape: proposeSkillSchema.shape,
   },
 ];
@@ -69,6 +69,10 @@ const REFUSAL_MESSAGES: Record<SelfImproveRefusal, string> = {
   "too-large": "The change is too long for the person to review in one card. Propose a smaller change.",
   unchanged: "The instruction file already has this text, so there is nothing to change.",
   changed: "The instruction file changed while the change waited for approval. Read it, then propose the change again.",
+  "draft-changed":
+    "The skill folder changed while the draft waited for approval, so nothing was installed. Read the folder, then propose the draft again.",
+  evidence:
+    "Insufficient evidence: OpenBot offers a change to your instructions or skills only after 20 recorded turns, so this change was not offered to the person. Tell the user what you wanted to change.",
   outside: "The instruction file is a link to a file outside the workspace, so OpenBot does not change it.",
   replay:
     "Recent turns show more failed turns than before, so OpenBot did not apply the change. Tell the user what you wanted to change.",
@@ -106,7 +110,7 @@ export function selfImproveToolResponse(result: SelfImproveResult): OpenBotToolR
     case "refused":
       return openBotToolFailure(REFUSAL_MESSAGES[result.reason], {
         code: "denied",
-        retryable: result.reason === "changed",
+        retryable: result.reason === "changed" || result.reason === "draft-changed",
       });
   }
 }

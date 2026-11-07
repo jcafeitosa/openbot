@@ -6,6 +6,7 @@ import { isDynamicRecord, isString } from "@openbot/contracts/runtime-values";
 import { sourceText } from "@openbot/i18n/source";
 import { Effect, Schema, Semaphore } from "effect";
 import { parse as parseYaml } from "yaml";
+import { draftSha256, SkillDraftChanged } from "../backend/agent/skill-draft-hash";
 import { causeHelpers } from "../backend/effect-boundary";
 import { MANAGED_SKILL_SLUGS } from "./managed-skill-service";
 import { archiveDirectory, inspectArchive, normalizedFiles } from "./skill-package";
@@ -101,10 +102,21 @@ export class LocalSkillLibrary {
     });
   }
 
-  create(agentId: string, sourcePath: string): Effect.Effect<MarketplaceSkillDetail, LocalSkillFailure> {
+  create(
+    agentId: string,
+    sourcePath: string,
+    approvedSha256?: string,
+  ): Effect.Effect<MarketplaceSkillDetail, LocalSkillFailure> {
     return this.serialize(
       Effect.gen({ self: this }, function* () {
         const bytes = yield* this.sourceEffect(agentId, sourcePath);
+        // The archive is the one copy that gets published, so the approved hash is checked against its files.
+        if (approvedSha256 !== undefined) {
+          const files = yield* localSync(() => normalizedFiles(bytes));
+          const entries = Object.entries(files).map(([path, data]) => ({ path, bytes: data }));
+          if (draftSha256(entries) !== approvedSha256)
+            return yield* new LocalSkillFailure({ cause: new SkillDraftChanged({}) });
+        }
         const info = yield* localSync(() => inspectArchive(bytes));
         if (MANAGED_SKILL_SLUGS.has(info.slug))
           return yield* new LocalSkillFailure({

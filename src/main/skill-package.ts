@@ -6,6 +6,7 @@ import { sourceText } from "@openbot/i18n/source";
 import { Effect, Schema } from "effect";
 import { unzipSync, zipSync } from "fflate";
 import { parse as parseYaml } from "yaml";
+import { isSkippedDraftEntry } from "../backend/agent/skill-draft-hash";
 import { causeHelpers } from "../backend/effect-boundary";
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -16,7 +17,7 @@ export const archiveDirectory = Effect.fn("SkillPackage.archiveDirectory")(funct
   function visit(directory: string): Effect.Effect<void, SkillArchiveFailure> {
     return Effect.gen(function* () {
       for (const entry of yield* archiveIO(() => readdir(directory, { withFileTypes: true }))) {
-        if (entry.name === ".git" || entry.name === "node_modules" || entry.name === ".DS_Store") continue;
+        if (isSkippedDraftEntry(entry.name)) continue;
         const path = join(directory, entry.name);
         if (entry.isSymbolicLink())
           return yield* new SkillArchiveFailure({ cause: new Error(sourceText("error.skill.symlinks")) });

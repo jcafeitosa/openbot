@@ -13,6 +13,7 @@ import { redactText } from "@openbot/logging";
 import { Effect } from "effect";
 import { ABSENT_INSTRUCTIONS_SHA256, instructionsTextSha256 } from "../instructions-history-store";
 import type { OpenBotDatabase } from "../openbot-database";
+import { draftSha256, isSkippedDraftEntry, SkillDraftChanged } from "./skill-draft-hash";
 import type { LocalSkillTools } from "./skill-tools";
 import { ToolOperationFailed } from "./tool-operation";
 import type { TurnLedger } from "./turn-ledger";
@@ -32,8 +33,10 @@ const DIFF_CELL_LIMIT = 1_000_000;
 /** The bytes and files of a skill draft that a person reviews in one card. */
 const DRAFT_BYTE_LIMIT = 512 * 1024;
 const DRAFT_FILE_LIMIT = 200;
-/** The bytes of the approval card for a skill draft: the file texts shown in it. A larger draft is refused. */
-const SKILL_CARD_BYTE_LIMIT = 8 * 1024;
+/** The bytes of a card that shows file texts: a skill draft's, and a removal's. A larger card is refused. */
+const CARD_BYTE_LIMIT = 8 * 1024;
+/** The recorded turns a self-modification needs before the gate offers it: the replay's two full windows. */
+const EVIDENCE_TURNS = REPLAY_WINDOW * 2;
 
 type SelfImproveDecision = "accept" | "decline" | "cancel";
 
@@ -51,6 +54,8 @@ export type SelfImproveRefusal =
   | "plan"
   | "unapproved"
   | "folder"
+  | "draft-changed"
+  | "evidence"
   | "missing";
 
 export type SelfImproveResult =
@@ -112,6 +117,14 @@ function replayRegresses(outcomesNewestFirst: readonly string[]): boolean {
   );
 }
 
+/**
+ * Whether the agent has enough recorded turns for the replay to judge a change. The replay finds no regression
+ * with less history, so a change from a new agent would pass it untested: such a change is not offered at all.
+ */
+function enoughEvidence(outcomesNewestFirst: readonly string[]): boolean {
+  return outcomesNewestFirst.length >= EVIDENCE_TURNS;
+}
+
 /** A plan that a skill draft may come from: at least two steps, all of them completed. */
 function planCompleted(plan: ConversationPlan | null): boolean {
   return plan !== null && plan.steps.length >= 2 && plan.steps.every((step) => step.status === "completed");
@@ -161,9 +174,21 @@ interface DraftFile {
   /** The path inside the folder, with `/` between the parts. */
   path: string;
   text: string;
+  /** The bytes of the file, as the archive holds them. */
+  bytes: Uint8Array;
 }
 
 type DraftRead = { files: DraftFile[] } | { refused: "folder" | "too-large" };
+
+/** A file's text as a card shows it: its path, then the text with any secret redacted. */
+function cardFileText(path: string, text: string): string {
+  return `--- ${path} ---\n${redactText(text)}`;
+}
+
+/** Whether a card's text fits the card's byte cap. The skill draft card and the removal card both use it. */
+function cardFits(reason: string): boolean {
+  return new TextEncoder().encode(reason).length <= CARD_BYTE_LIMIT;
+}
 
 /**
  * The files of a skill folder inside the workspace. A path that leaves the workspace, a link, or a folder
@@ -205,6 +230,7 @@ async function collectDraft(
   budget: { bytes: number },
 ): Promise<"ok" | "folder" | "too-large"> {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (isSkippedDraftEntry(entry.name)) continue;
     const path = join(directory, entry.name);
     if (entry.isSymbolicLink()) return "folder";
     if (entry.isDirectory()) {
@@ -217,7 +243,11 @@ async function collectDraft(
     budget.bytes += info.size;
     if (budget.bytes > DRAFT_BYTE_LIMIT || files.length >= DRAFT_FILE_LIMIT) return "too-large";
     const bytes = await readFile(path);
-    files.push({ path: relative(root, path).split(sep).join("/"), text: new TextDecoder().decode(bytes) });
+    files.push({
+      path: relative(root, path).split(sep).join("/"),
+      text: new TextDecoder().decode(bytes),
+      bytes,
+    });
   }
   return "ok";
 }
@@ -289,6 +319,7 @@ export class SelfImproveGate {
     const reason = `${sourceText("status.agent.selfImproveInstructionsPreview", { file: current.fileName })}\n\n${diff}`;
     if (holdsSecret(diff)) return refused("secret");
     if (reason.length > INPUT_LIMITS.messageText) return refused("too-large");
+    if (!enoughEvidence(this.#ledger.recentOutcomes(input.agentId, EVIDENCE_TURNS))) return refused("evidence");
     const decision = yield* input.approve(reason);
     if (decision !== "accept") return { status: "declined" as const };
     if (replayRegresses(this.#ledger.recentOutcomes(input.agentId, REPLAY_WINDOW * 2))) return refused("replay");
@@ -317,7 +348,10 @@ export class SelfImproveGate {
       return refused("unchanged");
     let reason: string;
     if (target.text === null) {
-      reason = sourceText("status.agent.instructionsRollbackRemove", { file: current.fileName });
+      const header = sourceText("status.agent.instructionsRollbackRemove", { file: current.fileName });
+      // The removal deletes this text, so the card shows it, redacted and capped like a skill draft's text.
+      reason = `${header}\n\n${cardFileText(current.fileName, current.text)}`;
+      if (!cardFits(reason)) return refused("too-large");
     } else {
       const changes = current.exists
         ? changedLines(current.text, target.text)
@@ -335,6 +369,7 @@ export class SelfImproveGate {
     }
     if (holdsSecret(reason)) return refused("secret");
     if (reason.length > INPUT_LIMITS.messageText) return refused("too-large");
+    if (!enoughEvidence(this.#ledger.recentOutcomes(input.agentId, EVIDENCE_TURNS))) return refused("evidence");
     const decision = yield* input.approve(reason);
     if (decision !== "accept") return { status: "declined" as const };
     // The card showed the file as it is now: a change made since then is not restored over.
@@ -363,15 +398,26 @@ export class SelfImproveGate {
     });
     // SKILL.md comes first, then the other files. Each text is redacted before the card shows it.
     const ordered = [...draft.files].sort((a, b) => Number(b.path === "SKILL.md") - Number(a.path === "SKILL.md"));
-    const bodies = ordered.map((file) => `--- ${file.path} ---\n${redactText(file.text)}`).join("\n\n");
+    const bodies = ordered.map((file) => cardFileText(file.path, file.text)).join("\n\n");
     const reason = `${header}\n\n${bodies}`;
-    if (new TextEncoder().encode(reason).length > SKILL_CARD_BYTE_LIMIT) return refused("too-large");
+    if (!cardFits(reason)) return refused("too-large");
     if (reason.length > INPUT_LIMITS.messageText) return refused("too-large");
+    if (!enoughEvidence(this.#ledger.recentOutcomes(input.agentId, EVIDENCE_TURNS))) return refused("evidence");
+    // The hash of the files that the card shows. The library refuses an archive that does not match it.
+    const approved = draftSha256(draft.files);
     const decision = yield* input.approve(reason);
     if (decision !== "accept") return { status: "declined" as const };
     if (replayRegresses(this.#ledger.recentOutcomes(input.agentId, REPLAY_WINDOW * 2))) return refused("replay");
     // `create` publishes the draft as a new local skill revision and installs it for this agent.
-    const skill = yield* input.skills.create({ agentId: input.agentId, sourcePath: input.sourcePath });
+    // The library hashes the archive it publishes. A folder that changed since the card fails there, with this cause.
+    const skill = yield* input.skills
+      .create({ agentId: input.agentId, sourcePath: input.sourcePath, expectedSha256: approved })
+      .pipe(
+        Effect.catch((failure) =>
+          failure.cause instanceof SkillDraftChanged ? Effect.succeed(null) : Effect.fail(failure),
+        ),
+      );
+    if (skill === null) return refused("draft-changed");
     return { status: "installed" as const, skill };
   }).bind(this);
 }
