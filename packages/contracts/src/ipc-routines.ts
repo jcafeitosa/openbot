@@ -301,6 +301,13 @@ export function isRoutineRun(value: unknown): value is RoutineRun {
   );
 }
 
+/** A file-change trigger that a person declares for a routine. The path is relative to the agent's workspace, or absolute inside it. */
+export interface RoutineFileWatchInput {
+  path: string;
+  /** The quiet time after the last change before the routine runs, in whole seconds from 1 to 60. */
+  debounceSeconds: number;
+}
+
 export interface CreateRoutineInput {
   agentId: string;
   name: string;
@@ -314,6 +321,8 @@ export interface CreateRoutineInput {
   missedPolicy?: RoutineMissedPolicy;
   /** `chat` when absent. */
   runIn?: RoutineRunPlace;
+  /** Set only by the app's own person-facing path. Absent, the routine has no file trigger. */
+  fileWatch?: RoutineFileWatchInput;
 }
 
 export interface UpdateRoutineInput {
@@ -326,6 +335,8 @@ export interface UpdateRoutineInput {
   limitPolicy?: RoutineLimitPolicy;
   missedPolicy?: RoutineMissedPolicy;
   runIn?: RoutineRunPlace;
+  /** Set only by the app's own person-facing path. `null` removes the file trigger; absent keeps it. */
+  fileWatch?: RoutineFileWatchInput | null;
 }
 
 export interface DeleteRoutineInput {

@@ -63,6 +63,7 @@ import {
   ROUTINE_MISSED_POLICIES,
   ROUTINE_RUN_PLACES,
   type RoutineCalendarInput,
+  type RoutineFileWatchInput,
   type RoutineLimitPolicy,
   type RoutineMissedPolicy,
   type RoutineRunPlace,
@@ -301,7 +302,23 @@ export function parseCreateRoutine(value: unknown): CreateRoutineInput {
   };
 }
 
+/** The app's own create, which also takes a file trigger. The Team API parses its body with `parseCreateRoutine`, which never reads it. */
+export function parseLocalCreateRoutine(value: unknown): CreateRoutineInput {
+  const parsed = parseCreateRoutine(value);
+  const fileWatch = isObject(value) && value.fileWatch !== undefined ? parseFileWatch(value.fileWatch) : undefined;
+  return fileWatch === undefined ? parsed : { ...parsed, fileWatch };
+}
+
 export function parseUpdateRoutine(value: unknown): UpdateRoutineInput {
+  return parseRoutineUpdate(value, false);
+}
+
+/** The app's own update, which also takes a file trigger. The Team API parses its body with `parseUpdateRoutine`. */
+export function parseLocalUpdateRoutine(value: unknown): UpdateRoutineInput {
+  return parseRoutineUpdate(value, true);
+}
+
+function parseRoutineUpdate(value: unknown, localFields: boolean): UpdateRoutineInput {
   if (!isObject(value)) throw new Error("Invalid routine update request.");
   const parsed: UpdateRoutineInput = {
     agentId: requireString(value.agentId, "agentId", INPUT_LIMITS.identifier),
@@ -322,8 +339,22 @@ export function parseUpdateRoutine(value: unknown): UpdateRoutineInput {
     optionalMissedPolicy(value.missedPolicy),
     optionalRunPlace(value.runIn),
   );
-  if (Object.keys(parsed).length === 2) throw new Error("A routine update is required.");
+  const fileWatch = localFields ? parseFileWatchUpdate(value.fileWatch) : undefined;
+  if (Object.keys(parsed).length === 2 && fileWatch === undefined) throw new Error("A routine update is required.");
+  if (fileWatch !== undefined) parsed.fileWatch = fileWatch;
   return parsed;
+}
+
+/** A file trigger from the app: a path and a quiet time. The path is checked against the workspace when it is saved. */
+function parseFileWatch(value: unknown): RoutineFileWatchInput {
+  if (!isObject(value)) throw new Error("fileWatch must be an object.");
+  if (typeof value.debounceSeconds !== "number") throw new Error("debounceSeconds must be a whole number.");
+  return { path: requireString(value.path, "path", INPUT_LIMITS.path), debounceSeconds: value.debounceSeconds };
+}
+
+function parseFileWatchUpdate(value: unknown): RoutineFileWatchInput | null | undefined {
+  if (value === undefined || value === null) return value;
+  return parseFileWatch(value);
 }
 
 function optionalLimitPolicy(value: unknown): { limitPolicy?: RoutineLimitPolicy } {

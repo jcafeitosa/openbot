@@ -7,6 +7,7 @@ import {
   routineMissedPolicyZodSchema,
   routineScheduleZodSchema,
 } from "./routine-tool-schema";
+import { WORK_BOARD_KINDS, WORK_BOARD_TEXT_LIMIT } from "./workstate/work-board-store";
 
 const handoff = {
   recipientAgentId: z.string(),
@@ -78,6 +79,15 @@ export const CHANNEL_TOOL_DEFINITIONS: readonly { name: string; description: str
     description:
       "Delete one saved channel memory when the user asks the channel to forget it. Give its text exactly as it is listed.",
     shape: { text: z.string().min(1).max(INPUT_LIMITS.agentMemoryText) },
+  },
+  {
+    name: "channel_board_post",
+    description:
+      "Write one fact, dependency or open question for the other subtasks of your task, on its shared work board. Only a subtask can write it. Your teammates on the same task read it with their assignments. It is not sent to the person. Keep it short, and never write a secret.",
+    shape: {
+      kind: z.enum(WORK_BOARD_KINDS).describe("fact, dependency or question."),
+      text: z.string().min(1).max(WORK_BOARD_TEXT_LIMIT),
+    },
   },
   {
     name: "channel_add_member",
