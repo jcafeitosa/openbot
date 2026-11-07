@@ -6,22 +6,25 @@
 // Runs use the same AgentService wiring as scripts/capability-comparison-e2e.ts, with the provider pointed at
 // the real codex through OPENBOT_CODEX_PATH. That path is a wrapper that runs the real binary through a
 // pass-through proxy; the proxy only records the turn inputs, turn statuses, plan updates, tool calls and agent
-// answers it forwards.
+// answers it forwards. One change: a turn whose text has the failed-turn mark gets an unsupported model, so the real codex
+// fails that turn (memory reflection's trigger).
 //
 // Selectors (this script only):
 //   OPENBOT_E2E_CODEX_BIN    the real codex binary (default /opt/homebrew/bin/codex)
-//   OPENBOT_E2E_CODEX_MODEL  the model of every agent (default gpt-6-luna)
+//   OPENBOT_E2E_CAPABILITIES comma-separated capability ids to run (default: all five)
+//   OPENBOT_E2E_RUNS_PER_ARM positive integer runs per arm (default 5)
 // The codex account is read from CODEX_HOME (default ~/.codex); only its auth.json is copied into a temporary
 // CODEX_HOME. The user's config, history and MCP servers are not used.
 //
-// Scope: codex only, 5 runs per arm per capability. Exact-tool reports correct/total for exact arithmetic only;
-// no other accuracy claim. The cross-provider check is not measured here; it needs a second provider.
+// Scope: codex only. Five capabilities, 5 runs per arm each, unless the selectors below narrow the run. Exact-tool
+// reports correct/total for exact arithmetic only; no other accuracy claim. The cross-provider check is measured in
+// scripts/capability-real-cross-provider-e2e.ts (it needs the second provider's CLI).
 // Background memory reflection is off (interval 0) in every run except the memory-reflection on arm, which keeps
 // the production default (20).
 //
 // Per-run timeout: 180 s. A run that hits it is recorded as timedOut, a measurement, not a pass.
 // Run once: bun scripts/capability-real-codex-e2e.ts
-// Writes .openbot-build/capability-real-codex-e2e/report.json. Exit code 0 when every one of the 50 runs
+// Writes .openbot-build/capability-real-codex-e2e/report.json. Exit code 0 when every selected run
 // produced a record without a harness error (timeouts included); 1 otherwise.
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -62,9 +65,18 @@ const REAL_CODEX = process.env.OPENBOT_E2E_CODEX_BIN ?? "/opt/homebrew/bin/codex
 const MODEL = process.env.OPENBOT_E2E_CODEX_MODEL ?? "gpt-6-luna";
 /** Read before the profile HOME replaces the environment. */
 const REAL_CODEX_HOME = process.env.CODEX_HOME ?? join(homedir(), ".codex");
-const RUNS_PER_ARM = 5;
+const RUNS_PER_ARM = runsPerArmFromEnv();
 const RUN_TIMEOUT_MS = 180_000;
 const CHILD_TIMEOUT_MS = 3_600_000;
+/** The runs per arm: 5, or OPENBOT_E2E_RUNS_PER_ARM when that is a positive integer. */
+function runsPerArmFromEnv(): number {
+  const raw = process.env.OPENBOT_E2E_RUNS_PER_ARM;
+  if (raw === undefined) return 5;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1)
+    throw new Error(`OPENBOT_E2E_RUNS_PER_ARM must be a positive integer: ${raw}`);
+  return value;
+}
 /** A background reflection starts after its turn, so each memory-reflection run waits this long before it counts. */
 const REFLECTION_WINDOW_MS = 20_000;
 
@@ -78,8 +90,10 @@ const RECURRENCE_MARK = "turns failed with cause";
 /** The first line of the memory review prompt and of the failed-turn reflection prompt. */
 const REVIEW_MARK = "You keep the long-term memory of the agent in this profile";
 const REFLECTION_MARK = "You learn from one failed turn of the agent";
-const FAILING_COMMAND = "cat /openbot-e2e-missing/deploy.env";
-const FAILING_TEXT = `Run this exact shell command now with your shell tool, even if an earlier turn already ran it, then report its output in one line: ${FAILING_COMMAND}`;
+/** The turn the proxy makes fail: its model is replaced by one that codex does not know, so the turn ends failed. */
+const FAILED_TURN_MARK = "OPENBOT-E2E-FAILED-TURN";
+const UNSUPPORTED_MODEL = "gpt-6-luna-e2e-unsupported";
+const FAILED_TURN_TEXT = `${FAILED_TURN_MARK} Reply with one word: done.`;
 /** The recurrence request names the failing command and its exit status, so each turn's failed step is explicit. */
 const RECURRENCE_TEXT =
   "Run exactly this command with your shell tool, even if an earlier turn already ran it, and report only its exit status in one line: ls /openbot-e2e-missing-path";
@@ -110,6 +124,19 @@ const CAPABILITY_IDS: readonly CapabilityId[] = [
   "exact-tool",
   "memory-reflection",
 ];
+/** The capabilities this run measures: all five, or the ids in OPENBOT_E2E_CAPABILITIES (comma-separated). */
+const SELECTED_CAPABILITIES: readonly CapabilityId[] = selectedCapabilities();
+function selectedCapabilities(): readonly CapabilityId[] {
+  const raw = process.env.OPENBOT_E2E_CAPABILITIES;
+  if (!raw) return CAPABILITY_IDS;
+  const picked = raw
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const unknown = picked.filter((id) => !CAPABILITY_IDS.some((known) => known === id));
+  if (unknown.length > 0) throw new Error(`Unknown capability in OPENBOT_E2E_CAPABILITIES: ${unknown.join(", ")}`);
+  return CAPABILITY_IDS.filter((id) => picked.includes(id));
+}
 /** The capabilities whose arm is a production switch. The others are set in `setArm`. */
 const SWITCH: Partial<Record<CapabilityId, keyof AgentCapabilitySwitches>> = {
   "plan-verifier": "planVerifier",
@@ -118,9 +145,9 @@ const SWITCH: Partial<Record<CapabilityId, keyof AgentCapabilitySwitches>> = {
 /** An approval card that the service raised. */
 type ApprovalCard = Extract<AgentEvent, { type: "approval" }>["approval"];
 
-/** One line of the proxy log: a turn that the service started, a turn that ended, a plan update, a tool call, or an answer. */
+/** One line of the proxy log: a turn that the service started, a turn that ended, a plan update, a tool call, an answer, or a model override. */
 interface ProxyRow {
-  dir: "turn" | "turnCompleted" | "plan" | "toolCall" | "answer";
+  dir: "turn" | "turnCompleted" | "plan" | "toolCall" | "answer" | "modelOverride";
   threadId: string | null;
   text?: string;
   status?: string | null;
@@ -134,6 +161,7 @@ interface RpcMessage {
   method?: string;
   params?: {
     threadId?: string;
+    model?: string;
     input?: { text?: string }[];
     turn?: { status?: string };
     plan?: { step?: string; status?: string }[];
@@ -215,15 +243,25 @@ function codexProxyMain(): void {
       }
     };
   };
-  const fromService = lines((message) => {
-    if (message.method !== "turn/start") return;
-    const input = message.params?.input ?? [];
-    record({
-      dir: "turn",
-      threadId: message.params?.threadId ?? null,
-      text: input.map((item) => item.text ?? "").join("\n"),
-    });
-  });
+  /** One line from the service. A turn is recorded; a turn with the failed-turn mark gets an unsupported model. */
+  const forwardFromService = (line: string): string => {
+    if (!line.trim()) return line;
+    let message: RpcMessage;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      // A line that is not JSON is forwarded unchanged and not logged.
+      return line;
+    }
+    if (message.method !== "turn/start" || !message.params) return line;
+    const threadId = message.params.threadId ?? null;
+    const text = (message.params.input ?? []).map((item) => item.text ?? "").join("\n");
+    record({ dir: "turn", threadId, text });
+    if (!text.includes(FAILED_TURN_MARK)) return line;
+    message.params.model = UNSUPPORTED_MODEL;
+    record({ dir: "modelOverride", threadId, text: UNSUPPORTED_MODEL });
+    return JSON.stringify(message);
+  };
   const fromCodex = lines((message) => {
     const threadId = message.params?.threadId ?? null;
     if (message.method === "turn/completed") {
@@ -245,11 +283,19 @@ function codexProxyMain(): void {
     }
   });
   process.stdin.setEncoding("utf8");
+  let pendingIn = "";
   process.stdin.on("data", (chunk: string) => {
-    fromService(chunk);
-    child.stdin.write(chunk);
+    pendingIn += chunk;
+    for (let at = pendingIn.indexOf("\n"); at >= 0; at = pendingIn.indexOf("\n")) {
+      const line = pendingIn.slice(0, at);
+      pendingIn = pendingIn.slice(at + 1);
+      child.stdin.write(`${forwardFromService(line)}\n`);
+    }
   });
-  process.stdin.on("end", () => child.stdin.end());
+  process.stdin.on("end", () => {
+    if (pendingIn) child.stdin.write(forwardFromService(pendingIn));
+    child.stdin.end();
+  });
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => {
     fromCodex(chunk);
@@ -621,8 +667,9 @@ async function exactToolRun(s: Session, arm: Arm, run: number, out: Measured): P
 }
 
 /**
- * Memory reflection. One failing shell step (FAILING_TEXT). The arm on keeps the production
- * review interval (20); the arm off sets it to 0. The run counts the reflection turns, the review turns and the
+ * Memory reflection. Each run sends the same turn, and the proxy gives that turn an unsupported model, so codex
+ * fails it and the turn ends failed: the trigger of a reflection. The arm on keeps the production review interval
+ * (20); the arm off sets it to 0. The run counts the failed turns, the reflection turns, the review turns and the
  * automatic lessons saved, after a fixed window in which a background reflection would start.
  */
 async function reflectionRun(s: Session, arm: Arm, run: number, out: Measured): Promise<boolean> {
@@ -631,18 +678,21 @@ async function reflectionRun(s: Session, arm: Arm, run: number, out: Measured): 
   const lessonsBefore = automaticLessons(s, agentId);
   const outcomesBefore = ledgerRows(s, agentId).length;
   const mark = proxyRows(s).length;
-  const status = await settle(s, await send(s, agentId, `${token} ${FAILING_TEXT}`));
-  await waitFor("the outcome row of the failing turn", () => ledgerRows(s, agentId).length > outcomesBefore || null);
+  const status = await settle(s, await send(s, agentId, `${token} ${FAILED_TURN_TEXT}`));
+  await waitFor("the outcome row of the failed turn", () => ledgerRows(s, agentId).length > outcomesBefore || null);
   await sleep(REFLECTION_WINDOW_MS);
   const rows = proxyRows(s).slice(mark);
   const own = threadOf(rows, token);
   const reflections = rows.filter((row) => row.dir === "turn" && row.text?.includes(REFLECTION_MARK)).length;
   const reviews = rows.filter((row) => row.dir === "turn" && row.text?.includes(REVIEW_MARK)).length;
   const lessons = automaticLessons(s, agentId) - lessonsBefore;
-  out.deliveryStatus = status;
-  out.outcomes = ledgerRows(s, agentId)
+  const outcomes = ledgerRows(s, agentId)
     .slice(outcomesBefore)
     .map((row) => row.outcome);
+  out.deliveryStatus = status;
+  out.outcomes = outcomes;
+  out.failedOutcomes = outcomes.filter((outcome) => outcome === "failed").length;
+  out.modelOverrides = own.filter((row) => row.dir === "modelOverride").length;
   out.codexTurnStatuses = own.filter((row) => row.dir === "turnCompleted").map((row) => row.status ?? null);
   out.reflections = reflections;
   out.reviews = reviews;
@@ -772,14 +822,14 @@ function countsOf(capability: CapabilityId, runs: RunRecord[]): string {
   if (capability === "exact-tool") {
     return `compute_exact calls ${sum("computeExactCalls")} (runs with a call ${runsWith("computeExactCalls")}); correct ${count("correct")}/${runs.length}`;
   }
-  return `reflections ${sum("reflections")}; saved lessons ${sum("lessons")}; review turns ${sum("reviews")}; runs with a lesson ${runsWith("lessons")}`;
+  return `failed outcomes ${sum("failedOutcomes")}; model overrides ${sum("modelOverrides")}; reflections ${sum("reflections")}; saved lessons ${sum("lessons")}; review turns ${sum("reviews")}; runs with a lesson ${runsWith("lessons")}`;
 }
 
 function runParent(): void {
   mkdirSync(join(OUT, "proxy-logs"), { recursive: true });
   const binary = { path: REAL_CODEX, version: versionOf(REAL_CODEX) };
   const runs: RunRecord[] = [];
-  for (const capability of CAPABILITY_IDS) {
+  for (const capability of SELECTED_CAPABILITIES) {
     const work = mkdtempSync(join(tmpdir(), "openbot-real-codex-results-"));
     const resultPath = join(work, `${capability}.json`);
     const child = spawnSync(process.execPath, [SCRIPT, "--child", capability, resultPath], {
@@ -824,11 +874,11 @@ function runParent(): void {
     runTimeoutMs: RUN_TIMEOUT_MS,
     scope: {
       providers: ["codex"],
-      crossProvider: "not measured in this round: it needs a second provider",
+      crossProvider: "measured in scripts/capability-real-cross-provider-e2e.ts",
       claims: "counts only; exact-tool reports correct/total for exact arithmetic",
       isolation: "temporary HOME and CODEX_HOME; only auth.json is copied from the codex home",
       memoryReflection:
-        "memoryReviewInterval 0 in every run except the memory-reflection on arm (production default 20)",
+        "memoryReviewInterval 0 in every run except the memory-reflection on arm (production default 20); every run's turn is made to fail by the proxy (unsupported model), so the trigger is a real failed turn in both arms",
       recurrenceRequest:
         "no switch: the user message names ls /openbot-e2e-missing-path, asks for its exit status only, and is sent in each of the three turns in both arms",
       dryRunArms:
@@ -854,7 +904,7 @@ function runParent(): void {
 
   process.stdout.write("| Capability | Arm | Runs | Timeouts | Errors | Expectation met | Counts |\n");
   process.stdout.write("|---|---|---|---|---|---|---|\n");
-  for (const capability of CAPABILITY_IDS) {
+  for (const capability of SELECTED_CAPABILITIES) {
     for (const arm of ARMS) {
       const group = runs.filter((run) => run.capability === capability && run.arm === arm);
       const timeouts = group.filter((run) => run.timedOut).length;
