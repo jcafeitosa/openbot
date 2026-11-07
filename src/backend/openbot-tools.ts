@@ -58,6 +58,7 @@ import {
   webhookFiltersZodSchema,
 } from "./routine-tool-schema";
 import { WORKFLOW_TOOL_DEFINITIONS } from "./workflows/workflow-tools";
+import { setPreferenceToolSchema, setWorkingMemoryToolSchema } from "./workstate/workstate-tools";
 
 interface OpenBotToolDefinition {
   name: string;
@@ -769,6 +770,18 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
       'The result is JSON {"value":"<exact result>","type":"number"|"boolean"}. A bad expression or a division by zero fails with "code":"validation".',
     ].join(" "),
     shape: computeExactToolSchema.shape,
+  },
+  {
+    name: "set_working_memory",
+    description:
+      "Keep your working notes for this conversation: a goal, the facts you rely on, the open questions, and the next step. Set one slot at a time; a new body replaces the old one, and an empty body clears it. Your next turn in this conversation shows them. Only this conversation reads them.",
+    shape: setWorkingMemoryToolSchema.shape,
+  },
+  {
+    name: "set_preference",
+    description:
+      "Save a preference that the user stated in their own message, such as a reply language or a format they want. Only a message from the user can set one; your agents read it in their instructions. Save the same key again to change it.",
+    shape: setPreferenceToolSchema.shape,
   },
 ];
 

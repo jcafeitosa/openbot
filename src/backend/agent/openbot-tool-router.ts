@@ -72,6 +72,7 @@ import {
   WORKFLOW_TOOL_NAMES,
   type WorkflowTools,
 } from "../workflows/workflow-tools";
+import { WorkstateTools } from "../workstate/workstate-tools";
 import { AgentInterruptTool } from "./agent-interrupt-tool";
 import type { AgentMemories } from "./agent-memories";
 import { type ApprovalAutomationPolicy, NO_APPROVAL_AUTOMATION } from "./approval-automation";
@@ -302,6 +303,7 @@ export class OpenBotToolRouter {
   readonly #vaultItems: VaultItems | null;
   readonly #hooks: OpenBotToolRouterHooks;
   readonly #interruptTool: AgentInterruptTool;
+  readonly #workstate: WorkstateTools;
 
   constructor(options: OpenBotToolRouterOptions) {
     this.#history = new HistoryTools({
@@ -338,6 +340,11 @@ export class OpenBotToolRouter {
     this.#apiKeys = options.apiKeys ?? null;
     this.#vaultItems = options.vaultItems ?? null;
     this.#hooks = options.hooks;
+    this.#workstate = new WorkstateTools({
+      database: options.store.database,
+      conversation: options.conversation,
+      personRequest: (agentId, turnId, threadId) => this.#requestedByPerson(agentId, turnId, threadId),
+    });
     this.#interruptTool = new AgentInterruptTool({
       store: options.store,
       mailbox: options.mailbox,
@@ -1281,6 +1288,8 @@ export class OpenBotToolRouter {
       return { success: true, contentItems: [{ type: "inputText", text: redactText(JSON.stringify(payload)) }] };
     }
 
+    const workstate = this.#workstate.handle(params, senderAgentId);
+    if (workstate) return workstate;
     if (params.tool === "interrupt_agent") return yield* this.#interruptTool.handle(params, senderAgentId);
 
     if (params.tool === "read_agent") {

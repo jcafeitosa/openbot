@@ -39,6 +39,11 @@ import {
 import { WORKFLOW_SCHEMA_SQL } from "./workflows/workflow-schema";
 import { addSlackWorkflows, V53_WORKFLOW_RUN_SOURCE_SQL } from "./workflows/workflow-slack-schema";
 import { addTelegramWorkflows } from "./workflows/workflow-telegram-schema";
+import {
+  PERSON_PREFERENCES_SCHEMA_SQL,
+  WORK_BOARD_SCHEMA_SQL,
+  WORKING_MEMORY_SCHEMA_SQL,
+} from "./workstate/workstate-schema";
 
 const BASELINE_SCHEMA_VERSION = 8;
 
@@ -825,7 +830,10 @@ const LATEST_SCHEMA_SQL =
   RESEARCH_SOURCES_SCHEMA_SQL +
   MEMORY_PROPOSALS_SCHEMA_SQL +
   MEMORY_CONSOLIDATION_RUNS_SCHEMA_SQL +
-  FILE_WATCH_TRIGGERS_SCHEMA_SQL;
+  FILE_WATCH_TRIGGERS_SCHEMA_SQL +
+  WORK_BOARD_SCHEMA_SQL +
+  PERSON_PREFERENCES_SCHEMA_SQL +
+  WORKING_MEMORY_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -1232,6 +1240,24 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     version: 68,
     // Only creates a table, so no foreign-key pause and no vacuum. No file trigger exists before it, so no row changes.
     up: (db) => db.exec(FILE_WATCH_TRIGGERS_SCHEMA_SQL),
+  },
+  {
+    version: 69,
+    // Only creates a table and its indexes, so no foreign-key pause and no vacuum. No work board item existed before
+    // it, so the table starts empty and no existing row changes.
+    up: (db) => db.exec(WORK_BOARD_SCHEMA_SQL),
+  },
+  {
+    version: 70,
+    // Only creates a table, so no foreign-key pause and no vacuum. No preference existed before it, so the table
+    // starts empty and no existing row changes.
+    up: (db) => db.exec(PERSON_PREFERENCES_SCHEMA_SQL),
+  },
+  {
+    version: 71,
+    // Only creates a table, so no foreign-key pause and no vacuum. No working memory existed before it, so the table
+    // starts empty and no existing row changes.
+    up: (db) => db.exec(WORKING_MEMORY_SCHEMA_SQL),
   },
 ];
 

@@ -10,6 +10,7 @@ import { causeHelpers } from "../effect-boundary";
 import type { DeliveryContext, MailboxStore } from "../mailbox-store";
 import type { MessagingThreads } from "../messaging/messaging-threads";
 import { decodeTurnResponse } from "../protocol";
+import { WorkingMemoryStore } from "../workstate/working-memory-store";
 import type { ContextCompaction } from "./context-compaction";
 import type { ConversationRuntime } from "./conversation-runtime";
 import {
@@ -173,6 +174,7 @@ export class DrainScheduler {
   readonly #mailbox: MailboxStore;
   readonly #mailboxSync: MailboxSync;
   readonly #conversation: ConversationRuntime;
+  readonly #workingMemory: WorkingMemoryStore;
   readonly #providers: ProviderRuntime;
   readonly #duplication: DuplicationGate;
   readonly #profileSave: ProfileSave;
@@ -224,6 +226,7 @@ export class DrainScheduler {
     this.#conversation = options.conversation;
     this.#providers = options.providers;
     this.#duplication = options.duplication;
+    this.#workingMemory = new WorkingMemoryStore(options.store.database);
     this.#profileSave = options.profileSave;
     this.#compaction = options.compaction;
     this.#routines = options.routines;
@@ -807,7 +810,7 @@ export class DrainScheduler {
       const promptInput = (executionText: string | undefined) => {
         // The deliveries of one interrupted turn share its continuation, so the prompt states it once.
         const continued = new Set<string>();
-        return combinedPromptInput(
+        const combined = combinedPromptInput(
           batch.map((item) => {
             const { resumeAfterUsageLimit, ...rest } = item;
             const repeated = resumeAfterUsageLimit !== undefined && continued.has(resumeAfterUsageLimit.turnId);
@@ -826,6 +829,9 @@ export class DrainScheduler {
           agentNames,
           recurring,
         );
+        // The notes that the agent kept in this thread, so its next turn reads them. A thread that has none adds nothing.
+        const working = this.#workingMemory.render(agent.id, this.#conversation.publicThreadId(agent.id, threadId));
+        return working ? [...combined, { type: "text" as const, text: working }] : combined;
       };
       // The request is already in the session, so a plan continuation sends only its note.
       const completeInput =

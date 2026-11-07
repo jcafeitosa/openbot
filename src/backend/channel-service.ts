@@ -61,6 +61,8 @@ import type { DeliveryContext, MailboxStore } from "./mailbox-store";
 import { type MessageDeleteAccess, MessageDeleteRefused } from "./message-delete";
 import type { OpenBotDatabase } from "./openbot-database";
 import { extractJsonObject, StructuredOutputError } from "./structured-output";
+import { isWorkBoardKind, WorkBoardStore, withWorkBoard } from "./workstate/work-board-store";
+import { WorkstateTextRefused } from "./workstate/workstate-text";
 
 const logger = createOpenBotLogger("channel-service");
 
@@ -197,6 +199,7 @@ function channelHandoffAuthorId(agentId: string): string {
 export class ChannelService {
   readonly store: ChannelStore;
   readonly memories: ChannelMemoryStore;
+  readonly #board: WorkBoardStore;
   readonly #history: ChannelHistory;
   #scope = Scope.makeUnsafe();
   readonly #pumps = new Map<string, Fiber.Fiber<void>>();
@@ -253,6 +256,7 @@ export class ChannelService {
   ) {
     this.store = new ChannelStore(database);
     this.memories = new ChannelMemoryStore(database);
+    this.#board = new WorkBoardStore(database);
     this.#history = new ChannelHistory(this.store, hooks.generate, this.memories);
   }
 
@@ -1664,7 +1668,7 @@ export class ChannelService {
               .enqueue({
                 sender: { kind: "user" },
                 recipientAgentIds: [assignment.agentId],
-                text: assignmentText(task, request, origin),
+                text: withWorkBoard(this.#board, task.parentTaskId, assignmentText(task, request, origin)),
                 draftIds: task.attachmentDraftIds,
                 sourcePaths,
                 channelId,
@@ -3069,7 +3073,8 @@ export class ChannelService {
         tool === "channel_assign" ||
         tool === "channel_transfer" ||
         tool === "channel_remember" ||
-        tool === "channel_forget_memory")
+        tool === "channel_forget_memory" ||
+        tool === "channel_board_post")
     ) {
       logger.warn("A channel tool was refused in a reply turn.", { channelId, agentId, tool });
       return {
@@ -3154,6 +3159,28 @@ export class ChannelService {
         messageId: reply.id,
         instruction: `The reply is in the shared chat. End your turn now with no text and do not promise to report back: you continue this task when ${check.target.author.name} has answered.`,
       };
+    }
+    // The work board belongs to the subtasks of one parent task. A teammate that writes to it must be one of them.
+    if (tool === "channel_board_post") {
+      if (task.parentTaskId === null)
+        return {
+          accepted: false,
+          reason: "Only a subtask writes its task's work board. Put the fact in your answer instead.",
+        };
+      if (!isString(args.text) || !isWorkBoardKind(args.kind))
+        return yield* channelFailure(new Error("Provide a board kind and text."));
+      try {
+        this.#board.post({
+          parentTaskId: task.parentTaskId,
+          authorAgentId: agentId,
+          kind: args.kind,
+          text: args.text,
+        });
+      } catch (error) {
+        if (error instanceof WorkstateTextRefused) return { accepted: false, reason: error.message };
+        return yield* channelFailure(error instanceof Error ? error : new Error(String(error)));
+      }
+      return { accepted: true };
     }
     /**
      * The two memory tools commit at call time, unlike an agent's `remember`, which stages into the

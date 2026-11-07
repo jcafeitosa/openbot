@@ -46,6 +46,7 @@ import {
 } from "../mcp-provider-shapes";
 import { decodeRecordResponse, decodeThreadResponse, getString, type ResponseDecoder } from "../protocol";
 import { TimeoutError, withTimeout } from "../with-timeout";
+import { LOCAL_PERSON_ID, PersonPreferencesStore } from "../workstate/person-preferences-store";
 import type { AgentMemories } from "./agent-memories";
 import { readCodexMcpConfig } from "./codex-mcp-config";
 import type { ContextCompaction } from "./context-compaction";
@@ -225,6 +226,7 @@ export class ThreadLifecycle {
   readonly #mailbox: MailboxStore;
   readonly #conversation: ConversationRuntime;
   readonly #memories: AgentMemories;
+  readonly #preferences: PersonPreferencesStore;
   readonly #compaction: ContextCompaction;
   readonly #hooks: ThreadLifecycleHooks;
   readonly #mcpServers: McpServerSource;
@@ -265,6 +267,7 @@ export class ThreadLifecycle {
     this.#mailbox = options.mailbox;
     this.#conversation = options.conversation;
     this.#memories = options.memories;
+    this.#preferences = new PersonPreferencesStore(options.store.database);
     this.#compaction = options.compaction;
     this.#hooks = options.hooks;
     this.#mcpServers = options.mcpServers ?? (() => []);
@@ -1197,6 +1200,7 @@ export class ThreadLifecycle {
     const memories = this.#memories.essentialFor(agent.id);
     const options = {
       computerUseInOwnChat,
+      personPreferences: this.#preferences.instructionPreferences(LOCAL_PERSON_ID),
       sideThread,
       passwordVault: this.#passwordVaultConnected(),
       vaultItems: this.#vaultItems(),
