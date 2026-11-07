@@ -19,6 +19,8 @@ export interface DynamicIslandPreference {
   serverVisibility: Record<string, boolean>;
   /** Whether a server with no choice of its own, such as a server the user adds later, shows its items. */
   newServersVisible: boolean;
+  /** When true, the island will not speak agent messages (mute toggle). */
+  muted?: boolean;
 }
 
 /** The most server choices that a preference can hold. A user has far fewer servers. */
@@ -60,6 +62,7 @@ export const DEFAULT_DYNAMIC_ISLAND_PREFERENCE = {
   heightPercent: 100,
   serverVisibility: {},
   newServersVisible: true,
+  muted: true,
 } as const satisfies DynamicIslandPreference;
 
 /** Returns whether the island shows the items of a server. A muted server is hidden separately. */
