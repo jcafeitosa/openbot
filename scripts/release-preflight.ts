@@ -25,6 +25,11 @@ if (run("git", ["rev-list", "--left-right", "--count", "origin/main...HEAD"]) !=
 if (run("git", ["tag", "--list", `v${packageJson.version}`])) {
   failures.push(`tag v${packageJson.version} already exists`);
 }
+// A release needs a last-good tag to roll back to. The newest existing release tag is that target.
+const lastGoodTag = run("git", ["tag", "--list", "v*.*.*", "--sort=-v:refname"]).split("\n")[0];
+if (!lastGoodTag) failures.push("no previous release tag exists to roll back to");
+const releaseGuide = await readFile("docs/RELEASING.md", "utf8");
+if (!/^## Rollback$/m.test(releaseGuide)) failures.push("docs/RELEASING.md has no Rollback section");
 
 let releaseSecrets = "";
 try {
