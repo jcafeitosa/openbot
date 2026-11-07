@@ -1,9 +1,12 @@
-// Measures two agent capabilities against the REAL codex app-server (codex-cli, model gpt-6-luna). Each
-// capability has an on arm and an off arm, flipped with the production switches of
-// src/main/agent-capability-switches-store.ts (planVerifier, recurrenceNote), read by AgentService at each use.
+// Measures five agent capabilities against the REAL codex app-server (codex-cli, model gpt-6-luna). Each
+// capability has an on arm and an off arm. Two arms flip production switches of
+// src/main/agent-capability-switches-store.ts (planVerifier, recurrenceNote); memory reflection flips the
+// memoryReviewInterval setting. The dry-run gate and the exact-tool guidance have no switch, so their arms are
+// the request: an irreversible or a reversible call, and an arithmetic request or the same arithmetic in words.
 // Runs use the same AgentService wiring as scripts/capability-comparison-e2e.ts, with the provider pointed at
 // the real codex through OPENBOT_CODEX_PATH. That path is a wrapper that runs the real binary through a
-// pass-through proxy; the proxy only records the turn inputs, turn statuses and plan updates it forwards.
+// pass-through proxy; the proxy only records the turn inputs, turn statuses, plan updates, tool calls and agent
+// answers it forwards.
 //
 // Selectors (this script only):
 //   OPENBOT_E2E_CODEX_BIN    the real codex binary (default /opt/homebrew/bin/codex)
@@ -11,13 +14,14 @@
 // The codex account is read from CODEX_HOME (default ~/.codex); only its auth.json is copied into a temporary
 // CODEX_HOME. The user's config, history and MCP servers are not used.
 //
-// Scope: codex only, 5 runs per arm per capability, counts only (no accuracy claim). The cross-provider
-// check is not measured here; it needs a second provider. Background memory reflection is off (interval 0)
-// in every run so its own turns stay out of the counts.
+// Scope: codex only, 5 runs per arm per capability. Exact-tool reports correct/total for exact arithmetic only;
+// no other accuracy claim. The cross-provider check is not measured here; it needs a second provider.
+// Background memory reflection is off (interval 0) in every run except the memory-reflection on arm, which keeps
+// the production default (20).
 //
 // Per-run timeout: 180 s. A run that hits it is recorded as timedOut, a measurement, not a pass.
 // Run once: bun scripts/capability-real-codex-e2e.ts
-// Writes .openbot-build/capability-real-codex-e2e/report.json. Exit code 0 when every one of the 20 runs
+// Writes .openbot-build/capability-real-codex-e2e/report.json. Exit code 0 when every one of the 50 runs
 // produced a record without a harness error (timeouts included); 1 otherwise.
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -61,6 +65,8 @@ const REAL_CODEX_HOME = process.env.CODEX_HOME ?? join(homedir(), ".codex");
 const RUNS_PER_ARM = 5;
 const RUN_TIMEOUT_MS = 180_000;
 const CHILD_TIMEOUT_MS = 3_600_000;
+/** A background reflection starts after its turn, so each memory-reflection run waits this long before it counts. */
+const REFLECTION_WINDOW_MS = 20_000;
 
 /** The text of the plan check that the verifier turn carries. */
 const PLAN_CHECK_MARK = "OpenBot plan check, not a message from the user";
@@ -69,27 +75,55 @@ const CONTINUATION_MARK = "OpenBot note, not a message from the user. Your last 
 const GAP_PREFIX = "- Gap: ";
 /** The recurrence note's text, which the follow-up prompt carries when the note is on. */
 const RECURRENCE_MARK = "turns failed with cause";
+/** The first line of the memory review prompt and of the failed-turn reflection prompt. */
+const REVIEW_MARK = "You keep the long-term memory of the agent in this profile";
+const REFLECTION_MARK = "You learn from one failed turn of the agent";
 const FAILING_COMMAND = "cat /openbot-e2e-missing/deploy.env";
+const FAILING_TEXT = `Run this exact shell command now with your shell tool, even if an earlier turn already ran it, then report its output in one line: ${FAILING_COMMAND}`;
 const PLAN_REQUEST =
   "Complete this three-step plan and track the steps with your plan tool (update_plan), marking each step completed when it is done: (1) multiply 17 by 3; (2) name the capital of Japan; (3) name the chemical symbol of gold. In your final answer, give the evidence for each step on its own line, starting with the step number.";
+/** The seeded memory that both dry-run arms use, and the request of each arm. */
+const SEED_MEMORY = "The deploy window is Tuesday.";
+const DRY_RUN_ON =
+  "Find the saved memory that says the deploy window is Tuesday, then forget it with your forget memory tool. Reply in one line.";
+const DRY_RUN_OFF = "Search your saved memories for the deploy window and reply in one line with what you find.";
+/** The exact arithmetic. The expected value is computed here with BigInt, never taken from the model. */
+const EXACT_A = 7362519n;
+const EXACT_B = 8130476n;
+const EXACT_C = 1234567n;
+const EXACT_EXPECTED = (EXACT_A * EXACT_B + EXACT_C).toString();
+/** The on arm has operators, which the guidance trigger reads. The off arm has the same numbers in words. */
+const EXACT_ON = `What is ${EXACT_A} * ${EXACT_B} + ${EXACT_C}? Give the exact integer only.`;
+const EXACT_OFF = `Multiply ${EXACT_A} by ${EXACT_B}, then add ${EXACT_C}. Give the exact integer only.`;
 const TERMINAL_STATUSES = ["completed", "failed", "interrupted", "cancelled"];
 
 const ARMS = ["on", "off"] as const;
 type Arm = (typeof ARMS)[number];
-type CapabilityId = "plan-verifier" | "recurrence";
-const CAPABILITY_IDS: readonly CapabilityId[] = ["plan-verifier", "recurrence"];
-const SWITCH: Record<CapabilityId, keyof AgentCapabilitySwitches> = {
+type CapabilityId = "plan-verifier" | "recurrence" | "dry-run" | "exact-tool" | "memory-reflection";
+const CAPABILITY_IDS: readonly CapabilityId[] = [
+  "plan-verifier",
+  "recurrence",
+  "dry-run",
+  "exact-tool",
+  "memory-reflection",
+];
+/** The capabilities whose arm is a production switch. The others are set in `setArm`. */
+const SWITCH: Partial<Record<CapabilityId, keyof AgentCapabilitySwitches>> = {
   "plan-verifier": "planVerifier",
   recurrence: "recurrenceNote",
 };
+/** An approval card that the service raised. */
+type ApprovalCard = Extract<AgentEvent, { type: "approval" }>["approval"];
 
-/** One line of the proxy log: a turn that the service started, a turn that ended, or a plan update. */
+/** One line of the proxy log: a turn that the service started, a turn that ended, a plan update, a tool call, or an answer. */
 interface ProxyRow {
-  dir: "turn" | "turnCompleted" | "plan";
+  dir: "turn" | "turnCompleted" | "plan" | "toolCall" | "answer";
   threadId: string | null;
   text?: string;
   status?: string | null;
   steps?: { step: string; status: string }[];
+  tool?: string | null;
+  phase?: string | null;
 }
 
 /** A JSON-RPC message of the stream. Only the fields that the proxy reads are typed. */
@@ -100,6 +134,8 @@ interface RpcMessage {
     input?: { text?: string }[];
     turn?: { status?: string };
     plan?: { step?: string; status?: string }[];
+    tool?: string;
+    item?: { type?: string; text?: string; phase?: string };
   };
 }
 
@@ -196,6 +232,13 @@ function codexProxyMain(): void {
         threadId,
         steps: plan.map((entry) => ({ step: entry.step ?? "", status: entry.status ?? "" })),
       });
+    } else if (message.method === "item/tool/call") {
+      record({ dir: "toolCall", threadId, tool: message.params?.tool ?? null });
+    } else if (message.method === "item/completed") {
+      const item = message.params?.item;
+      if (item?.type === "agentMessage") {
+        record({ dir: "answer", threadId, text: item.text ?? "", phase: item.phase ?? null });
+      }
     }
   });
   process.stdin.setEncoding("utf8");
@@ -225,6 +268,7 @@ interface Backend {
   OpenBotDatabase: typeof OpenBotDatabaseClass;
   runCauseEffect: typeof runCauseEffectFn;
   AGENT_PROVIDERS: typeof AGENT_PROVIDERS_LIST;
+  DEFAULT_MEMORY_REVIEW_INTERVAL: number;
   createAgentCapabilitySwitchesStore: typeof createSwitchesStoreFn;
   Effect: typeof EffectClass;
 }
@@ -239,7 +283,7 @@ async function loadBackend(): Promise<Backend> {
   const { MailboxStore } = await import("../src/backend/mailbox-store");
   const { OpenBotDatabase } = await import("../src/backend/openbot-database");
   const { runCauseEffect } = await import("../src/backend/effect-boundary");
-  const { AGENT_PROVIDERS } = await import("@openbot/contracts/ipc");
+  const { AGENT_PROVIDERS, DEFAULT_MEMORY_REVIEW_INTERVAL } = await import("@openbot/contracts/ipc");
   const { createAgentCapabilitySwitchesStore } = await import("../src/main/agent-capability-switches-store");
   const { Effect } = await import("effect");
   return {
@@ -249,6 +293,7 @@ async function loadBackend(): Promise<Backend> {
     OpenBotDatabase,
     runCauseEffect,
     AGENT_PROVIDERS,
+    DEFAULT_MEMORY_REVIEW_INTERVAL,
     createAgentCapabilitySwitchesStore,
     Effect,
   };
@@ -263,7 +308,10 @@ interface Session {
   mailbox: InstanceType<Backend["MailboxStore"]>;
   database: InstanceType<Backend["OpenBotDatabase"]>;
   switches: AgentCapabilitySwitchesStore;
-  approvals: number;
+  /** Every approval card that the service raised, in order. */
+  cards: ApprovalCard[];
+  /** The memory review interval, which the service reads at each use. */
+  review: { interval: number };
 }
 
 function browserHost(b: Backend): AgentBrowserHost {
@@ -297,19 +345,20 @@ function openSession(
   const database = new b.OpenBotDatabase(paths.userData);
   const store = new b.AgentStore(paths.userData, paths.home, database);
   const mailbox = new b.MailboxStore(paths.userData, store.sharedRoot, store.database);
+  const review = { interval: 0 };
   const service = new b.AgentService({
     store,
     mailbox,
     browser: browserHost(b),
     preferredProvider: "codex",
     offProviders: b.AGENT_PROVIDERS.filter((provider) => provider !== "codex"),
-    // Background reflection is off in every run, so its own turns stay out of the counts.
-    memoryReviewInterval: () => 0,
+    // Background reflection is off in every run except the memory-reflection on arm, so other turns stay out of the counts.
+    memoryReviewInterval: () => review.interval,
     capabilitySwitches: () => switches.get(),
   });
-  const session: Session = { b, work: paths.work, service, mailbox, database, switches, approvals: 0 };
+  const session: Session = { b, work: paths.work, service, mailbox, database, switches, cards: [], review };
   service.on("event", (event: AgentEvent) => {
-    if (event.type === "approval") session.approvals += 1;
+    if (event.type === "approval") session.cards.push(event.approval);
   });
   return session;
 }
@@ -357,6 +406,33 @@ function settle(s: Session, deliveryId: string): Promise<string> {
   });
 }
 
+/**
+ * Waits for the delivery to end. Each approval card that opens meanwhile is recorded with what `present` reads at
+ * that moment, then declined, so a held call does not run.
+ */
+async function settleDeclining(
+  s: Session,
+  deliveryId: string,
+  from: number,
+  present: () => boolean,
+): Promise<{ status: string; presentAtCard: boolean[] }> {
+  const presentAtCard: boolean[] = [];
+  let next = from;
+  for (;;) {
+    while (next < s.cards.length) {
+      const card = s.cards[next];
+      next += 1;
+      if (!card) continue;
+      presentAtCard.push(present());
+      await s.b.runCauseEffect(s.service.respondToApproval({ requestId: card.requestId, decision: "decline" }));
+    }
+    const status = s.mailbox.getDelivery(deliveryId)?.delivery.status;
+    if (status !== undefined && TERMINAL_STATUSES.includes(status)) return { status, presentAtCard };
+    if (Date.now() >= deadline) throw new RunTimeout(`Timed out waiting for delivery ${deliveryId} to end.`);
+    await sleep(50);
+  }
+}
+
 function proxyRows(s: Session): ProxyRow[] {
   const path = join(s.work, "codex-proxy.jsonl");
   if (!existsSync(path)) return [];
@@ -373,6 +449,16 @@ function threadOf(rows: ProxyRow[], token: string): ProxyRow[] {
   return rows.filter((row) => row.threadId === anchor.threadId);
 }
 
+/** The text of the thread's last answer, or null. Commentary is not an answer. */
+function lastAnswerOf(rows: ProxyRow[]): string | null {
+  return rows.filter((row) => row.dir === "answer" && row.phase !== "commentary").at(-1)?.text ?? null;
+}
+
+/** The integers of a text, with thousands separators removed. */
+function integersOf(text: string): string[] {
+  return text.replace(/(?<=\d),(?=\d{3}\b)/g, "").match(/\d+/g) ?? [];
+}
+
 function ledgerRows(s: Session, agentId: string): LedgerRow[] {
   return s.database.connection
     .prepare("SELECT outcome, tool_failure_codes_json FROM turn_outcomes WHERE agent_id = ? ORDER BY created_at, rowid")
@@ -380,8 +466,22 @@ function ledgerRows(s: Session, agentId: string): LedgerRow[] {
     .map((row) => ({ outcome: String(row.outcome), toolFailureCodes: String(row.tool_failure_codes_json) }));
 }
 
+/** The automatic memories of the agent: the lessons that a reflection saved. */
+function automaticLessons(s: Session, agentId: string): number {
+  return s.service.listMemories(agentId).filter((memory) => memory.origin === "automatic").length;
+}
+
 async function setSwitch(s: Session, key: keyof AgentCapabilitySwitches, on: boolean): Promise<void> {
   await s.b.runCauseEffect(s.switches.set({ ...s.switches.get(), [key]: on }));
+}
+
+/** Sets the arm of a capability: a production switch or the review interval. The other arms are the request. */
+async function setArm(s: Session, capability: CapabilityId, arm: Arm): Promise<void> {
+  if (capability === "memory-reflection") {
+    s.review.interval = arm === "on" ? s.b.DEFAULT_MEMORY_REVIEW_INTERVAL : 0;
+  }
+  const key = SWITCH[capability];
+  if (key) await setSwitch(s, key, arm === "on");
 }
 
 /**
@@ -420,7 +520,7 @@ async function recurrenceRun(s: Session, arm: Arm, run: number, out: Measured): 
   await waitFor("the first turn's outcome row", () => ledgerRows(s, agentId).length >= 1 || null);
   const before = ledgerRows(s, agentId).length;
   const mark = proxyRows(s).length;
-  const request = `${token} Run this exact shell command now with your shell tool, even if an earlier turn already ran it, then report its output in one line: ${FAILING_COMMAND}`;
+  const request = `${token} ${FAILING_TEXT}`;
   for (let attempt = 1; attempt <= 3; attempt++) {
     await settle(s, await send(s, agentId, request));
     await waitFor(
@@ -451,6 +551,97 @@ async function recurrenceRun(s: Session, arm: Arm, run: number, out: Measured): 
   return arm === "on" ? noteInPrompt : promptFound && !noteInPrompt;
 }
 
+/**
+ * Dry-run gate. The arm on asks for an irreversible forget. Its approval card must open, the memory must still
+ * exist while the card waits, and the run declines the card, so the memory must still exist after the turn. The
+ * arm off searches the same seeded memory: no card, and the search call runs. Every card that opens is declined.
+ */
+async function dryRunRun(s: Session, arm: Arm, run: number, out: Measured): Promise<boolean> {
+  const token = `RUN-dry-run-${arm}-${run}-${randomUUID().slice(0, 8)}`;
+  const agentId = await createAgent(s, `Gated ${arm} ${run}`);
+  const seeded = s.service.createMemory({ agentId, text: SEED_MEMORY });
+  const present = () => s.service.listMemories(agentId).some((memory) => memory.id === seeded.id);
+  const mark = proxyRows(s).length;
+  const cardsBefore = s.cards.length;
+  const deliveryId = await send(s, agentId, `${token} ${arm === "on" ? DRY_RUN_ON : DRY_RUN_OFF}`);
+  const { status, presentAtCard } = await settleDeclining(s, deliveryId, cardsBefore, present);
+  const own = threadOf(proxyRows(s).slice(mark), token);
+  const cards = s.cards.length - cardsBefore;
+  const memoryAfterTurn = present();
+  const forgetCalls = own.filter((row) => row.dir === "toolCall" && row.tool === "forget_memory").length;
+  const searchCalls = own.filter((row) => row.dir === "toolCall" && row.tool === "search_memories").length;
+  const searchFoundMemory = lastAnswerOf(own)?.includes("Tuesday") ?? false;
+  out.deliveryStatus = status;
+  out.ranBeforeAnswer = presentAtCard.includes(false);
+  out.memoryKept = memoryAfterTurn;
+  out.forgetCalls = forgetCalls;
+  out.searchCalls = searchCalls;
+  out.searchFoundMemory = searchFoundMemory;
+  return arm === "on"
+    ? cards === 1 && presentAtCard[0] === true && memoryAfterTurn
+    : cards === 0 && searchCalls >= 1 && memoryAfterTurn;
+}
+
+/**
+ * Exact-tool guidance. The arm on writes the arithmetic with operators, which the guidance trigger reads. The arm
+ * off writes the same numbers and the same expected value in words, which the trigger does not read. The run
+ * counts the compute_exact calls and checks the integers of the final answer against the BigInt value.
+ */
+async function exactToolRun(s: Session, arm: Arm, run: number, out: Measured): Promise<boolean> {
+  const token = `RUN-exact-${arm}-${run}-${randomUUID().slice(0, 8)}`;
+  const agentId = await createAgent(s, `Calculator ${arm} ${run}`);
+  const mark = proxyRows(s).length;
+  const status = await settle(s, await send(s, agentId, `${token} ${arm === "on" ? EXACT_ON : EXACT_OFF}`));
+  const own = threadOf(proxyRows(s).slice(mark), token);
+  const answer = lastAnswerOf(own);
+  const calls = own.filter((row) => row.dir === "toolCall" && row.tool === "compute_exact").length;
+  const correct = answer !== null && integersOf(answer).includes(EXACT_EXPECTED);
+  out.deliveryStatus = status;
+  out.computeExactCalls = calls;
+  out.answer = answer;
+  out.expected = EXACT_EXPECTED;
+  out.correct = correct;
+  return arm === "on" ? calls >= 1 : calls === 0;
+}
+
+/**
+ * Memory reflection. One failing shell step, the same as the recurrence scenario. The arm on keeps the production
+ * review interval (20); the arm off sets it to 0. The run counts the reflection turns, the review turns and the
+ * automatic lessons saved, after a fixed window in which a background reflection would start.
+ */
+async function reflectionRun(s: Session, arm: Arm, run: number, out: Measured): Promise<boolean> {
+  const token = `RUN-reflection-${arm}-${run}-${randomUUID().slice(0, 8)}`;
+  const agentId = await createAgent(s, `Reflecting ${arm} ${run}`);
+  const lessonsBefore = automaticLessons(s, agentId);
+  const outcomesBefore = ledgerRows(s, agentId).length;
+  const mark = proxyRows(s).length;
+  const status = await settle(s, await send(s, agentId, `${token} ${FAILING_TEXT}`));
+  await waitFor("the outcome row of the failing turn", () => ledgerRows(s, agentId).length > outcomesBefore || null);
+  await sleep(REFLECTION_WINDOW_MS);
+  const rows = proxyRows(s).slice(mark);
+  const own = threadOf(rows, token);
+  const reflections = rows.filter((row) => row.dir === "turn" && row.text?.includes(REFLECTION_MARK)).length;
+  const reviews = rows.filter((row) => row.dir === "turn" && row.text?.includes(REVIEW_MARK)).length;
+  const lessons = automaticLessons(s, agentId) - lessonsBefore;
+  out.deliveryStatus = status;
+  out.outcomes = ledgerRows(s, agentId)
+    .slice(outcomesBefore)
+    .map((row) => row.outcome);
+  out.codexTurnStatuses = own.filter((row) => row.dir === "turnCompleted").map((row) => row.status ?? null);
+  out.reflections = reflections;
+  out.reviews = reviews;
+  out.lessons = lessons;
+  return arm === "on" ? reflections >= 1 && lessons >= 1 : reflections === 0 && lessons === 0;
+}
+
+const RUNNERS: Record<CapabilityId, (s: Session, arm: Arm, run: number, out: Measured) => Promise<boolean>> = {
+  "plan-verifier": planRun,
+  recurrence: recurrenceRun,
+  "dry-run": dryRunRun,
+  "exact-tool": exactToolRun,
+  "memory-reflection": reflectionRun,
+};
+
 async function runOne(
   s: Session,
   capability: CapabilityId,
@@ -460,7 +651,7 @@ async function runOne(
 ): Promise<RunRecord> {
   const started = Date.now();
   deadline = started + RUN_TIMEOUT_MS;
-  const approvalsBefore = s.approvals;
+  const cardsBefore = s.cards.length;
   const measured: Measured = {};
   const record: RunRecord = {
     capability,
@@ -476,16 +667,13 @@ async function runOne(
     measured,
   };
   try {
-    await setSwitch(s, SWITCH[capability], arm === "on");
-    record.expectationMet =
-      capability === "plan-verifier"
-        ? await planRun(s, arm, run, measured)
-        : await recurrenceRun(s, arm, run, measured);
+    await setArm(s, capability, arm);
+    record.expectationMet = await RUNNERS[capability](s, arm, run, measured);
   } catch (error) {
     if (error instanceof RunTimeout) record.timedOut = true;
     else record.error = error instanceof Error ? error.message : String(error);
   } finally {
-    measured.approvalCards = s.approvals - approvalsBefore;
+    measured.approvalCards = s.cards.length - cardsBefore;
     record.durationMs = Date.now() - started;
   }
   return record;
@@ -554,11 +742,21 @@ function numberOf(measured: Measured, key: string): number {
 function countsOf(capability: CapabilityId, runs: RunRecord[]): string {
   const sum = (key: string) => runs.reduce((total, run) => total + numberOf(run.measured, key), 0);
   const count = (key: string) => runs.filter((run) => run.measured[key] === true).length;
+  const runsWith = (key: string) => runs.filter((run) => numberOf(run.measured, key) > 0).length;
   if (capability === "plan-verifier") {
     const gapRuns = runs.filter((run) => numberOf(run.measured, "gapTurns") > 0).length;
     return `verifier calls ${sum("verifierCalls")}; extra turns ${sum("extraTurns")}; runs with a gap turn ${gapRuns}; second turn names gap ${count("secondTurnNamesGap")}`;
   }
-  return `note in next prompt ${count("noteInPrompt")}; prompt found ${count("promptFound")}; failed turns ${sum("failedOutcomes")}`;
+  if (capability === "recurrence") {
+    return `note in next prompt ${count("noteInPrompt")}; prompt found ${count("promptFound")}; failed turns ${sum("failedOutcomes")}`;
+  }
+  if (capability === "dry-run") {
+    return `approval cards ${sum("approvalCards")} (runs with a card ${runsWith("approvalCards")}); ran before answer ${count("ranBeforeAnswer")}; memory kept ${count("memoryKept")}; forget calls ${sum("forgetCalls")}; search calls ${sum("searchCalls")}; search found memory ${count("searchFoundMemory")}`;
+  }
+  if (capability === "exact-tool") {
+    return `compute_exact calls ${sum("computeExactCalls")} (runs with a call ${runsWith("computeExactCalls")}); correct ${count("correct")}/${runs.length}`;
+  }
+  return `reflections ${sum("reflections")}; saved lessons ${sum("lessons")}; review turns ${sum("reviews")}; runs with a lesson ${runsWith("lessons")}`;
 }
 
 function runParent(): void {
@@ -611,15 +809,26 @@ function runParent(): void {
     scope: {
       providers: ["codex"],
       crossProvider: "not measured in this round: it needs a second provider",
-      claims: "counts only; no accuracy claim",
+      claims: "counts only; exact-tool reports correct/total for exact arithmetic",
       isolation: "temporary HOME and CODEX_HOME; only auth.json is copied from the codex home",
-      memoryReflection: "memoryReviewInterval 0 in every run",
-      expectations: {
-        "plan-verifier on": "at least one verifier call",
-        "plan-verifier off": "no verifier call and no extra turn",
-        "recurrence on": "the recurrence note is in the follow-up prompt",
-        "recurrence off": "the follow-up prompt is found and carries no note",
-      },
+      memoryReflection:
+        "memoryReviewInterval 0 in every run except the memory-reflection on arm (production default 20)",
+      dryRunArms:
+        "no switch: the arm is the request (irreversible forget versus reversible search); every card is declined",
+      exactToolArms:
+        "no switch: the trigger is the request text (exactToolGuidance); the off arm writes the same numbers in words",
+    },
+    expectations: {
+      "plan-verifier on": "at least one verifier call",
+      "plan-verifier off": "no verifier call and no extra turn",
+      "recurrence on": "the recurrence note is in the follow-up prompt",
+      "recurrence off": "the follow-up prompt is found and carries no note",
+      "dry-run on": "one approval card; the memory is present while the card waits and after the decline",
+      "dry-run off": "no approval card; the search call runs",
+      "exact-tool on": "at least one compute_exact call",
+      "exact-tool off": "no compute_exact call",
+      "memory-reflection on": "at least one reflection and one automatic lesson",
+      "memory-reflection off": "no reflection and no automatic lesson",
     },
     runs,
   };
