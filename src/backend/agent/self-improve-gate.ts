@@ -19,7 +19,7 @@ import type { TurnLedger } from "./turn-ledger";
 import { readAgentInstructionsFile, saveAgentInstructionsFile } from "./workspace-instructions";
 
 /** The newest recorded turns that a replay counts, and the window of turns before them. */
-export const REPLAY_WINDOW = 10;
+const REPLAY_WINDOW = 10;
 /** A diff with more changed lines than this is too long for one card, so the change is refused. */
 const DIFF_LINE_LIMIT = 400;
 /** The cells of the diff table. A larger pair of texts is refused before the table is built. */
@@ -28,10 +28,10 @@ const DIFF_CELL_LIMIT = 1_000_000;
 const DRAFT_BYTE_LIMIT = 512 * 1024;
 const DRAFT_FILE_LIMIT = 200;
 
-export type SelfImproveDecision = "accept" | "decline" | "cancel";
+type SelfImproveDecision = "accept" | "decline" | "cancel";
 
 /** Asks the person about one change. The answer comes from the owner-only approval card. */
-export type SelfImproveApproval = (reason: string) => Effect.Effect<SelfImproveDecision, ToolOperationFailed>;
+type SelfImproveApproval = (reason: string) => Effect.Effect<SelfImproveDecision, ToolOperationFailed>;
 
 export type SelfImproveRefusal =
   | "secret"
@@ -49,7 +49,7 @@ export type SelfImproveResult =
   | { status: "declined" }
   | { status: "refused"; reason: SelfImproveRefusal };
 
-export interface InstructionsProposal {
+interface InstructionsProposal {
   agentId: string;
   workspace: string;
   /** The whole new text of the instruction file. */
@@ -57,7 +57,7 @@ export interface InstructionsProposal {
   approve: SelfImproveApproval;
 }
 
-export interface SkillProposal {
+interface SkillProposal {
   agentId: string;
   workspace: string;
   /** A folder inside the workspace, relative to it, that holds `SKILL.md`. */
@@ -74,7 +74,7 @@ const refused = (reason: SelfImproveRefusal) => ({ status: "refused" as const, r
  * Whether a text holds a secret. The redaction also masks a token that looks like a credential, so such a
  * text is refused too: the same rule as the instruction history, which keeps no text that looks secret.
  */
-export function holdsSecret(text: string): boolean {
+function holdsSecret(text: string): boolean {
   return redactText(text) !== text;
 }
 
@@ -83,7 +83,7 @@ export function holdsSecret(text: string): boolean {
  * them. A replay needs both full windows: with less recorded history it finds no regression. Recorded
  * outcomes are the only input, so this refuses a change while the agent's failures are already rising.
  */
-export function replayRegresses(outcomesNewestFirst: readonly string[]): boolean {
+function replayRegresses(outcomesNewestFirst: readonly string[]): boolean {
   if (outcomesNewestFirst.length < REPLAY_WINDOW * 2) return false;
   const recent = outcomesNewestFirst.slice(0, REPLAY_WINDOW);
   const prior = outcomesNewestFirst.slice(REPLAY_WINDOW, REPLAY_WINDOW * 2);
@@ -93,7 +93,7 @@ export function replayRegresses(outcomesNewestFirst: readonly string[]): boolean
 }
 
 /** A plan that a skill draft may come from: at least two steps, all of them completed. */
-export function planCompleted(plan: ConversationPlan | null): boolean {
+function planCompleted(plan: ConversationPlan | null): boolean {
   return plan !== null && plan.steps.length >= 2 && plan.steps.every((step) => step.status === "completed");
 }
 
@@ -101,7 +101,7 @@ export function planCompleted(plan: ConversationPlan | null): boolean {
  * The changed lines between two texts: `- ` for a line that goes, `+ ` for a line that comes. Null when
  * the change is too long to show in one card.
  */
-export function changedLines(before: string, after: string): string[] | null {
+function changedLines(before: string, after: string): string[] | null {
   const a = before.split("\n");
   const b = after.split("\n");
   if (a.length * b.length > DIFF_CELL_LIMIT) return null;
