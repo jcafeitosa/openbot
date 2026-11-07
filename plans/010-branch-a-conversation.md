@@ -170,11 +170,12 @@ the first turn (lazy) for Codex, which needs the app-server running.
 files as they are now. The first message of the branch tells the provider so, in the handoff header
 or as a short developer note for a native fork. Rewind is a separate feature.
 
-## 3. SQLite migration 48
+## 3. SQLite migration (next free: 59)
 
-Rules: `src/backend/AGENTS.md`. Latest version today: 47 (`openbot-database-schema.ts:869-875`).
+Rules: `src/backend/AGENTS.md`. Migration 48 is already taken (history 8-58, no gaps), so this plan
+uses the next free migration, 59.
 
-- Migration 48: three `ALTER TABLE projection_agent_threads ADD COLUMN … TEXT` statements. No table
+- Migration 59: three `ALTER TABLE projection_agent_threads ADD COLUMN … TEXT` statements. No table
   rebuild, no foreign-key pause, no data change: every existing row gets null.
 - The "all null or all set" rule lives in the store, not in a CHECK: an `ADD COLUMN` CHECK cannot be
   a table constraint, and a rebuild only for it is not worth the risk.

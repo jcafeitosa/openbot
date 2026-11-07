@@ -1,5 +1,10 @@
 # Plan 002: TanStack Start, Solid 2, Cloudflare Workers and D1
 
+> **State**: OPEN. Plan 002 is still in progress. Local password sign-in is not removed yet.
+> Frozen v1 routes: `POST /v1/join`, `POST /v1/auth/login`, `POST /v1/auth/password`.
+> Removable internal paths: see `docs/architecture/local-password-paths.md`
+> (desktop branch `desktop/password-plan`, commit `4bf43e046`).
+
 ## Goal
 
 The central account server runs as a separate TanStack Start application with
