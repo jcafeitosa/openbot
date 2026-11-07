@@ -139,6 +139,7 @@ import {
 } from "./screen-capture";
 import type { SelfImproveGate } from "./self-improve-gate";
 import {
+  proposeInstructionsRollbackSchema,
   proposeInstructionsSchema,
   proposeSkillSchema,
   SELF_IMPROVE_TOOL_NAMES,
@@ -1022,7 +1023,7 @@ export class OpenBotToolRouter {
   }
 
   /**
-   * `propose_instructions_change` and `propose_skill`. The approval card is owner-only: only the owner's
+   * `propose_instructions_change`, `propose_instructions_rollback` and `propose_skill`. The approval card is owner-only: only the owner's
    * answer decides it, so neither a local script nor an agent can approve its own change.
    */
   readonly #proposeSelfImprovement = Effect.fn("OpenBotToolRouter.proposeSelfImprovement")(function* (
@@ -1059,6 +1060,18 @@ export class OpenBotToolRouter {
       if (!parsed.success) return openBotToolFailure(sourceText("error.agent.toolRequestInvalid"), VALIDATION_FAILURE);
       return selfImproveToolResponse(
         yield* this.#selfImprove.proposeInstructions({ agentId, workspace, text: parsed.data.text, approve }),
+      );
+    }
+    if (params.tool === "propose_instructions_rollback") {
+      const parsed = proposeInstructionsRollbackSchema.safeParse(params.arguments);
+      if (!parsed.success) return openBotToolFailure(sourceText("error.agent.toolRequestInvalid"), VALIDATION_FAILURE);
+      return selfImproveToolResponse(
+        yield* this.#selfImprove.proposeInstructionsRollback({
+          agentId,
+          workspace,
+          sha256: parsed.data.sha256,
+          approve,
+        }),
       );
     }
     const parsed = proposeSkillSchema.safeParse(params.arguments);

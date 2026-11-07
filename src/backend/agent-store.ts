@@ -275,8 +275,7 @@ export class AgentStore {
         // release, a marketplace source written as `null` -- used to stop the app from starting at all,
         // and the message named the one cause this branch never tests: a `role` field cannot reach the
         // database, because the `bots.json` import below rejects it before anything is written. Dropping
-        // the profile instead is not an option either: `replaceAgents` truncates the roster and re-inserts
-        // this list, so a dropped agent takes its chat out of the sidebar while its thread and every
+        // the profile instead is not an option either: a dropped agent takes its chat out of the sidebar while its thread and every
         // message stay on disk, unreachable. What `readStoredAgent` cannot guess -- the id, the workspace
         // path, the thread -- still refuses to start, because guessing one of those three would point an
         // agent at another agent's files or at an empty history.
@@ -1633,9 +1632,9 @@ export class AgentStore {
    * chat in the sidebar, and the next `#persist` writes the shortened list as the new truth while each
    * thread and message row stays on disk.
    *
-   * Per agent, not only for an empty roster. A partial loss is the more likely half: `replaceAgents`
-   * truncates the roster and re-inserts the in-memory list, so a persist made with one agent missing
-   * drops that one row and keeps the rest. It is also the more dangerous half, because a later
+   * Per agent, not only for an empty roster. A partial loss is the more likely half: a persist made with
+   * one agent missing dropped that one row and kept the rest, as it did while `replaceAgents` truncated the
+   * roster. It is also the more dangerous half, because a later
    * `getOrCreate` rebuilds the missing agent with `threadId: null` and both conversation read paths
    * then report an empty history. The restored profile carries the `threadId` the event holds, which is
    * what reaches a thread minted under a random id by an earlier build.

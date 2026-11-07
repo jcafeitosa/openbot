@@ -55,9 +55,9 @@ export class AgentRoster {
    * `projection_threads.agent_id` carries no foreign key to `projection_agents`, the chat list is the
    * roster with no join, and nothing else in the app enumerates threads -- so a thread that falls out
    * of the roster becomes unreachable rather than broken, and reports itself as an empty chat. This is
-   * the only query that can see one. `replaceAgents` is how they appear: it truncates the roster and
-   * re-inserts the in-memory list, while `ensureThreadProjection` never deletes, so a persist made
-   * with an agent missing leaves that agent's thread and every message in it behind.
+   * the only query that can see one. `replaceAgents` is how they appeared: a build that truncated the
+   * roster on each persist dropped the rows of the agents it omitted, while `ensureThreadProjection` never
+   * deletes, so their thread and every message in it stayed behind.
    *
    * Claimed by `thread_id` rather than matched on `agent_id`, because both halves of the split have to
    * be caught: an agent rebuilt under its own id points at no thread while its old row still names it,
@@ -126,12 +126,8 @@ export class AgentRoster {
         },
       ],
       (db, sequences) => {
-        // An upsert, not a delete of every row: the instruction history references the roster with ON DELETE
-        // CASCADE, so a delete would erase every agent's history on each roster change. Only an agent that left
-        // the roster loses its row here.
-        db.prepare("DELETE FROM projection_agents WHERE agent_id NOT IN (SELECT value FROM json_each(?))").run(
-          JSON.stringify(agents.map((agent) => agent.id)),
-        );
+        // An upsert, never a delete: an agent leaves the roster only through `hardDeleteAgent`. The instruction
+        // history references the roster with ON DELETE CASCADE, so a persist that omits an agent keeps its row.
         const upsert = db.prepare(`
           INSERT INTO projection_agents
             (agent_id, thread_id, model, updated_at, sort_order, agent_json, last_event_sequence)

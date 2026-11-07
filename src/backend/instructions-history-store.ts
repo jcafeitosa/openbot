@@ -30,6 +30,13 @@ export function instructionsTextSha256(text: string): string {
 }
 
 /**
+ * The text a snapshot holds for a file that did not exist: the state before the first write creates it, so
+ * restoring this snapshot removes the file. The leading NUL keeps it apart from any text an editor saves.
+ */
+export const ABSENT_INSTRUCTIONS_TEXT = "\u0000file-absent";
+export const ABSENT_INSTRUCTIONS_SHA256 = instructionsTextSha256(ABSENT_INSTRUCTIONS_TEXT);
+
+/**
  * Keeps `text` as an earlier text of the file, then drops the snapshots past the newest
  * `INSTRUCTIONS_SNAPSHOT_LIMIT` of that agent and file. Both run in one savepoint, so a failure leaves
  * the table as it was. A text that matches a registered secret is refused: nothing is stored, and the

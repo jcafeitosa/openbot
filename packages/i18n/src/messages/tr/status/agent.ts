@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name}: {value}",
   "status.agent.dryRunTextValue": { one: "metin, {count} karakter", other: "metin, {count} karakter" },
   "status.agent.dryRunListValue": { one: "liste, {count} öğe", other: "liste, {count} öğe" },
+  "status.agent.instructionsRollbackPreview":
+    "{file} dosyasını kaydedilmiş {sha256} metnine geri yükle, henüz uygulanmadı. Bunu OpenBot'ta bir kişinin onaylaması gerekir. Eklenen satırlar: {added}. Silinen satırlar: {removed}. Değişen satırlar:",
+  "status.agent.instructionsRollbackRemove":
+    "{file} dosyasını, oluşturulmadan önceki gibi yok olacak şekilde kaldır. Henüz uygulanmadı. Bunu OpenBot'ta bir kişinin onaylaması gerekir.",
   "status.agent.selfImproveInstructionsPreview":
     "{file} dosyasında değişiklik, henüz uygulanmadı. Bu farkı OpenBot'ta bir kişinin onaylaması gerekir. Yalnızca son turlarda başarısız tur artışı görünmezse uygulanır. Değişen satırlar:",
   "status.agent.selfImproveSkillPreview":

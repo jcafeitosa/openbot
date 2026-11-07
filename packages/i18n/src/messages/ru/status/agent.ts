@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name} — {value}",
   "status.agent.dryRunTextValue": { one: "текст, {count} симв.", other: "текст, {count} симв." },
   "status.agent.dryRunListValue": { one: "список, {count} эл.", other: "список, {count} эл." },
+  "status.agent.instructionsRollbackPreview":
+    "Восстановить {file} до сохранённого текста {sha256}, ещё не применено. Человек должен одобрить это в OpenBot. Добавленные строки: {added}. Удалённые строки: {removed}. Изменённые строки:",
+  "status.agent.instructionsRollbackRemove":
+    "Удалить {file}, чтобы файла снова не было, как до создания. Ещё не применено. Человек должен одобрить это в OpenBot.",
   "status.agent.selfImproveInstructionsPreview":
     "Изменение {file}, ещё не применено. Человек должен одобрить этот diff в OpenBot. Оно применяется, только если в последних ходах не стало больше неудачных ходов. Изменённые строки:",
   "status.agent.selfImproveSkillPreview":

@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name}: {value}",
   "status.agent.dryRunTextValue": { one: "텍스트, {count}자", other: "텍스트, {count}자" },
   "status.agent.dryRunListValue": { one: "목록, {count}개", other: "목록, {count}개" },
+  "status.agent.instructionsRollbackPreview":
+    "{file}을(를) 보관된 텍스트 {sha256}(으)로 되돌려요. 아직 적용하지 않았어요. OpenBot에서 사람이 승인해야 해요. 추가된 줄: {added}, 삭제된 줄: {removed}. 바뀐 줄:",
+  "status.agent.instructionsRollbackRemove":
+    "{file}을(를) 삭제해서 만들기 전처럼 파일이 없는 상태로 되돌려요. 아직 적용하지 않았어요. OpenBot에서 사람이 승인해야 해요.",
   "status.agent.selfImproveInstructionsPreview":
     "{file} 변경, 아직 적용하지 않았어요. 이 차이는 OpenBot에서 사람이 승인해야 해요. 최근 턴에서 실패한 턴이 늘지 않은 경우에만 적용돼요. 바뀐 줄:",
   "status.agent.selfImproveSkillPreview":

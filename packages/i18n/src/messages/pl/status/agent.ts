@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name} to {value}",
   "status.agent.dryRunTextValue": { one: "tekst, {count} znak", other: "tekst, {count} znaków" },
   "status.agent.dryRunListValue": { one: "lista, {count} element", other: "lista, {count} elementów" },
+  "status.agent.instructionsRollbackPreview":
+    "Przywrócić {file} do zachowanego tekstu {sha256}, jeszcze nie zastosowane. Osoba musi to zatwierdzić w OpenBot. Dodane wiersze: {added}. Usunięte wiersze: {removed}. Zmienione wiersze:",
+  "status.agent.instructionsRollbackRemove":
+    "Usunąć {file}, tak aby plik znów nie istniał, jak przed utworzeniem. Jeszcze nie zastosowane. Osoba musi to zatwierdzić w OpenBot.",
   "status.agent.selfImproveInstructionsPreview":
     "Zmiana w {file}, jeszcze nie zastosowana. Osoba musi zatwierdzić tę różnicę w OpenBot. Zostanie zastosowana tylko wtedy, gdy ostatnie tury nie pokazują wzrostu liczby nieudanych tur. Zmienione wiersze:",
   "status.agent.selfImproveSkillPreview":

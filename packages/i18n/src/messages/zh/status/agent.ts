@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name}是{value}",
   "status.agent.dryRunTextValue": { one: "文本，{count} 个字符", other: "文本，{count} 个字符" },
   "status.agent.dryRunListValue": { one: "列表，{count} 项", other: "列表，{count} 项" },
+  "status.agent.instructionsRollbackPreview":
+    "将 {file} 恢复为已保存的文本 {sha256}，尚未应用。需要有人在 OpenBot 中批准。新增行：{added}。删除行：{removed}。修改的行：",
+  "status.agent.instructionsRollbackRemove":
+    "删除 {file}，使其恢复为创建之前的不存在状态。尚未应用。需要有人在 OpenBot 中批准。",
   "status.agent.selfImproveInstructionsPreview":
     "对 {file} 的修改，尚未应用。需要有人在 OpenBot 中批准这项差异。只有近期轮次中失败的轮次没有增加时才会应用。修改的行：",
   "status.agent.selfImproveSkillPreview":

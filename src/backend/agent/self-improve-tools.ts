@@ -4,6 +4,7 @@
 
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import { z } from "zod";
+import { ABSENT_INSTRUCTIONS_SHA256 } from "../instructions-history-store";
 import { type OpenBotToolResponse, openBotToolFailure, openBotToolResult } from "./routine-tools";
 import type { SelfImproveRefusal, SelfImproveResult } from "./self-improve-gate";
 
@@ -13,6 +14,15 @@ export const proposeInstructionsSchema = z
       .string()
       .max(INPUT_LIMITS.agentInstructionsFile)
       .describe("The whole new text of your instruction file, not a patch."),
+  })
+  .strict();
+
+export const proposeInstructionsRollbackSchema = z
+  .object({
+    sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/u)
+      .describe("The sha256 of the earlier text to restore: a previousSha256 from an applied change."),
   })
   .strict();
 
@@ -32,6 +42,11 @@ export const SELF_IMPROVE_TOOL_DEFINITIONS = [
     description:
       "Propose a new full text of your instruction file (AGENTS.md, or CLAUDE.md in an older workspace) when the user asks for a standing rule change, or when a rule you follow keeps failing. A person must approve the diff in OpenBot, and the change applies only when recent turns show no rise in failed turns. Returns status applied, or an error that says why nothing changed.",
     shape: proposeInstructionsSchema.shape,
+  },
+  {
+    name: "propose_instructions_rollback",
+    description: `Propose restoring your instruction file to an earlier text that OpenBot kept, by its sha256: a previousSha256 from an applied change. Use ${ABSENT_INSTRUCTIONS_SHA256} to remove the file as it was before it was first created. A person must approve the restore in OpenBot, and nothing changes until they do. Returns status applied, or an error that says why nothing changed.`,
+    shape: proposeInstructionsRollbackSchema.shape,
   },
   {
     name: "propose_skill",
@@ -58,6 +73,8 @@ const REFUSAL_MESSAGES: Record<SelfImproveRefusal, string> = {
     "Recent turns show more failed turns than before, so OpenBot did not apply the change. Tell the user what you wanted to change.",
   plan: "A skill draft needs a finished task: a plan of at least two steps, all completed in this turn.",
   folder: "The skill folder must be a folder inside your workspace with a SKILL.md file, and it must hold no links.",
+  missing:
+    "OpenBot kept no earlier text of your instruction file with this hash, so nothing was restored. Use a previousSha256 from an applied change, or the absent-file hash from the tool description.",
 };
 
 /** The tool answer for one gate result. A declined or refused change is a failed call, not a crash. */

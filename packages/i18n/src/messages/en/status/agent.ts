@@ -12,6 +12,10 @@ export const messages = defineMessages("status.agent", {
   "status.agent.dryRunArgument": "{name} | {value}",
   "status.agent.dryRunTextValue": { one: "text, {count} character", other: "text, {count} characters" },
   "status.agent.dryRunListValue": { one: "list, {count} item", other: "list, {count} items" },
+  "status.agent.instructionsRollbackPreview":
+    "Restore {file} to the kept text {sha256}, not applied yet. A person must approve this in OpenBot. Lines added: {added}. Lines removed: {removed}. Changed lines:",
+  "status.agent.instructionsRollbackRemove":
+    "Remove {file}, so it is absent as it was before it was created. Not applied yet. A person must approve this in OpenBot.",
   "status.agent.selfImproveInstructionsPreview":
     "Change to {file}, not applied yet. A person must approve this diff in OpenBot. It applies only when recent turns show no rise in failed turns. Changed lines:",
   "status.agent.selfImproveSkillPreview":

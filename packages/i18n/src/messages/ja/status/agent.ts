@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name}は{value}",
   "status.agent.dryRunTextValue": { one: "テキスト、{count} 文字", other: "テキスト、{count} 文字" },
   "status.agent.dryRunListValue": { one: "リスト、{count} 件", other: "リスト、{count} 件" },
+  "status.agent.instructionsRollbackPreview":
+    "{file} を保存済みのテキスト {sha256} に戻します。まだ適用していません。OpenBot で人が承認する必要があります。追加された行: {added}。削除された行: {removed}。変更された行:",
+  "status.agent.instructionsRollbackRemove":
+    "{file} を削除し、作成前のようにファイルがない状態に戻します。まだ適用していません。OpenBot で人が承認する必要があります。",
   "status.agent.selfImproveInstructionsPreview":
     "{file} への変更。まだ適用していません。OpenBot で人がこの差分を承認する必要があります。直近のターンで失敗が増えていない場合にのみ適用されます。変更された行:",
   "status.agent.selfImproveSkillPreview":
