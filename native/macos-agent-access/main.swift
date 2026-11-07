@@ -2,6 +2,7 @@ import AppKit
 import CoreLocation
 import Foundation
 import Intents
+import Security
 import Vision
 import WeatherKit
 
@@ -114,7 +115,42 @@ private func readLocation() -> [String: Any] {
   return locationRecord(location)
 }
 
+private func codeSigningRecord() -> [String: Any] {
+  var code: SecCode?
+  guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return [:] }
+  var staticCode: SecStaticCode?
+  guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return [:] }
+  var information: CFDictionary?
+  guard SecCodeCopySigningInformation(staticCode, [], &information) == errSecSuccess,
+    let record = information as? [String: Any]
+  else { return [:] }
+  return record
+}
+
+private func isTrue(_ value: Any?) -> Bool {
+  if let flag = value as? Bool { return flag }
+  if let number = value as? NSNumber { return number.boolValue }
+  return false
+}
+
+/// Restricted entitlements are absent from the ad hoc signature. A later Developer ID or
+/// Apple Distribution signature can add them. This check does not call the system service.
+private func entitlementGranted(_ name: String) -> Bool {
+  let entitlements = codeSigningRecord()[kSecCodeInfoEntitlementsDict as String] as? [String: Any]
+  return isTrue(entitlements?[name])
+}
+
+private func focusUsageDescriptionPresent() -> Bool {
+  if let text = Bundle.main.object(forInfoDictionaryKey: "NSFocusStatusUsageDescription") as? String, !text.isEmpty {
+    return true
+  }
+  let info = codeSigningRecord()[kSecCodeInfoPList as String] as? [String: Any]
+  guard let text = info?["NSFocusStatusUsageDescription"] as? String else { return false }
+  return !text.isEmpty
+}
+
 private func readWeather(_ location: CLLocation) async -> [String: Any] {
+  guard entitlementGranted("com.apple.developer.weatherkit") else { fail("weatherkit_unavailable") }
   do {
     let weather = try await WeatherService.shared.weather(for: location)
     let current = weather.currentWeather
@@ -258,6 +294,9 @@ private func emitFocused(_ focused: Bool?) -> Never {
 }
 
 private func readFocus() {
+  guard entitlementGranted("com.apple.developer.focus-status"), focusUsageDescriptionPresent() else {
+    fail("focus_profile_required")
+  }
   let center = INFocusStatusCenter.default
   switch center.authorizationStatus {
   case .denied, .restricted:
@@ -291,6 +330,7 @@ switch command {
 case "location":
   emit(["ok": true, "result": readLocation()])
 case "weather":
+  guard entitlementGranted("com.apple.developer.weatherkit") else { fail("weatherkit_unavailable") }
   let reader = LocationReader()
   let location = reader.read()
   guard location.horizontalAccuracy >= 0 else { fail("failed") }

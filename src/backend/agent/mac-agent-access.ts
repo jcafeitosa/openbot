@@ -112,6 +112,8 @@ function failureText(code: string, folder?: MacFolder): string {
       return sourceText("error.agent.macAccessHelperMissing");
     case "weatherkit_unavailable":
       return sourceText("error.agent.macWeatherUnavailable");
+    case "focus_profile_required":
+      return sourceText("error.agent.macFocusProfileRequired");
     case "folder_mismatch":
       return sourceText("error.agent.macFolderMismatch", { folder: macFolderLabel[folder ?? "desktop"] });
     case "bookmark_missing":

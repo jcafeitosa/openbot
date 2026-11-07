@@ -147,7 +147,8 @@ export class DynamicIslandWindowController {
     if (interactive) this.#interactiveDisplays.add(displayId);
     else this.#interactiveDisplays.delete(displayId);
     const display = this.#options.getDisplays().find((candidate) => candidate.id === displayId);
-    const bounds = display ? dynamicIslandWindowBounds(display) : undefined;
+    const notchSize = display ? notchSizeForDisplay(display) : undefined;
+    const bounds = display ? dynamicIslandWindowBounds(display, notchSize) : undefined;
     this.#cancelCollapse(displayId);
     if (interactive && bounds) window.setBounds(bounds, false);
     window.setIgnoreMouseEvents(!interactive, { forward: true });
@@ -168,7 +169,11 @@ export class DynamicIslandWindowController {
         // rather than replaying the rectangle captured when the pointer left.
         const current = this.#options.getDisplays().find((candidate) => candidate.id === displayId);
         if (!current) return;
-        window.setBounds(this.#windowBounds(current, dynamicIslandWindowBounds(current), false), false);
+        const currentNotchSize = notchSizeForDisplay(current);
+        window.setBounds(
+          this.#windowBounds(current, dynamicIslandWindowBounds(current, currentNotchSize), false),
+          false,
+        );
       }, DYNAMIC_ISLAND_COLLAPSE_SETTLE_MS),
     );
   }
@@ -282,8 +287,8 @@ export class DynamicIslandWindowController {
 
     for (const display of displays) {
       if (this.#destroyed) return;
-      const bounds = dynamicIslandWindowBounds(display);
       const notchSize = notchSizeForDisplay(display);
+      const bounds = dynamicIslandWindowBounds(display, notchSize);
       const current = this.#windows.get(display.id);
       if (current && !current.isDestroyed()) {
         current.setBounds(
@@ -360,7 +365,8 @@ export class DynamicIslandWindowController {
       if (this.#windows.get(display.id) !== window || window.isDestroyed()) return;
       const current = this.#options.getDisplays().find((candidate) => candidate.id === display.id);
       if (!current) return;
-      const bounds = dynamicIslandWindowBounds(current);
+      const currentNotchSize = notchSizeForDisplay(current);
+      const bounds = dynamicIslandWindowBounds(current, currentNotchSize);
       const { x, y } = window.getBounds();
       if (x === bounds.x && y === bounds.y) return;
       const interactive = this.#interactiveDisplays.has(display.id) || this.#collapseTimers.has(display.id);
@@ -451,11 +457,23 @@ function criticalActionKey(action: CriticalAction): string {
   return [action.type, action.serverId, action.agentId, id].join("\u0000");
 }
 
-function dynamicIslandWindowBounds(display: Pick<Display, "bounds">): Rectangle {
+function dynamicIslandWindowBounds(
+  display: Pick<Display, "bounds">,
+  notchSize: DynamicIslandNotchSize | undefined,
+): Rectangle {
+  // Posiciona a ilha alinhada com o notch físico do macOS. O notch fica no topo central do display.
+  // Quando não há notch (displays externos), a ilha é posicionada no topo central com tamanho padrão.
+  const width = notchSize
+    ? Math.max(DYNAMIC_ISLAND_WINDOW_SIZE.width, notchSize.width)
+    : DYNAMIC_ISLAND_WINDOW_SIZE.width;
+  const height = notchSize
+    ? Math.max(DYNAMIC_ISLAND_WINDOW_SIZE.height, notchSize.height)
+    : DYNAMIC_ISLAND_WINDOW_SIZE.height;
   return {
-    x: Math.round(display.bounds.x + (display.bounds.width - DYNAMIC_ISLAND_WINDOW_SIZE.width) / 2),
-    y: display.bounds.y,
-    ...DYNAMIC_ISLAND_WINDOW_SIZE,
+    x: Math.round(display.bounds.x + (display.bounds.width - width) / 2),
+    y: notchSize ? display.bounds.y : display.bounds.y,
+    width,
+    height,
   };
 }
 

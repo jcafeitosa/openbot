@@ -185,6 +185,8 @@ function openbotGuidance(namespace: string, tool: string): string {
     case "create_channel":
     case "update_channel":
       return "First call openbot.list_channels with {} (no search needed) and change a channel that fits instead of making a second one. Pick an icon and hue that match the channel's purpose. Removing a member or archiving stops open channel work: confirm with ask_ui unless the user asked for exactly that.";
+    case "compute_exact":
+      return "Use openbot.compute_exact for arithmetic or comparisons whose exact result matters, such as decimal sums, powers, or chained comparisons, instead of computing them in text. Pass one expression as written; it returns an exact decimal or fraction, or a validation error to fix and retry.";
     default:
       return "";
   }

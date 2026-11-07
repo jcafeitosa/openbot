@@ -1,9 +1,11 @@
 /**
  * Builds the Mac agent-access program. The desktop process starts this program.
- * The program calls WeatherKit. This script does not put that entitlement on the signature.
- * An ad hoc signature does not grant a restricted entitlement, and the main app stays free of it
- * until the Apple portal profile includes it for this program. The Focus entitlement is on this
- * program. The portal step for both entitlements is still unverified. This script adds no API key.
+ * The default signature is ad hoc and has no restricted entitlement. macOS kills an ad hoc
+ * program at load when the signature contains Focus or WeatherKit.
+ * Set OPENBOT_MACOS_AGENT_ACCESS_IDENTITY to a Developer ID Application or Apple Distribution
+ * identity to sign with native/macos-agent-access/entitlements.plist. That file holds both keys.
+ * The program still requests Focus and calls WeatherKit when those keys are present.
+ * This script adds no API key.
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -37,6 +39,8 @@ const compile = spawnSync(
     "-framework",
     "WeatherKit",
     "-framework",
+    "Security",
+    "-framework",
     "AppKit",
     "-framework",
     "Vision",
@@ -47,7 +51,19 @@ const compile = spawnSync(
 );
 if (compile.status !== 0) process.exit(compile.status ?? 1);
 
-const sign = spawnSync("codesign", ["--force", "--sign", "-", "--entitlements", entitlements, output], {
-  stdio: "inherit",
-});
+const identity = process.env.OPENBOT_MACOS_AGENT_ACCESS_IDENTITY?.trim() ?? "";
+const distributionIdentity =
+  identity.startsWith("Developer ID Application:") || identity.startsWith("Apple Distribution:");
+if (identity.length > 0 && !distributionIdentity) {
+  process.stderr.write(
+    "OPENBOT_MACOS_AGENT_ACCESS_IDENTITY must be a Developer ID Application or Apple Distribution identity.\n",
+  );
+  process.exit(1);
+}
+
+const signArguments = ["--force", "--sign", distributionIdentity ? identity : "-"];
+if (distributionIdentity) {
+  signArguments.push("--timestamp", "--options", "runtime", "--entitlements", entitlements);
+}
+const sign = spawnSync("codesign", signArguments.concat(output), { stdio: "inherit" });
 if (sign.status !== 0) process.exit(sign.status ?? 1);

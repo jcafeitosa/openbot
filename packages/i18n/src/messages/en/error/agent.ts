@@ -155,6 +155,8 @@ export const messages = defineMessages("error.agent", {
   "error.agent.macBookmarkMissing": "Allow the {folder} folder first. OpenBot does not ask for Full Disk Access.",
   "error.agent.macFolderMismatch": "Choose the {folder} folder. OpenBot does not ask for Full Disk Access.",
   "error.agent.macImageMissing": "That image is not in this chat.",
+  "error.agent.macFocusProfileRequired":
+    "Focus needs the Apple developer profile. OpenBot does not report Focus as off, and it does not read the Focus name. Nothing was sent.",
   "error.agent.macWeatherUnavailable":
     "Apple Weather did not answer. The WeatherKit entitlement may be missing from the Apple developer account. Nothing was sent.",
 });

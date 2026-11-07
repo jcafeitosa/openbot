@@ -103,6 +103,7 @@
   "error.agent.macAccessUnavailable": ["ar", "de", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "zh"],
   "error.agent.macBookmarkMissing": ["ar", "de", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "zh"],
   "error.agent.macFolderMismatch": ["ar", "de", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "zh"],
+  "error.agent.macFocusProfileRequired": ["ar", "de", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "zh"],
   "error.agent.macImageMissing": ["ar", "de", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "zh"],
   "error.agent.macWeatherUnavailable": ["ar", "de", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "zh"],
   "error.agent.mcpServerDeclined": ["de", "es", "fr", "it", "ja", "pl", "pt", "ru", "tr"],
