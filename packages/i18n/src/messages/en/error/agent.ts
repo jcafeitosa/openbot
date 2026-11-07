@@ -145,4 +145,16 @@ export const messages = defineMessages("error.agent", {
   "error.agent.screenCaptureEmptyWindows":
     "Windows gave an empty image. Ask the user to unlock the computer and close protected content. A policy of the organization can also stop screen capture.",
   "error.agent.screenCaptureFailed": "The screen capture failed. Try again.",
+  "error.agent.macAccessDenied": "The user did not allow this reading. Nothing was sent.",
+  "error.agent.macAccessFailed": "OpenBot could not read this Mac. Try again.",
+  "error.agent.macAccessHelperMissing": "OpenBot cannot read this Mac yet. The Mac access program is not built.",
+  "error.agent.macAccessShared":
+    "This reading does not run in a Slack, Discord, Telegram or WhatsApp conversation, because other people get the text.",
+  "error.agent.macAccessTimeout": "The Mac did not answer in time. Try again.",
+  "error.agent.macAccessUnavailable": "This reading is available on the Mac that runs the agent.",
+  "error.agent.macBookmarkMissing": "Allow the {folder} folder first. OpenBot does not ask for Full Disk Access.",
+  "error.agent.macFolderMismatch": "Choose the {folder} folder. OpenBot does not ask for Full Disk Access.",
+  "error.agent.macImageMissing": "That image is not in this chat.",
+  "error.agent.macWeatherUnavailable":
+    "Apple Weather did not answer. The WeatherKit entitlement may be missing from the Apple developer account. Nothing was sent.",
 });

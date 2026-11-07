@@ -122,4 +122,23 @@ export const messages = defineMessages("status.agent", {
   "status.agent.crossCheckUnconfirmed":
     "OpenBot cross-check: I am not sure of this answer. A second provider did not confirm it. Not confirmed:",
   "status.agent.branchTitle": "Branched chat",
+  "status.agent.appleWeather": "Weather data from Apple Weather.",
+  "status.agent.macAccessChannel":
+    "The result shows in the channel {channel}, and each member of this server who reads the channel can see it.",
+  "status.agent.macApps":
+    "Read the running apps and the front app. The list can go to the model provider. You can refuse.",
+  "status.agent.macFocus": "Read whether Focus is on. The value can go to the model provider. You can refuse.",
+  "status.agent.macFocusNameHidden": "OpenBot does not receive the Focus name.",
+  "status.agent.macFolder":
+    "Allow the {folder} folder. File names from it can go to the model provider. You can refuse.",
+  "status.agent.macImageText":
+    "Read the text in an image from this chat. The text can go to the model provider. You can refuse.",
+  "status.agent.macFolderAllow": "Allow",
+  "status.agent.macFolderPanel":
+    "OpenBot reads {folder} for an agent. The result can go to the model provider in the chat.",
+  "status.agent.macLocation": "Read the location of this Mac. The value can go to the model provider. You can refuse.",
+  "status.agent.macLocationAccuracy":
+    "The accuracy is the value Core Location returned, in meters. This does not say that the Mac has a GPS chip.",
+  "status.agent.macWeather":
+    "Read the Apple Weather forecast for this Mac. The value can go to the model provider. You can refuse.",
 });

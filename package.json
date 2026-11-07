@@ -159,6 +159,7 @@
     "build": "electron-vite build",
     "voice:prepare": "bun scripts/prepare-voice.ts",
     "voice:prepare-runtime": "bun scripts/prepare-voice.ts --runtime-only",
+    "build:macos-agent-access": "bun scripts/build-macos-agent-access.ts",
     "build:remote-desktop-runtime": "bun scripts/build-remote-desktop-runtime.ts",
     "install:remote-desktop-runtime": "bun scripts/install-remote-desktop-runtime.ts",
     "prepare:remote-desktop-runtime": "bun scripts/prepare-remote-desktop-runtime.ts",

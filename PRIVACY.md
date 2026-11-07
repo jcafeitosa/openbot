@@ -1433,6 +1433,18 @@ and Accessibility grants to OpenBot, and macOS keeps control of the prompts. Win
 no such grant. Screen contents and accessibility trees that an agent reads through the driver go to
 that agent's provider, the same as any other message content.
 
+On a Mac, an agent can also read the computer location, an Apple Weather forecast for that
+location, file names in Desktop, Documents or Downloads after you allow that folder, the list of
+running apps and the front app, text in an image that is already in the chat, and whether Focus
+is on. A folder result names the file and the folder kind: Desktop, Documents, or Downloads. It
+does not include the absolute path. The security-scoped bookmark, which contains the path, stays
+only on this Mac in the app's local data. Focus does not include the Focus name. Location uses
+Core Location and reports the accuracy it returns. It does not claim that the Mac has a GPS chip.
+Weather comes from Apple Weather. These readings stay on this computer until they enter the chat.
+A value that enters the chat can go to that agent's model provider, the same as any other message.
+You can refuse each reading, including the text in an image. OpenBot does not send these readings
+to the account service or to analytics. The iPhone app does not read them.
+
 The driver is third-party software with its own product analytics, which its vendor turns on by
 default and which are not OpenBot's. They would send the driver version, the operating system, a
 random installation identifier, and a bucketed record of each tool call to that vendor. They never

@@ -96,6 +96,7 @@ import { dryRunPreview, isIrreversibleTool } from "./dry-run-policy";
 import { HistoryTools } from "./history-tools";
 import type { HostedSiteCoordinator } from "./hosted-site-coordinator";
 import { isHostedSiteMutationTool } from "./hosted-site-events";
+import { handleMacAccessTool, isMacAccessTool, type MacAgentAccessHost } from "./mac-agent-access";
 import type { MailboxSync } from "./mailbox-sync";
 import {
   type AgentMcpServers,
@@ -265,6 +266,8 @@ export interface OpenBotToolRouterOptions {
   visualPreview?: ChatVisualPreviewHost | null | undefined;
   /** Captures the desktop for `capture_screen`; null where this process has no desktop. */
   screenCapture?: ScreenCaptureHost | null | undefined;
+  /** Reads this Mac for an agent. Null when the process is not the Mac app. */
+  macAccess?: MacAgentAccessHost | null | undefined;
   /** The MCP servers of this OpenBot server, for the MCP tools; null where nothing holds them. */
   mcpServers?: AgentMcpServers | null | undefined;
   /** The saved server that a Marketplace app installs, or null when it is not installed. */
@@ -311,6 +314,7 @@ export class OpenBotToolRouter {
   readonly #approvalAutomation: ApprovalAutomationPolicy;
   readonly #visualPreview: ChatVisualPreviewHost | null;
   readonly #screenCapture: ScreenCaptureHost | null;
+  readonly #macAccess: MacAgentAccessHost | null;
   readonly #mcpServers: AgentMcpServers | null;
   readonly #marketplaceAppServer: (appId: string) => MarketplaceAppServer | null;
   readonly #apiKeys: AgentApiKeys | null;
@@ -358,6 +362,7 @@ export class OpenBotToolRouter {
     this.#approvalAutomation = options.approvalAutomation ?? NO_APPROVAL_AUTOMATION;
     this.#visualPreview = options.visualPreview ?? null;
     this.#screenCapture = options.screenCapture ?? null;
+    this.#macAccess = options.macAccess ?? null;
     this.#mcpServers = options.mcpServers ?? null;
     this.#marketplaceAppServer = options.marketplaceAppServer ?? (() => null);
     this.#apiKeys = options.apiKeys ?? null;
@@ -618,6 +623,56 @@ export class OpenBotToolRouter {
                 toolRequest.params,
                 toolRequest.params.tool,
               );
+              return;
+            }
+            if (isMacAccessTool(toolRequest.params.tool)) {
+              const agentId = this.#conversation.agentForThread(toolRequest.params.threadId);
+              const agent = agentId
+                ? this.#hooks.listAgents().find((candidate) => candidate.id === agentId)
+                : undefined;
+              if (!agent) {
+                if (!toolRequest.signal?.aborted && client.running) {
+                  client.respond(toolRequest.id, openBotToolFailure(sourceText("error.agent.toolRequestInvalid")));
+                }
+                return;
+              }
+              const threadId = this.#conversation.publicThreadId(agent.id, toolRequest.params.threadId);
+              const channelId = this.#channels.store.channelForThread(threadId);
+              const result = yield* handleMacAccessTool({
+                host: this.#macAccess,
+                tool: toolRequest.params.tool,
+                args: toolRequest.params.arguments,
+                shared: Boolean(this.#messaging.store.linkForThread(threadId)),
+                channelName: channelId ? this.#channels.store.get(channelId).name : null,
+                imageFile: (attachmentId) => {
+                  const snapshot = this.#conversation.ensureSnapshot(agent.id, threadId);
+                  const inThread = snapshot.messages.some((message) =>
+                    message.attachments?.some((item) => item.id === attachmentId && item.kind === "image"),
+                  );
+                  return inThread ? this.#mailbox.imageFileForAgent(agent.id, attachmentId) : null;
+                },
+                approve: (reason) =>
+                  this.#attention
+                    .awaitToolApproval(
+                      client,
+                      toolRequest,
+                      {
+                        requestId: toolRequest.id,
+                        agentId: agent.id,
+                        threadId,
+                        turnId: toolRequest.params.turnId,
+                        kind: "permissions",
+                        command: null,
+                        cwd: null,
+                        reason,
+                        grantRoot: null,
+                        permissions: null,
+                      },
+                      { alwaysAsk: channelId !== null },
+                    )
+                    .pipe(Effect.map((decision) => decision === "accept")),
+              });
+              if (!toolRequest.signal?.aborted && client.running) client.respond(toolRequest.id, result);
               return;
             }
             if (toolRequest.params.tool === "capture_screen" || toolRequest.params.tool === "list_capture_sources") {
