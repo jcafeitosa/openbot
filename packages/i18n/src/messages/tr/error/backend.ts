@@ -72,6 +72,12 @@ export const messages = {
     "Kanalda onaylanmamış bir görev başlangıcı var. Silmeden önce sonucunu kontrol edin.",
   "error.backend.channelNotFound": "Kanal bulunamadı.",
   "error.backend.channelMemberUnavailable": "Bir kanal üyesi kullanılamıyor.",
+  "error.backend.channelWaitBeforeNewConversation":
+    "Bu kanaldaki iş bitene kadar bekleyin, sonra yeni bir konuşma başlatın.",
+  "error.backend.channelWaitBeforeCompact": "Bu kanaldaki iş bitene kadar bekleyin, sonra kanalı sıkıştırın.",
+  "error.backend.channelWaitBeforeDeleteHistory": "Bu kanaldaki iş bitene kadar bekleyin, sonra geçmişini silin.",
+  "error.backend.channelCompactUnavailable":
+    "Bu kanalın hiçbir üyesi şu anda bağlamını sıkıştıramıyor. Önce bir üyenin kanalda yanıt vermesi ve sağlayıcısının sıkıştırmayı desteklemesi gerekir.",
   "error.backend.channelArchived": "Mesaj göndermeden veya görevleri değiştirmeden önce bu kanalı geri yükleyin.",
   "error.backend.channelReferenceUnavailable": "Referans verilen kanal mesajı kullanılamıyor.",
   "error.backend.channelTaskNotFound": "Kanal görevi bulunamadı.",
@@ -244,6 +250,10 @@ export const messages = {
   "error.backend.mcpServerExited":
     "Sunucu yanıt vermeden durdu. Hatasını görmek için komutu bir terminalde çalıştırın.",
   "error.backend.mcpServerFailedToStart": "Sunucu başlamadı: {reason}",
+  "error.backend.mcpServerSignInForProvider":
+    "{provider}, {name} MCP sunucusunu kullanamadı, çünkü sunucu oturum açmanızı istiyor. MCP ayarlarını açın ve Oturum aç'ı seçin.",
+  "error.backend.mcpServerFailedForProvider":
+    "{provider}, {name} MCP sunucusunu başlatamadı. Nedeni görmek için MCP ayarlarını açın ve Bağlantıyı test et'i seçin.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot bu sunucu için yerel oturum açma bağlantısını başlatamadı. OpenBot'u yeniden başlatın ve tekrar deneyin.",
   "error.backend.mcpOAuthSignInNeeded":

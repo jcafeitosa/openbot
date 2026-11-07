@@ -24,6 +24,28 @@ export const messages = {
     one: "{count} guardado",
     other: "{count} guardados",
   },
+  "channel.settings.newConversation.title": "Nueva conversación",
+  "channel.settings.newConversation.description":
+    "Los miembros olvidan los mensajes anteriores. La configuración del canal se mantiene.",
+  "channel.settings.newConversation.button": "Iniciar",
+  "channel.settings.newConversation.confirmTitle": "¿Iniciar una nueva conversación en {name}?",
+  "channel.settings.newConversation.confirmDescription":
+    "Los miembros olvidan los mensajes anteriores de este canal. Los mensajes siguen visibles sobre un separador. Los miembros, las instrucciones, los recuerdos y las rutinas no cambian.",
+  "channel.settings.newConversation.confirm": "Iniciar nueva conversación",
+  "channel.settings.newConversation.failed": "No se pudo iniciar una nueva conversación.",
+  "channel.settings.compact.title": "Compactar contexto",
+  "channel.settings.compact.description":
+    "Los miembros guardan un resumen breve de su sesión del canal y usan menos tokens.",
+  "channel.settings.compact.failed": "No se pudo compactar el contexto del canal.",
+  "channel.settings.deleteHistory.title": "Eliminar historial",
+  "channel.settings.deleteHistory.description":
+    "Los mensajes se eliminan y los miembros los olvidan. La configuración del canal se mantiene.",
+  "channel.settings.deleteHistory.button": "Eliminar",
+  "channel.settings.deleteHistory.confirmTitle": "¿Eliminar el historial de {name}?",
+  "channel.settings.deleteHistory.confirmDescription":
+    "Todos los mensajes y archivos de este canal se eliminan de OpenBot y los miembros los olvidan. No se puede deshacer. Los miembros, las instrucciones, las memorias, las rutinas y las tareas no cambian.",
+  "channel.settings.deleteHistory.confirm": "Eliminar historial",
+  "channel.settings.deleteHistory.failed": "No se pudo eliminar el historial.",
   "channel.settings.routines": "Rutinas",
   "channel.settings.routineCount": {
     one: "{count} configurada",

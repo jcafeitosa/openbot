@@ -130,12 +130,14 @@ import {
   DEFAULT_BUSY_MESSAGE_MODE,
   DEFAULT_CUSTOM_PROVIDER_HARNESS,
   DEFAULT_PROVIDER_ACCOUNT_ID,
+  DEFAULT_RESPONSE_STYLE,
   defaultProviderModel,
   isContextResetMarker,
   isCustomProviderHarness,
   MODEL_SWITCH_ITEM_TYPES,
   type ModelSwitchReason,
   type QueueSteerFallback,
+  type ResponseStyle,
   sameAgentBrowserProfile,
   sameAgentModelChoice,
   WORKFLOWS_USAGE_ID,
@@ -179,7 +181,7 @@ import type { FailureContext, FailureSignal } from "./agent/failure-signal";
 import { type AgentHostedSites, HostedSiteCoordinator } from "./agent/hosted-site-coordinator";
 import { ImageGenRuntime } from "./agent/image-gen-runtime";
 import { InstructionsChanges } from "./agent/instructions-changes";
-import { LiveVoice, type LiveVoiceReply } from "./agent/live-voice";
+import { LiveVoice, type LiveVoiceOwner, type LiveVoiceReply } from "./agent/live-voice";
 import type { MacAgentAccessHost } from "./agent/mac-agent-access";
 import { MailboxSync } from "./agent/mailbox-sync";
 import { type GitHubConnectorSource, McpGateway, type TestMcpServerOptions } from "./agent/mcp-gateway";
@@ -315,8 +317,11 @@ export interface AgentServiceEvents {
   toolUsage: [usage: ToolUsageSignal];
   /** A workflow run ended, for the local host's product analytics. Never forwarded to a client. */
   workflowRun: [end: WorkflowRunEnd];
-  /** A Codex live voice transcript or end, for the window that runs the session. */
-  liveVoice: [event: VoiceLiveEvent];
+  /**
+   * A Codex live voice transcript or end. `memberId` is null for a session of this computer, whose
+   * windows get it; a member's session goes only to that member's Team API connections.
+   */
+  liveVoice: [event: VoiceLiveEvent, memberId: string | null];
 }
 
 export interface AgentServiceOptions {
@@ -384,6 +389,11 @@ export interface AgentServiceOptions {
    * Omitted, such a message waits in the queue, as every one did before the setting existed.
    */
   busyMessageMode?: () => BusyMessageMode;
+  /**
+   * How the agents talk while they work (the server personality), read at each start and resume of
+   * a session. The main process owns the preference. Omitted, the default style.
+   */
+  responseStyle?: () => ResponseStyle;
   /**
    * How many memories one agent can hold. The main process owns the preference. Omitted, the
    * default cap, which was the only cap before the setting existed.
@@ -1190,6 +1200,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       }),
       // Only a server has a memory reading.
       serverHost: hostMemory !== null,
+      ...(options.responseStyle ? { responseStyle: options.responseStyle } : {}),
       sectionTeammates: (agentId) => this.sectionTeammates(agentId),
       channelThread: (threadId) => this.channels.store.channelForThread(threadId) !== null,
       branchThread: (threadId) => this.#tasks.isBranchThread(threadId),
@@ -1416,6 +1427,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         if (!agent || !this.#reportsCompactions(agentId)) return null;
         return this.#store.database.activeProviderSession(threadId, agent.provider)?.externalSessionId ?? null;
       },
+      progressUpdates: (agentId) =>
+        (options.responseStyle?.() ?? DEFAULT_RESPONSE_STYLE) === "natural"
+          ? (this.#store.list().find((item) => item.id === agentId)?.provider ?? null)
+          : null,
     });
     this.#memoryHold = new MemoryHold({
       memory: hostMemory,
@@ -1570,8 +1585,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         return agent;
       },
       relay: (agent) => this.#liveVoiceRelay(agent),
-      send: (agentId, text) =>
-        this.sendMessage({ agentId, text }).pipe(
+      send: (agentId, text, sender) =>
+        this.sendMessage({ agentId, text }, sender).pipe(
           Effect.flatMap((receipt) => {
             const deliveryId = receipt.deliveries[0]?.id;
             return deliveryId
@@ -1580,7 +1595,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           }),
         ),
       reply: (agentId, deliveryId) => this.#liveVoiceReply(agentId, deliveryId),
-      emit: (event) => this.emit("liveVoice", event),
+      emit: (event, memberId) => this.emit("liveVoice", event, memberId),
       redact: (text) => this.#mcp.redact(text),
     });
     this.#browser.onControlChanged((state) => {
@@ -1878,6 +1893,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   }
 
   /**
+   * The server personality changed. Each agent's next turn opens its session again, with the
+   * instructions of the new style. A running turn keeps its instructions.
+   */
+  responseStyleChanged(): void {
+    for (const agent of this.#store.list()) this.#conversation.unloadAgentThreads(agent.id);
+  }
+
+  /**
    * The other agents in the agent's sidebar section, in sidebar order, for its instructions. Null when
    * the agent has no section of the user's, or is in the Integrations section: the orchestrators there
    * serve unrelated integrations and choose teammates by fit.
@@ -1958,6 +1981,19 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   /** The next scheduled routine run of any agent or channel, or null when none is scheduled. */
   nextRoutineDueAt(): string | null {
     return this.#routineTimer.nextDueAt();
+  }
+
+  /**
+   * The agents that run a turn now, in any thread (their chat, a channel, a routine or a task), and
+   * the agents with a delivery whose turn has not started. A quit stops this work, so `Cmd + Q` asks
+   * for a hold or a second press only while this is not empty.
+   */
+  workingAgents(): AgentSummary[] {
+    const working = new Set<string>();
+    for (const [agentId, snapshot] of this.#conversation.activeSnapshots()) {
+      if (snapshot.activeTurnId) working.add(agentId);
+    }
+    return this.listAgents().filter((agent) => working.has(agent.id) || this.#mailbox.hasUnfinishedDelivery(agent.id));
   }
 
   hasActiveWork(): string[] {
@@ -3778,6 +3814,70 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   }, Effect.uninterruptible).bind(this);
 
   /**
+   * "Delete history": deletes every message of the agent's own chat, with the mailbox copies and the
+   * files that no other record uses, and ends its provider sessions, so the agent forgets the chat
+   * too. No restart, sync or provider import brings a message back. The side threads, the profile,
+   * memories, workspace and browser do not change. Work that still runs or waits refuses it.
+   */
+  readonly deleteAgentHistory = Effect.fn("AgentService.deleteAgentHistory")(function* (
+    this: AgentService,
+    agentId: string,
+  ) {
+    const busy = () => new ContextResetBusyError(sourceText("error.agent.waitBeforeDeleteHistory"));
+    const mainChatBusy = (agent: AgentSummary) =>
+      Boolean(
+        this.#conversation.workingSnapshot(agentId)?.activeTurnId ??
+          (agent.threadId ? this.#store.database.readActiveTurnId(agentId, agent.threadId) : null),
+      ) ||
+      this.#mailbox.hasUnfinishedDeliveryOutsideTasks(agentId) ||
+      this.#threads.mainContextBusy(agent);
+    const target = yield* lifecycleStep("delete agent history", () => {
+      const agent = this.#conversation.requireKnownAgent(agentId);
+      if (mainChatBusy(agent)) throw busy();
+      return agent.threadId
+        ? { threadId: agent.threadId, messageIds: this.#store.database.threadMessageIds(agent.threadId) }
+        : null;
+    });
+    if (!target) return;
+    // The history goes with the automatic plan continuation of the chat.
+    yield* this.#drain.endPlanContinuation(agentId, null);
+    // The mailbox copies go first, as for one message: a failure after them leaves the chat as it
+    // was, and a second request completes the work.
+    const mailbox = yield* this.#mailbox
+      .deleteShownMessages(agentId, target.messageIds)
+      .pipe(
+        Effect.catchTag("StoredStateFailure", ({ cause }) =>
+          Effect.fail(new AgentLifecycleFailed({ operation: "delete agent history", cause })),
+        ),
+      );
+    if (mailbox === "busy")
+      return yield* new AgentLifecycleFailed({ operation: "delete agent history", cause: busy() });
+    yield* lifecycleStep("delete agent history", () =>
+      this.#conversation.withConversationTransaction(agentId, ({ threadId, snapshot }) => {
+        // A turn or a move to another chat can start while the mailbox step waits.
+        const agent = this.#conversation.requireKnownAgent(agentId);
+        if (threadId !== target.threadId || snapshot.activeTurnId || mainChatBusy(agent)) throw busy();
+        const revision = this.#store.database.deleteThreadHistory({ agentId, threadId });
+        this.#conversation.forgetDeletedHistory(threadId);
+        snapshot.messages = [];
+        snapshot.revision = revision;
+        return { result: undefined, snapshot };
+      }),
+    );
+    // The chat list row loses the text of the last message too.
+    yield* this.#store
+      .clearPreview(agentId)
+      .pipe(
+        Effect.catchTag("StoredStateFailure", ({ cause }) =>
+          Effect.fail(new AgentLifecycleFailed({ operation: "delete agent history", cause })),
+        ),
+      );
+    this.#emit({ type: "agents-changed", agents: this.listAgents() });
+    yield* this.#threads.endThreadContext(target.threadId);
+    yield* this.#memoryReview.chatCleared(agentId);
+  }, Effect.uninterruptible).bind(this);
+
+  /**
    * Compacts the context of the agent's own chat now, below the automatic threshold too. Only for a
    * provider that OpenBot can ask to compact, and only when no turn or queued message needs the session.
    */
@@ -3828,6 +3928,95 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       return session.externalSessionId;
     });
     yield* this.#compaction.request(input.agentId, externalThreadId);
+  }, Effect.uninterruptible).bind(this);
+
+  /**
+   * "New conversation" in a channel: the members forget the earlier messages. The channel writes a
+   * marker, and the provider session of each member's channel thread ends, so the next turn starts
+   * a new session that reads only the messages after the marker. The members, the messages, and
+   * the agents' own chats do not change.
+   */
+  readonly clearChannelContext = Effect.fn("AgentService.clearChannelContext")(function* (
+    this: AgentService,
+    channelId: string,
+    person: { id: string; name: string },
+  ) {
+    yield* this.channels.clearContext(channelId, person, {
+      busy: (contexts) => {
+        const agents = new Map(this.#store.list().map((agent) => [agent.id, agent]));
+        return contexts.some(({ agentId, threadId }) => this.#channelSessionBusy(agents.get(agentId), threadId));
+      },
+      end: (threadIds) =>
+        Effect.forEach(threadIds, (threadId) => this.#threads.endThreadContext(threadId), { discard: true }),
+    });
+  }, Effect.uninterruptible).bind(this);
+
+  /** "Delete history" of a channel. The members forget it, as for `clearChannelContext`. */
+  readonly deleteChannelHistory = Effect.fn("AgentService.deleteChannelHistory")(function* (
+    this: AgentService,
+    channelId: string,
+  ) {
+    yield* this.channels.deleteHistory(channelId, {
+      busy: (contexts) => {
+        const agents = new Map(this.#store.list().map((agent) => [agent.id, agent]));
+        return contexts.some(({ agentId, threadId }) => this.#channelSessionBusy(agents.get(agentId), threadId));
+      },
+      end: (threadIds) =>
+        Effect.forEach(
+          threadIds,
+          (threadId) => {
+            // The messages are gone, so the files that their turns used open from no other link.
+            this.#turn.fileHistory.forgetThread(threadId);
+            return this.#threads.endThreadContext(threadId);
+          },
+          { discard: true },
+        ),
+    });
+  }, Effect.uninterruptible).bind(this);
+
+  /** Whether a member's channel session runs a turn, or a compaction or a refused start holds it. */
+  #channelSessionBusy(agent: AgentSummary | undefined, threadId: string): boolean {
+    if (!agent) return false;
+    if (
+      this.#conversation.loadedExecutionSnapshot(threadId)?.activeTurnId ||
+      this.#store.database.readActiveTurnId(agent.id, threadId)
+    )
+      return true;
+    const session = this.#store.database.activeProviderSession(threadId, agent.provider);
+    return session !== null && this.#compaction.heldThreads(agent.id).includes(session.externalSessionId);
+  }
+
+  /**
+   * Compacts the channel session of each member now, as `compactAgentContext` does for an agent's
+   * own chat. A member with no session, or with a provider that OpenBot cannot ask to compact, is
+   * skipped; when no member can compact, the request fails.
+   */
+  readonly compactChannelContext = Effect.fn("AgentService.compactChannelContext")(function* (
+    this: AgentService,
+    channelId: string,
+  ) {
+    const contexts = yield* this.channels.compactTargets(channelId);
+    const sessions = yield* lifecycleStep("compact channel context", () => {
+      const agents = new Map(this.#store.list().map((agent) => [agent.id, agent]));
+      const candidates = contexts.flatMap(({ agentId, threadId }) => {
+        const agent = agents.get(agentId);
+        const session = agent ? this.#store.database.activeProviderSession(threadId, agent.provider) : null;
+        return agent && session ? [{ agentId, threadId, externalSessionId: session.externalSessionId }] : [];
+      });
+      if (candidates.some(({ agentId, threadId }) => this.#channelSessionBusy(agents.get(agentId), threadId)))
+        throw new ContextCompactRefusedError(sourceText("error.backend.channelWaitBeforeCompact"));
+      const reserved = candidates.filter(({ agentId, externalSessionId }) =>
+        this.#compaction.reserve(agentId, externalSessionId, true),
+      );
+      if (!reserved.length) throw new ContextCompactRefusedError(sourceText("error.backend.channelCompactUnavailable"));
+      return reserved;
+    });
+    yield* Effect.forEach(
+      sessions,
+      ({ agentId, externalSessionId }) => this.#compaction.request(agentId, externalSessionId),
+      // Each session compacts on its own; one at a time, a large channel would wait minutes.
+      { discard: true, concurrency: "unbounded" },
+    );
   }, Effect.uninterruptible).bind(this);
 
   /**
@@ -3969,8 +4158,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       );
   }
 
-  /** `heldRoutines`: routines due while a restart waited run once. */
-
+  /**
+   * `heldRoutines`: routines due while a restart waited run once.
+   * `rosterLoaded` runs when the agents are restored. The steps after it do not change the roster.
+   * `beforeProviderStart` runs just before the providers start, which read the MCP entries when they spawn.
+   */
   readonly initialize = Effect.fn("AgentService.initialize")(function* (
     this: AgentService,
     options: {
@@ -3982,6 +4174,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
        * after the workspace is ready.
        */
       deferUnassignedProviders?: boolean | undefined;
+      beforeProviderStart?: Effect.Effect<void> | undefined;
     } = {},
   ) {
     this.#stopping = false;
@@ -4021,6 +4214,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#memoryHold.start();
     });
     if (options.rosterLoaded) yield* options.rosterLoaded;
+    if (options.beforeProviderStart) yield* options.beforeProviderStart;
     const assigned = options.deferUnassignedProviders
       ? [...new Set(this.#store.list().map((agent) => providerForAgent(agent)))]
       : undefined;
@@ -4751,20 +4945,25 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       );
   }
 
-  /** Starts live voice for the agent and answers the renderer's WebRTC offer. */
+  /**
+   * Starts live voice for the agent and answers the WebRTC offer. `owner` is the member who asks over
+   * the Team API, or null for this computer.
+   */
   startLiveVoice(
     input: VoiceLiveStart,
     voice: CodexLiveVoice | null,
+    owner: LiveVoiceOwner | null = null,
   ): Effect.Effect<VoiceLiveSession, AgentLifecycleFailed> {
     return this.#liveVoice
-      .start(input, voice)
+      .start(input, voice, owner)
       .pipe(
         Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "startLiveVoice", cause: failure.cause })),
       );
   }
 
-  stopLiveVoice(sessionId: string): Effect.Effect<void> {
-    return this.#liveVoice.stop(sessionId);
+  /** `memberId` is the owner of the session, or null for this computer. */
+  stopLiveVoice(sessionId: string, memberId: string | null = null): Effect.Effect<void> {
+    return this.#liveVoice.stop(sessionId, memberId);
   }
 
   /**
@@ -5837,6 +6036,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#compaction.endThread(session.externalSessionId);
     }
     this.#conversation.forgetExecutionThread(threadId);
+    this.#turn.fileHistory.forgetThread(threadId);
   }, Effect.uninterruptible);
 }
 

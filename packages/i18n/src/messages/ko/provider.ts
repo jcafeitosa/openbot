@@ -161,7 +161,7 @@ export const messages = {
   "provider.geminiKey.label": "Gemini API 키",
   "provider.claudeKey.title": "Anthropic API 키",
   "provider.claudeKey.description":
-    "호스트에 Anthropic API 키를 저장하세요. Anthropic이 각 요청을 키로 청구해요. 에이전트에서 사용하려면 에이전트의 모델 메뉴에서 'API 키' 계정을 선택하세요. Claude에 로그인하지 않은 경우 모든 에이전트가 키를 사용해요.",
+    "호스트에 Anthropic API 키를 저장하세요. Anthropic이 각 요청을 Claude 플랜이 아닌 키의 API 크레딧으로 청구해요. 에이전트에서 사용하려면 에이전트의 모델 메뉴에서 'API 키' 계정을 선택하세요. Claude에 로그인하지 않은 경우 모든 에이전트가 키를 사용해요.",
   "provider.claudeKey.label": "Anthropic API 키",
   "provider.inceptionKey.title": "Inception API 키",
   "provider.inceptionKey.description":
@@ -258,7 +258,7 @@ export const messages = {
   "provider.settings.geminiKeyInUse":
     "Gemini가 Google AI 요금제가 아닌 이 키를 사용해요. 요금제의 사용량은 표시되지 않아요.",
   "provider.settings.claudeKeyInUse":
-    "에이전트의 모델 메뉴에서 'API 키' 계정을 선택하세요. Claude에 로그인하지 않은 경우 모든 에이전트가 키를 사용해요.",
+    "Anthropic은 Claude 플랜이 아닌 키의 API 크레딧으로 청구해요. 에이전트의 모델 메뉴에서 'API 키' 계정을 선택하세요. Claude에 로그인하지 않은 경우 모든 에이전트가 키를 사용해요.",
   "provider.settings.addKey": "키 추가",
   "provider.settings.changeKey": "키 변경",
   "provider.settings.runtime": "런타임",
@@ -269,6 +269,11 @@ export const messages = {
   "provider.settings.update": "업데이트",
   "provider.settings.downloadLabel": "{name} 다운로드",
   "provider.settings.diagnostics": "진단",
+  "provider.settings.claudeSetup": "Claude Code",
+  "provider.settings.claudeUserSetup": "내 Claude Code 설정 사용",
+  "provider.settings.claudeUserSetupDescription":
+    "에이전트가 ~/.claude에서 CLAUDE.md, 스킬, 에이전트, 훅, 플러그인을 불러옵니다. 끄면 각 턴에서 더 짧은 프롬프트를 보냅니다. 작업 공간 파일은 계속 불러옵니다.",
+  "provider.settings.claudeUserSetupLoadFailed": "Claude Code 설정을 불러오지 못했습니다.",
   "provider.settings.models": "모델",
   "provider.settings.modelsDescription": { other: "모델 {count}개 중 {shown}개가 모델 선택에 보여요." },
   "provider.settings.modelsSearch": "모델 검색",

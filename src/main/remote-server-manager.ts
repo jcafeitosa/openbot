@@ -82,6 +82,7 @@ import { TEAM_MEMBER_LEAVE_CAPABILITY, type TeamCurrentCapability } from "@openb
 import { FOCUS_USE_CAPABILITY, FOCUS_USE_ROUTES } from "@openbot/contracts/team-protocol/focus-use-v1";
 import type { HostRestartEvent } from "@openbot/contracts/team-protocol/host-update-v1";
 import { INSTANCE_TRANSFER_ROUTES } from "@openbot/contracts/team-protocol/instance-transfer-v1";
+import type { LiveVoiceEvent } from "@openbot/contracts/team-protocol/live-voice-v1";
 import type { MachineAlertEvent } from "@openbot/contracts/team-protocol/machine-resources-v1";
 import { decodeTeamProtocolV1CurrentHttpResponse } from "@openbot/contracts/team-protocol/v1-adapter";
 import { sourceText } from "@openbot/i18n/source";
@@ -181,6 +182,7 @@ interface RemoteServerEvents {
   directMessage: [serverId: string, event: DirectMessageRealtimeEvent];
   directTyping: [serverId: string, event: DirectTypingRealtimeEvent];
   machineAlert: [serverId: string, event: MachineAlertEvent];
+  liveVoice: [serverId: string, event: LiveVoiceEvent];
   attachmentDownload: [progress: AttachmentDownloadProgress];
   attachmentImportProgress: [progress: AttachmentImportProgress];
 }
@@ -463,6 +465,7 @@ export class RemoteServerManager extends EventEmitter<RemoteServerEvents> {
       onDirectTyping: (serverId, event) => this.emit("directTyping", serverId, event),
       onHostRestart: (serverId, event) => this.#applyHostRestart(serverId, event),
       onMachineAlert: (serverId, event) => this.emit("machineAlert", serverId, event),
+      onLiveVoice: (serverId, event) => this.emit("liveVoice", serverId, event),
       onOffline: (serverId) => this.#presence.markOffline(serverId),
       onChanged: () => this.#emitChanged(),
     });
@@ -1546,6 +1549,8 @@ export class RemoteServerManager extends EventEmitter<RemoteServerEvents> {
       this.#scheduleHostedStartRead(serverId);
     }
     this.#events.setHostStarting(serverId, true);
+    // Signal holds the next attempt until the host connects, so the connection starts at once.
+    this.#webrtcTransport?.setWaitForHost(serverId, true);
     const sleepChanged = this.#connections.setHostedSleep(serverId, "waking");
     const step = (server && hostedStartStep(server)) ?? this.#connections.statusFor(serverId).hostedStart?.step;
     if (this.#applyHostedStartStep(serverId, step ?? "machine") || sleepChanged) this.#emitChanged();
@@ -1722,6 +1727,7 @@ export class RemoteServerManager extends EventEmitter<RemoteServerEvents> {
     this.#hostedRunningSince.delete(serverId);
     this.#hostedFailedReads.delete(serverId);
     this.#connections.setHostedStart(serverId, null);
+    this.#webrtcTransport?.setWaitForHost(serverId, false);
   }
 
   #expireHostedStart(serverId: string): void {
@@ -2573,6 +2579,7 @@ export class RemoteServerManager extends EventEmitter<RemoteServerEvents> {
     else if (event.type === "team-direct-typing") this.emit("directTyping", serverId, event);
     else if (event.type === "host-restart") this.#applyHostRestart(serverId, event);
     else if (event.type === "machine-alert") this.emit("machineAlert", serverId, event);
+    else if (event.type === "live-voice") this.emit("liveVoice", serverId, event);
     else this.#background(this.#owned(this.#refresh.forward(serverId, event)));
   }
 

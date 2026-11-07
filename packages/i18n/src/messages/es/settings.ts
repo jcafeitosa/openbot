@@ -30,6 +30,12 @@ export const messages = {
   "settings.logoColor.beige": "Beige",
   "settings.logoColor.gray": "Gris",
   "settings.logoColor.white": "Blanco",
+  "settings.chatBackground.title": "Fondo del chat",
+  "settings.chatBackground.description":
+    "Cada tema conserva su propio color. Un color que dificulta leer el texto se vuelve más oscuro o más claro.",
+  "settings.chatBackground.light": "Fondo del chat en el tema Claro",
+  "settings.chatBackground.dark": "Fondo del chat en el tema Oscuro",
+  "settings.chatBackground.default": "Predeterminado",
   "settings.chatColor.title": "Color del chat",
   "settings.chatColor.description": "Tiñe las burbujas de tus mensajes. Las personas de tus servidores también lo ven.",
   "settings.chatColor.yours": "Tu color del chat",
@@ -65,6 +71,12 @@ export const messages = {
     "Mantener el ordenador activo también con batería. La batería se agota antes.",
   "settings.restoreWorkspace.title": "Restaurar el último espacio de trabajo al iniciar",
   "settings.restoreWorkspace.description": "Abrir el espacio de trabajo y las tareas de la sesión anterior.",
+  "settings.quitGuard.title": "Mantener ⌘Q para salir",
+  "settings.quitGuard.description":
+    "Mantén pulsado ⌘Q o púlsalo dos veces para salir. Con «Nunca», un solo ⌘Q sale y detiene los agentes.",
+  "settings.quitGuard.working": "Mientras trabajan agentes",
+  "settings.quitGuard.always": "Siempre",
+  "settings.quitGuard.never": "Nunca",
   "settings.externalLinks.title": "Abrir enlaces externos en",
   "settings.externalLinks.description":
     "Los enlaces de los chats, las páginas de inicio de sesión y las de facturación se abren aquí.",
@@ -86,6 +98,9 @@ export const messages = {
   "settings.showAgentSteps.title": "Mostrar pasos del agente",
   "settings.showAgentSteps.description":
     "Abre por defecto el razonamiento, los pasos de herramientas y los cambios de recuerdos de cada turno en este dispositivo y navegador.",
+  "settings.compactMessageActions.title": "Acciones de mensaje compactas",
+  "settings.compactMessageActions.description":
+    "Muestra Reaccionar, Responder y Más junto a un mensaje, y la hora entre los mensajes. Si está desactivado, todas las acciones y la hora se muestran debajo de cada mensaje.",
   "settings.busyMessage.title": "Orientar a los agentes mientras trabajan",
   "settings.busyMessage.description":
     "Los mensajes nuevos se incorporan al trabajo actual del agente, no a la cola. Funciona con ChatGPT y Claude.",
@@ -219,6 +234,34 @@ export const messages = {
   "settings.notch.size.height": "Alto",
   "settings.notch.size.previewNotch": "Pantalla integrada",
   "settings.notch.size.previewIsland": "Pantalla externa",
+  "settings.agentDock.title": "Comportamiento",
+  "settings.agentDock.show.title": "Mostrar el dock de agentes",
+  "settings.agentDock.show.description": "Muestra tus agentes en el borde de la pantalla, listos para un chat rápido.",
+  "settings.agentDock.placement.title": "Posición",
+  "settings.agentDock.placement.description":
+    "«Sobre otras apps» mantiene el dock en pantalla cuando OpenBot está en segundo plano.",
+  "settings.agentDock.placement.screen": "Sobre otras apps",
+  "settings.agentDock.placement.window": "En la ventana de OpenBot",
+  "settings.agentDock.display.title": "Pantalla",
+  "settings.agentDock.display.description":
+    "Si esa pantalla no está conectada, el dock pasa a la pantalla de la ventana de OpenBot.",
+  "settings.agentDock.display.window": "Con la ventana de OpenBot",
+  "settings.agentDock.display.primary": "Pantalla principal",
+  "settings.agentDock.display.all": "Todas las pantallas",
+  "settings.agentDock.display.unnamed": "Pantalla {number}",
+  "settings.agentDock.display.disconnected": "Pantalla no conectada",
+  "settings.agentDock.edge.title": "Borde de la pantalla",
+  "settings.agentDock.edge.description": "Arrastra el dock hacia arriba o abajo para moverlo por el borde.",
+  "settings.agentDock.edge.right": "Derecha",
+  "settings.agentDock.edge.left": "Izquierda",
+  "settings.agentDock.autoHide.title": "Ocultar cuando no se usa",
+  "settings.agentDock.autoHide.description":
+    "El dock se desliza dentro del borde. Lleva el puntero al borde para mostrarlo.",
+  "settings.agentDock.results.title": "Mostrar trabajo terminado",
+  "settings.agentDock.results.description": "Los resultados de los agentes aparecen un momento junto al dock.",
+  "settings.agentDock.agents.title": "Agentes en el dock",
+  "settings.agentDock.agents.description": "Los agentes de {server}. Cada servidor tiene su propio dock.",
+  "settings.agentDock.agents.empty": "Este servidor aún no tiene agentes.",
   "settings.analytics.title": "Vincular la analítica a mi cuenta",
   "settings.analytics.description":
     "Activado: los metadatos de uso y fiabilidad se envían al sistema de análisis alojado por OpenBot con tu ID de cuenta y correo electrónico, junto con los sitios web que visitáis tú y tus agentes, el uso de herramientas y un resumen diario de tu configuración. Desactivado: solo se envía el uso básico, como turnos y recuentos de tokens, con un ID de instalación aleatorio. Nunca se envían chats, archivos ni prompts.",
@@ -233,7 +276,7 @@ export const messages = {
   "settings.tab.notifications.description": "Elige cómo te avisa OpenBot.",
   "settings.tab.voice.title": "Voz",
   "settings.tab.voice.description":
-    "Dictado en el cuadro de mensaje. Los modelos locales se ejecutan en este equipo; ElevenLabs, en la nube.",
+    "Dictado en el cuadro de mensaje. Los modelos locales se ejecutan en este equipo; ElevenLabs y Groq, en la nube.",
   "settings.tab.computerUse.title": "Uso del equipo",
   "settings.tab.computerUse.description":
     "Permite que los agentes del OpenBot de este equipo vean y usen sus apps. Los agentes de otro servidor usan el equipo de ese servidor.",
@@ -243,6 +286,8 @@ export const messages = {
   "settings.tab.mobileConnect.description": "Inicia sesión de forma segura en tu teléfono.",
   "settings.tab.dynamicIsland.title": "Dynamic Island",
   "settings.tab.dynamicIsland.description": "Elige cuándo se muestra la isla y su tamaño.",
+  "settings.tab.agentDock.title": "Dock de agentes",
+  "settings.tab.agentDock.description": "Elige dónde aparece el dock y qué agentes hay en él.",
   "settings.tab.updates.title": "Actualizaciones",
   "settings.tab.updates.description": "Mantén OpenBot actualizado en este equipo.",
   "settings.tab.billing.title": "Facturación",
@@ -578,13 +623,10 @@ export const messages = {
   "settings.voice.model.cohere.description":
     "Más lento. 14 idiomas. Tú fijas el idioma hablado. Usa unos 4 GB de memoria.",
   "settings.voice.model.size": "Tamaño de la descarga: {size}",
-  "settings.voice.model.downloading": "Descargando · {received} de {total}",
   "settings.voice.model.failed": "La descarga se detuvo. Comprueba la conexión e inténtalo de nuevo.",
   "settings.voice.model.progressLabel": "Descargando {name}",
   "settings.voice.model.use": "Usar",
-  "settings.voice.model.inUse": "En uso",
   "settings.voice.model.downloadLabel": "Descargar {name}",
-  "settings.voice.model.cancelLabel": "Detener la descarga de {name}",
   "settings.voice.model.retryLabel": "Volver a descargar {name}",
   "settings.voice.model.useLabel": "Usar {name} para el dictado",
   "settings.voice.model.removeLabel": "Quitar {name} de este equipo",
@@ -606,9 +648,10 @@ export const messages = {
   "settings.voice.removeFailed": "No se pudo quitar el modelo. Inténtalo de nuevo.",
   "settings.voice.model.elevenlabs.description":
     "Envía tu voz a ElevenLabs. El texto aparece mientras hablas y no cambia. Usa tu propia clave de API, y ElevenLabs cobra cada uso.",
-  "settings.voice.model.keySaved": "Clave de API guardada",
-  "settings.voice.model.keyMissing": "Necesita una clave de API de ElevenLabs",
-  "settings.voice.apiKey.label": "Clave de API de ElevenLabs",
+  "settings.voice.model.groqTurbo.description":
+    "Envía cada grabación a Groq al detenerla. Rápido y con muchos idiomas. Usa tu propia clave de API, y Groq cobra cada uso.",
+  "settings.voice.model.groqLarge.description":
+    "Envía cada grabación a Groq al detenerla. Más preciso que turbo, pero más lento. Usa tu propia clave de API, y Groq cobra cada uso.",
   "settings.voice.apiKey.placeholder": "Pega la clave",
   "settings.voice.apiKey.save": "Guardar clave",
   "settings.voice.apiKey.remove": "Quitar clave",

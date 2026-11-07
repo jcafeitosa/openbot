@@ -93,7 +93,7 @@ interface StoredMessage {
   taskId?: string;
   /**
    * The side thread an agent sent this message from. An answer to it runs in that thread, and the
-   * sender's own chat does not show it. Never sent to a client.
+   * sender's own chat does not show it. The recipient's chat gets it, so the sender link opens that thread.
    */
   senderTaskId?: string;
   id: string;
@@ -458,11 +458,31 @@ export class MailboxStore {
    * in the chats.
    */
   #answerReturn(input: EnqueueInput, recipients: readonly string[]): MessagingOrigin | undefined {
-    if (input.sender.kind !== "agent" || !input.replyToMessageId || recipients.length !== 1) return undefined;
-    const request = this.#state.messages.find((message) => message.id === input.replyToMessageId);
-    if (!request?.messagingReturn || request.sender.kind !== "agent" || request.sender.agentId !== recipients[0])
+    if (input.sender.kind !== "agent" || !input.replyToMessageId) return undefined;
+    return this.answerReturn([input.replyToMessageId], recipients);
+  }
+
+  /**
+   * The external conversation that an agent's answer to these requests goes back to, when they all
+   * came from that one conversation and the answer goes to the agent that sent them, and to no one else.
+   */
+  answerReturn(requestIds: readonly string[], recipients: readonly string[]): MessagingOrigin | undefined {
+    if (recipients.length !== 1) return undefined;
+    const origins = requestIds.map((requestId) => {
+      const request = this.#state.messages.find((message) => message.id === requestId);
+      return request?.sender.kind === "agent" && request.sender.agentId === recipients[0]
+        ? request.messagingReturn
+        : undefined;
+    });
+    const [origin] = origins;
+    if (
+      !origin ||
+      origins.some(
+        (candidate) => candidate?.linkId !== origin.linkId || candidate.platformMessageId !== origin.platformMessageId,
+      )
+    )
       return undefined;
-    return structuredClone(request.messagingReturn);
+    return structuredClone(origin);
   }
 
   /**
@@ -1033,80 +1053,87 @@ export class MailboxStore {
    * still use them, and the deleted-message record hides them in this chat. An active delivery stops
    * the removal, and the state stays as it was.
    */
-  deleteShownMessage = Effect.fn("MailboxStore.deleteShownMessage")(function* (
+  deleteShownMessage(agentId: string, shownMessageId: string): Effect.Effect<"busy" | "deleted", StoredStateFailure> {
+    return this.deleteShownMessages(agentId, [shownMessageId], `mailbox:message-deleted:${agentId}:${shownMessageId}`);
+  }
+
+  /**
+   * As `deleteShownMessage`, for each message of a chat history that a person deletes, in one write.
+   * One active delivery stops the whole removal.
+   */
+  deleteShownMessages = Effect.fn("MailboxStore.deleteShownMessages")(function* (
     this: MailboxStore,
     agentId: string,
-    shownMessageId: string,
+    shownMessageIds: readonly string[],
+    commandPrefix = `mailbox:history-deleted:${agentId}`,
   ): Effect.fn.Return<"busy" | "deleted", StoredStateFailure> {
     try {
+      const shown = new Set(shownMessageIds);
       const found = () => {
-        const delivery = this.#state.deliveries.find(
-          (candidate) => candidate.id === shownMessageId && candidate.recipientAgentId === agentId,
+        const deliveries = this.#state.deliveries.filter(
+          (candidate) => shown.has(candidate.id) && candidate.recipientAgentId === agentId,
         );
-        const message = delivery
-          ? this.#state.messages.find((candidate) => candidate.id === delivery.messageId)
-          : undefined;
-        const personal = delivery && message?.sender.kind === "user" ? { delivery, message } : undefined;
-        const lastDelivery =
-          personal !== undefined &&
-          !this.#state.deliveries.some(
-            (candidate) => candidate.messageId === personal.message.id && candidate.id !== personal.delivery.id,
-          );
-        return { delivery, personal, lastDelivery };
+        const messages = this.#messagesById();
+        const personal = deliveries.flatMap((delivery) => {
+          const message = messages.get(delivery.messageId);
+          return message?.sender.kind === "user" ? [{ delivery, message }] : [];
+        });
+        const removedDeliveryIds = new Set(personal.map(({ delivery }) => delivery.id));
+        // A message goes with its last delivery; a delivery that this delete keeps keeps it.
+        const keptMessageIds = new Set(
+          this.#state.deliveries
+            .filter((candidate) => !removedDeliveryIds.has(candidate.id))
+            .map((candidate) => candidate.messageId),
+        );
+        const lastOf = personal.filter(({ message }) => !keptMessageIds.has(message.id)).map(({ message }) => message);
+        return { deliveries, personal, lastOf: [...new Set(lastOf)] };
       };
       const before = found();
-      if (before.delivery && isActiveDelivery(before.delivery)) return "busy";
+      if (before.deliveries.some(isActiveDelivery)) return "busy";
       // The path checks wait, so they run before the state changes, as in `deleteStoredFile`.
       const managedPaths = new Map<string, string | null>();
-      if (before.personal && before.lastDelivery) {
-        for (const file of messageFiles(before.personal.message)) {
+      for (const message of before.lastOf) {
+        for (const file of messageFiles(message)) {
           if (file.deletedAt || managedPaths.has(file.path)) continue;
           managedPaths.set(file.path, yield* this.#files.managedTransferFile(file.path).pipe(toStoredStateFailure));
         }
       }
-      const { delivery, personal, lastDelivery } = found();
-      if (delivery && isActiveDelivery(delivery)) return "busy";
+      const { deliveries, personal, lastOf } = found();
+      if (deliveries.some(isActiveDelivery)) return "busy";
+      const removedMessageIds = new Set(lastOf.map((message) => message.id));
       const reactions = this.#state.reactions.filter(
         (reaction) =>
-          (reaction.agentId === agentId && reaction.messageId === shownMessageId) ||
-          (lastDelivery && reaction.messageId === personal?.message.id),
+          (reaction.agentId === agentId && shown.has(reaction.messageId)) || removedMessageIds.has(reaction.messageId),
       );
-      if (!personal && reactions.length === 0) return "deleted";
+      if (personal.length === 0 && reactions.length === 0) return "deleted";
       const previous = structuredClone(this.#state);
       const deletions: string[] = [];
-      if (personal) {
-        this.#state.deliveries = this.#state.deliveries.filter((candidate) => candidate.id !== personal.delivery.id);
-        this.#changes.deliveryIds.add(personal.delivery.id);
-        if (lastDelivery) {
-          const messageId = personal.message.id;
-          this.#state.messages = this.#state.messages.filter((candidate) => candidate.id !== messageId);
-          this.#changes.messageIds.add(messageId);
-          for (const [key, keyMessageId] of Object.entries(this.#state.idempotency))
-            if (keyMessageId === messageId) delete this.#state.idempotency[key];
-          const inUse = new Set(
-            this.#fileRecords()
-              .filter((record) => !record.deletedAt)
-              .map((record) => record.path),
-          );
-          for (const path of new Set(
-            messageFiles(personal.message)
-              .filter((file) => !file.deletedAt)
-              .map((file) => file.path),
-          )) {
-            const managed = inUse.has(path) ? null : managedPaths.get(path);
-            if (managed) deletions.push(managed);
-          }
+      const removedDeliveryIds = new Set(personal.map(({ delivery }) => delivery.id));
+      this.#state.deliveries = this.#state.deliveries.filter((candidate) => !removedDeliveryIds.has(candidate.id));
+      for (const id of removedDeliveryIds) this.#changes.deliveryIds.add(id);
+      if (removedMessageIds.size > 0) {
+        this.#state.messages = this.#state.messages.filter((candidate) => !removedMessageIds.has(candidate.id));
+        for (const id of removedMessageIds) this.#changes.messageIds.add(id);
+        for (const [key, keyMessageId] of Object.entries(this.#state.idempotency))
+          if (removedMessageIds.has(keyMessageId)) delete this.#state.idempotency[key];
+        const inUse = new Set(
+          this.#fileRecords()
+            .filter((record) => !record.deletedAt)
+            .map((record) => record.path),
+        );
+        for (const path of new Set(
+          lastOf.flatMap(messageFiles).flatMap((file) => (file.deletedAt ? [] : [file.path])),
+        )) {
+          const managed = inUse.has(path) ? null : managedPaths.get(path);
+          if (managed) deletions.push(managed);
         }
       }
-      this.#state.reactions = this.#state.reactions.filter((reaction) => !reactions.includes(reaction));
+      const removedReactions = new Set(reactions);
+      this.#state.reactions = this.#state.reactions.filter((reaction) => !removedReactions.has(reaction));
       for (const reaction of reactions)
         this.#changes.reactionKeys.add(mailboxReactionRowKey(reaction.agentId, reaction.messageId, reaction.actor));
       try {
-        this.#persist(
-          "mailbox.message-deleted",
-          `mailbox:message-deleted:${agentId}:${shownMessageId}:${randomUUID()}`,
-          deletions,
-        );
+        this.#persist("mailbox.message-deleted", `${commandPrefix}:${randomUUID()}`, deletions);
       } catch (error) {
         this.#state = previous;
         throw error;
@@ -1124,38 +1151,54 @@ export class MailboxStore {
    * assignment messages that already went to members stay: their turns used them. A copy that a
    * delivery still uses stays too.
    */
-  deleteChannelMessageCopy = Effect.fn("MailboxStore.deleteChannelMessageCopy")(function* (
+  deleteChannelMessageCopy(channelId: string, messageId: string): Effect.Effect<void, StoredStateFailure> {
+    return this.deleteChannelMessageCopies(
+      channelId,
+      [messageId],
+      `mailbox:channel-message-deleted:${channelId}:${messageId}`,
+    );
+  }
+
+  /** As `deleteChannelMessageCopy`, for each copy of the channel when `messageIds` is "all", in one write. */
+  deleteChannelMessageCopies = Effect.fn("MailboxStore.deleteChannelMessageCopies")(function* (
     this: MailboxStore,
     channelId: string,
-    messageId: string,
+    messageIds: readonly string[] | "all",
+    commandPrefix = `mailbox:channel-history-deleted:${channelId}`,
   ): Effect.fn.Return<void, StoredStateFailure> {
     try {
-      const find = () =>
-        this.#state.messages.find(
+      const named = messageIds === "all" ? null : new Set(messageIds);
+      const find = () => {
+        const delivered = new Set(this.#state.deliveries.map((delivery) => delivery.messageId));
+        return this.#state.messages.filter(
           (candidate) =>
-            candidate.id === messageId &&
             candidate.channelId === channelId &&
-            !this.#state.deliveries.some((delivery) => delivery.messageId === messageId),
+            (named === null || named.has(candidate.id)) &&
+            !delivered.has(candidate.id),
         );
+      };
       const before = find();
-      if (!before) return;
-      // The path checks wait, so they run before the state changes, as in `deleteShownMessage`.
+      if (before.length === 0) return;
+      // The path checks wait, so they run before the state changes, as in `deleteShownMessages`.
       const managedPaths = new Map<string, string | null>();
-      for (const file of messageFiles(before)) {
+      for (const file of before.flatMap(messageFiles)) {
         if (file.deletedAt || managedPaths.has(file.path)) continue;
         managedPaths.set(file.path, yield* this.#files.managedTransferFile(file.path).pipe(toStoredStateFailure));
       }
-      const message = find();
-      if (!message) return;
+      const messages = find();
+      if (messages.length === 0) return;
+      const removed = new Set(messages);
+      const removedIds = new Set(messages.map((message) => message.id));
       const previous = structuredClone(this.#state);
-      this.#state.messages = this.#state.messages.filter((candidate) => candidate !== message);
-      this.#changes.messageIds.add(message.id);
-      const reactions = this.#state.reactions.filter((reaction) => reaction.messageId === message.id);
-      this.#state.reactions = this.#state.reactions.filter((reaction) => !reactions.includes(reaction));
+      this.#state.messages = this.#state.messages.filter((candidate) => !removed.has(candidate));
+      for (const id of removedIds) this.#changes.messageIds.add(id);
+      const reactions = this.#state.reactions.filter((reaction) => removedIds.has(reaction.messageId));
+      const removedReactions = new Set(reactions);
+      this.#state.reactions = this.#state.reactions.filter((reaction) => !removedReactions.has(reaction));
       for (const reaction of reactions)
         this.#changes.reactionKeys.add(mailboxReactionRowKey(reaction.agentId, reaction.messageId, reaction.actor));
       for (const [key, keyMessageId] of Object.entries(this.#state.idempotency))
-        if (keyMessageId === message.id) delete this.#state.idempotency[key];
+        if (removedIds.has(keyMessageId)) delete this.#state.idempotency[key];
       const inUse = new Set(
         this.#fileRecords()
           .filter((record) => !record.deletedAt)
@@ -1163,19 +1206,13 @@ export class MailboxStore {
       );
       const deletions: string[] = [];
       for (const path of new Set(
-        messageFiles(message)
-          .filter((file) => !file.deletedAt)
-          .map((file) => file.path),
+        messages.flatMap(messageFiles).flatMap((file) => (file.deletedAt ? [] : [file.path])),
       )) {
         const managed = inUse.has(path) ? null : managedPaths.get(path);
         if (managed) deletions.push(managed);
       }
       try {
-        this.#persist(
-          "mailbox.channel-message-deleted",
-          `mailbox:channel-message-deleted:${channelId}:${messageId}:${randomUUID()}`,
-          deletions,
-        );
+        this.#persist("mailbox.channel-message-deleted", `${commandPrefix}:${randomUUID()}`, deletions);
       } catch (error) {
         this.#state = previous;
         throw error;
@@ -1461,6 +1498,7 @@ export class MailboxStore {
                   recipientAgentIds: deliveries.map((item) => item.recipientAgentId),
                   replyToMessageId: message.replyToMessageId,
                   ...(message.expectsReply === false ? { expectsReply: false } : {}),
+                  ...(message.senderTaskId ? { senderTaskId: message.senderTaskId } : {}),
                   deliveries: deliveries.map((item) => {
                     const publicItem = this.#publicDelivery(item, positions, message);
                     return {
@@ -1993,6 +2031,15 @@ export class MailboxStore {
       message = replyTo ? this.#state.messages.find((candidate) => candidate.id === replyTo) : undefined;
     }
     return null;
+  }
+
+  /**
+   * The stored message that a reply reference names. An agent's history and tool results show the id of
+   * a delivery, so a delivery id names its message. Null when the id names neither.
+   */
+  replyReferenceMessageId(id: string): string | null {
+    if (this.#state.messages.some((message) => message.id === id)) return id;
+    return this.#state.deliveries.find((delivery) => delivery.id === id)?.messageId ?? null;
   }
 
   /** Whether the message's sender waits for an answer. Unknown messages count as expecting one. */

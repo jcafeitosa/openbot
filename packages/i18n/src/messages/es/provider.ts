@@ -163,7 +163,7 @@ export const messages = {
   "provider.geminiKey.label": "Clave de API de Gemini",
   "provider.claudeKey.title": "Clave de API de Anthropic",
   "provider.claudeKey.description":
-    "Guarda una clave de API de Anthropic en el host. Anthropic factura cada solicitud a la clave. Para usarla en un agente, selecciona la cuenta «Clave de API» en el menú de modelos del agente. Si Claude no tiene sesión iniciada, todos los agentes usan la clave.",
+    "Guarda una clave de API de Anthropic en el host. Anthropic factura cada solicitud al crédito de API de la clave, no a tu plan de Claude. Para usarla en un agente, selecciona la cuenta «Clave de API» en el menú de modelos del agente. Si Claude no tiene sesión iniciada, todos los agentes usan la clave.",
   "provider.claudeKey.label": "Clave de API de Anthropic",
   "provider.inceptionKey.title": "Clave de API de Inception",
   "provider.inceptionKey.description":
@@ -234,6 +234,11 @@ export const messages = {
   "provider.settings.promptCacheHour": "1 hora",
   "provider.settings.promptCacheDefault": "Predeterminado de Claude Code",
   "provider.settings.promptCacheLoadFailed": "No se pudo cargar la duración de la caché de prompts de este servidor.",
+  "provider.settings.claudeSetup": "Claude Code",
+  "provider.settings.claudeUserSetup": "Usar mi configuración de Claude Code",
+  "provider.settings.claudeUserSetupDescription":
+    "Los agentes cargan tu CLAUDE.md, skills, agentes, hooks y plugins de ~/.claude. Desactivado, cada turno envía un prompt más corto. Los archivos del espacio de trabajo se siguen cargando.",
+  "provider.settings.claudeUserSetupLoadFailed": "No se pudo cargar el ajuste de Claude Code.",
   "provider.settings.models": "Modelos",
   "provider.settings.modelsDescription": {
     one: "{shown} de {count} modelo aparece en el selector de modelos.",

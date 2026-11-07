@@ -72,6 +72,13 @@ export const messages = {
     "Il canale ha un avvio di assegnazione non confermato. Controlla il risultato prima di eliminarlo.",
   "error.backend.channelNotFound": "Canale non trovato.",
   "error.backend.channelMemberUnavailable": "Un membro del canale non è disponibile.",
+  "error.backend.channelWaitBeforeNewConversation":
+    "Attendi che il lavoro in questo canale finisca, poi avvia una nuova conversazione.",
+  "error.backend.channelWaitBeforeCompact": "Attendi che il lavoro in questo canale finisca, poi compattalo.",
+  "error.backend.channelWaitBeforeDeleteHistory":
+    "Attendi che il lavoro in questo canale finisca, poi elimina la sua cronologia.",
+  "error.backend.channelCompactUnavailable":
+    "Nessun membro di questo canale può compattare il contesto ora. Un membro deve prima rispondere nel canale e il suo provider deve supportare la compattazione.",
   "error.backend.channelArchived": "Ripristina questo canale prima di inviare messaggi o modificare le attività.",
   "error.backend.channelReferenceUnavailable": "Il messaggio del canale a cui si fa riferimento non è disponibile.",
   "error.backend.channelTaskNotFound": "Attività del canale non trovata.",
@@ -259,6 +266,10 @@ export const messages = {
   "error.backend.mcpServerExited":
     "Il server si è fermato prima di rispondere. Esegui il comando in un terminale per vedere l'errore.",
   "error.backend.mcpServerFailedToStart": "Il server non si è avviato: {reason}",
+  "error.backend.mcpServerSignInForProvider":
+    "{provider} non è riuscito a usare il server MCP {name} perché il server chiede l’accesso. Apri le impostazioni MCP e scegli Accedi.",
+  "error.backend.mcpServerFailedForProvider":
+    "{provider} non è riuscito ad avviare il server MCP {name}. Apri le impostazioni MCP e scegli Prova la connessione per vedere la causa.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot non è riuscito ad avviare la connessione di accesso locale per questo server. Riavvia OpenBot e riprova.",
   "error.backend.mcpOAuthSignInNeeded":

@@ -1,5 +1,6 @@
 import {
   type AgentEvent,
+  type AgentStepActivity,
   type AgentSummary,
   agentProviderDescriptor,
   type BrowserControlState,
@@ -82,6 +83,7 @@ import {
   isToolItem,
   refusedSessionFailure,
   type ToolUsageSignal,
+  toolActivity,
   toolFailed,
   toolProgressText,
   toolTraceDetail,
@@ -365,6 +367,8 @@ export class TurnLifecycle {
       firstOutputAt: number | null;
       produced: boolean;
       acted: boolean;
+      /** The tool steps that started and did not end yet. While one is open, the turn works, it does not wait. */
+      openTools: Set<string>;
     }
   >();
   /** The drain's start of each starting delivery, until its turn starts. */
@@ -775,6 +779,7 @@ export class TurnLifecycle {
           firstOutputAt: null,
           produced: false,
           acted: false,
+          openTools: new Set(),
         });
         this.#traces.begin(turnId, new Date().toISOString());
         const publicThreadId = this.#conversation.publicThreadId(agentId, threadId);
@@ -2035,9 +2040,34 @@ export class TurnLifecycle {
     if (completed && item.type === "webSearch") this.#recordWebSearch(agentId, item);
     if (yield* this.#images.handleItem(agentId, threadId, turnId, item, completed)) return;
     const toolProgress = toolProgressText(item, completed);
+    const openTools = this.#runningTurns.get(turnId)?.openTools;
+    let lastToolClosed = false;
+    if (openTools && isToolItem(item) && isString(item.id)) {
+      if (completed) lastToolClosed = openTools.delete(item.id) && openTools.size === 0;
+      else openTools.add(item.id);
+    }
     this.#observeTraceStep(turnId, item, completed, toolProgress);
     if (toolProgress) {
-      this.#emitTurnProgress(agentId, this.#conversation.publicThreadId(agentId, threadId), turnId, toolProgress);
+      const activity = toolActivity(item, completed);
+      this.#emitTurnProgress(
+        agentId,
+        this.#conversation.publicThreadId(agentId, threadId),
+        turnId,
+        toolProgress,
+        activity,
+      );
+      return;
+    }
+    // A tool whose end adds no line, such as a memory search, still ends its step. Without this the
+    // client keeps `running` and the face of that step until the next line.
+    if (lastToolClosed) {
+      this.#emitTurnProgress(
+        agentId,
+        this.#conversation.publicThreadId(agentId, threadId),
+        turnId,
+        sourceText("status.agent.toolResultReviewing"),
+        "reviewing",
+      );
       return;
     }
     if (item.type !== "agentMessage" || !isString(item.id)) return;
@@ -2220,13 +2250,22 @@ export class TurnLifecycle {
     return message;
   }
 
-  #emitTurnProgress(agentId: string, threadId: string, turnId: string, text: string): void {
+  #emitTurnProgress(
+    agentId: string,
+    threadId: string,
+    turnId: string,
+    text: string,
+    activity: AgentStepActivity | null = null,
+  ): void {
+    const running = (this.#runningTurns.get(turnId)?.openTools.size ?? 0) > 0;
     this.#hooks.emit({
       type: "turn-progress",
       agentId,
       threadId,
       turnId,
       detail: text,
+      ...(running ? { running } : {}),
+      ...(activity ? { activity } : {}),
     });
   }
 }

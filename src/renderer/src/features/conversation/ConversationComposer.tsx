@@ -30,7 +30,7 @@ import {
   ComposerUsageLimitNotice,
 } from "@openbot/ui/features/conversation/ComposerNotice";
 import { ComposerReplyPreview } from "@openbot/ui/features/conversation/ComposerReplyPreview";
-import { ComposerSendControl } from "@openbot/ui/features/conversation/ComposerSendControl";
+import { ComposerSendControl, type ComposerSendVoice } from "@openbot/ui/features/conversation/ComposerSendControl";
 import {
   ComposerCompactionNotice,
   ComposerNewChatButton,
@@ -47,6 +47,7 @@ import { deviceSendShortcut, sendShortcutAriaKey, sendShortcutHintKey } from "..
 import { speechReading } from "../speech/speech-playback";
 import { stopSpokenReply } from "../speech/speech-replies";
 import { copyComposerSelection, readComposerCopy } from "./composer-clipboard";
+import { createComposerResize } from "./composer-resize";
 import { useConversationViewScope } from "./conversation-scope";
 import { currentConversationTarget } from "./stores/composer-store";
 
@@ -94,6 +95,8 @@ export function ConversationComposer() {
     taggableThreads,
     openTaggedReference,
     queuePanelVisible,
+    queueOpen,
+    renderedQueueDeliveries,
     releaseCutAttachments,
     removeAttachment,
     reorderPresentedQueue,
@@ -124,7 +127,10 @@ export function ConversationComposer() {
     openSideQuestion,
     voiceConversationAvailable,
     openSidePanelPane,
+    closeSidePanelPane,
     activeRightPanel,
+    sidePanel,
+    sendStarting,
     channel,
     providerSilentMinutes,
     providerOffline,
@@ -156,6 +162,25 @@ export function ConversationComposer() {
     };
   };
   const openVoiceConversation = () => (voiceConversationAvailable() ? () => openSidePanelPane("voice") : undefined);
+  /** The voice conversation runs while its tab is in the side panel, also when another tab shows. */
+  const voiceTabOpen = () => sidePanel().panes.includes("voice");
+  /**
+   * With nothing to send, Send starts a voice conversation, as on mobile. While the conversation runs,
+   * the same button ends it. When Send cannot send to the agent, Send stays and is disabled.
+   */
+  const sendVoice = (): ComposerSendVoice | undefined => {
+    if (!props.agent || !voiceConversationAvailable()) return undefined;
+    if (composerHasContent() || editingDeliveryId() || voicePhase() !== "idle") return undefined;
+    if (attachmentBusy() || uploadFailed() || submitting() || !agentReady() || providerUpdateRequired())
+      return undefined;
+    if (voiceTabOpen()) return "end";
+    // Between a send and its turn, Send stays, so the voice icon does not show for a moment before Stop.
+    return sendStarting() ? undefined : "start";
+  };
+  const toggleVoiceConversation = () => {
+    if (voiceTabOpen()) closeSidePanelPane("voice");
+    else openSidePanelPane("voice");
+  };
   // A pending Save keeps its exact request for retry. Block changes until retry or cancel.
   const savePending = () => Boolean(editingDeliveryId() && editingPendingSave());
   // One chip for each file of each import. Only a single-file import knows the bytes of its file.
@@ -173,6 +198,11 @@ export function ConversationComposer() {
   );
   const composerAttachmentRow = () =>
     rowDraftAttachments().length > 0 || currentPastePreviews().length > 0 || uploadFiles().length > 0;
+  const composerResize = createComposerResize({
+    full: () => currentDraft().text.includes("\n") || composerAttachmentRow(),
+    empty: () => currentDraft().text.length === 0,
+    conversationKey: () => currentChatConversationKey() ?? "",
+  });
   // A provider start, restart or server reconnect is short. Keys typed in it must not drop, so only a
   // lasting stop locks the text. Sending still waits for the agent. Without an agent, no draft keeps the text.
   const editorLocked = () =>
@@ -190,7 +220,10 @@ export function ConversationComposer() {
   const awaitingVisible = () => awaitingReplies().length > 0 && !pickerOpen();
   const waitItems = createMemo(() => openWaitItems(props.waits ?? [], props.queue));
   const waitsVisible = () => waitItems().length > 0 && Boolean(props.onCancelWait) && !pickerOpen();
-  const slotOpen = () => queueVisible() || awaitingVisible() || waitsVisible();
+  const slotOpen = () => (queueOpen() && !pickerOpen()) || awaitingVisible() || waitsVisible();
+  // A slot that closes keeps the last rows in place, so the whole panel goes down behind the input in
+  // one move, the way it came up. In a slot that stays open, a row that goes leaves on its own.
+  const queueRows = () => (slotOpen() ? presentedQueueDeliveries() : renderedQueueDeliveries());
   // A channel has many speakers, so it has no voice input.
   const voiceAvailable = () => !channel && !props.runtime;
   /** The reply of this agent that is read aloud. The voice pane shows its own. */
@@ -369,6 +402,8 @@ export function ConversationComposer() {
         props.activeTurnId && !editingDeliveryId() && !composerHasContent() && voicePhase() !== "recording",
       )}
       onStop={props.onStop}
+      voice={sendVoice()}
+      onVoice={toggleVoiceConversation}
       label={sendLabel()}
       keyShortcuts={sendKeyShortcuts()}
       title={sendTitle()}
@@ -448,7 +483,7 @@ export function ConversationComposer() {
                 {(_owner) => (
                   <Loading>
                     <QueuePanel
-                      deliveries={presentedQueueDeliveries()}
+                      deliveries={queueRows()}
                       // Only for an agent that is waiting. When the channel work is this agent's own,
                       // the activity line above already shows it working, and naming it twice reads as
                       // two different waits.
@@ -615,8 +650,9 @@ export function ConversationComposer() {
           </Show>
         </div>
         <div
+          ref={composerResize.ref}
           class="composer"
-          data-compact={currentDraft().text.includes("\n") || composerAttachmentRow() ? undefined : ""}
+          data-compact={composerResize.expanded() ? undefined : ""}
           data-has-attachments={composerAttachmentRow() ? "" : undefined}
           onPointerDown={(event) => {
             if (!(event.target instanceof Element)) return;

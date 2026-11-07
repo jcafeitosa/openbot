@@ -3,10 +3,13 @@ import { join, resolve } from "node:path";
 import { parseInviteUrl, selfHostedApiOrigin } from "@openbot/contracts/invite-links";
 import {
   type AgentEvent,
+  type AgentSummary,
   type AppLogoColor,
   type CentralAuthState,
+  DEFAULT_QUIT_GUARD,
   type HostStatus,
   IPC_ENDPOINTS,
+  type QuitGuard,
 } from "@openbot/contracts/ipc";
 import { createFormat, loadLocale, localeDirection, resolveLocale, translateFor } from "@openbot/i18n";
 import { localizeSourceText } from "@openbot/i18n/source";
@@ -28,6 +31,7 @@ import {
   screen,
   shell,
 } from "electron";
+import { setDiskRestoreProbe } from "../backend/disk-restore";
 import { runCauseEffect } from "../backend/effect-boundary";
 import { NewerDatabaseError } from "../backend/openbot-database-schema";
 import { OWNER_NOTIFICATION_KEY } from "./agent-notification-level-store";
@@ -55,11 +59,12 @@ import {
 import { stopStuckExitAfterLimit } from "./exit-watchdog";
 import { filePreviewPages } from "./file-preview-pages";
 import { hostAllowsTenantLaunch } from "./host-update-coordinator";
-import { takeHostedServerEnvironment } from "./hosted-server-bootstrap";
+import { hostedDiskRestoreProbe, takeHostedServerEnvironment } from "./hosted-server-bootstrap";
 import { takeHostingDeveloperKey } from "./hosted-server-service";
 import { accountIpcHandlers } from "./ipc/account-handlers";
 import { acpRegistryIpcHandlers } from "./ipc/acp-registry-handlers";
 import { agentAdminIpcHandlers } from "./ipc/agent-admin-handlers";
+import { agentDockIpcHandlers } from "./ipc/agent-dock-handlers";
 import { agentFolderIpcHandlers } from "./ipc/agent-folder-handlers";
 import { agentIpcHandlers } from "./ipc/agent-handlers";
 import { agentImportIpcHandlers } from "./ipc/agent-import-handlers";
@@ -235,6 +240,8 @@ const developmentTestClientEnabled = !app.isPackaged && process.env.OPENBOT_DEV_
 removeClaudeCodeSessionEnvironment(process.env);
 // Before any child process starts: this removes the single-use claim from the environment they inherit.
 const hostedServer = takeHostedServerEnvironment(process.env, app.isPackaged, process.platform);
+// Before the first provider check: a restored disk gives the provider CLIs a longer limit.
+if (hostedServer) setDiskRestoreProbe(hostedDiskRestoreProbe());
 const hostingDeveloperKey = takeHostingDeveloperKey(process.env, app.isPackaged);
 const serverMode = takeServerModeEnvironment(process.env, app.isPackaged, process.platform);
 // Always taken, so the owner password leaves the environment also when the flag is refused.
@@ -509,6 +516,20 @@ const {
 });
 
 // Resolved once, safely: every `app.setPath("userData", ...)` above has already run.
+/**
+ * The agents that a quit stops: the local agents, and the agents on the servers on this computer,
+ * whose processes end with this one. Before the services start, no agent can work.
+ */
+function workingAgents(): AgentSummary[] {
+  if (!services) return [];
+  return [...services.service.workingAgents(), ...(services.localServers?.workingAgents() ?? [])];
+}
+
+/** The user's `Cmd + Q` guard. Before the services exist, the default. */
+function quitGuard(): QuitGuard {
+  return services?.appBehavior.quitGuard ?? DEFAULT_QUIT_GUARD;
+}
+
 const windows = createMainWindowController({
   holder: windowHolder,
   statePath: join(app.getPath("userData"), MAIN_WINDOW_STATE_FILE),
@@ -536,6 +557,8 @@ const windows = createMainWindowController({
   },
   reportError: (message, error) => logger.error(message, toLogValue(error)),
   quitFromShortcut: () => quitFor("shortcut"),
+  workingAgents,
+  quitGuard,
 });
 
 let appIconColorImage: NativeImage | undefined;
@@ -691,7 +714,9 @@ function registerIpcHandlers({
   serverAudit,
   teamStore,
   serverTimezone,
+  serverPersonality,
   promptCacheTtl,
+  claudeUserSetup,
   modelVisibility,
   remoteSessionReuse,
   externalLinkPreference,
@@ -735,6 +760,7 @@ function registerIpcHandlers({
   speech,
   voiceServer,
   dynamicIsland,
+  agentDock,
   cuaDriver,
   computerUsePermissionHelp,
   storageUsage,
@@ -797,6 +823,7 @@ function registerIpcHandlers({
       startup,
     }),
     ...dynamicIslandIpcHandlers({ dynamicIsland }),
+    ...agentDockIpcHandlers({ agentDock }),
     ...browserDockIpcHandlers({ browserDock }),
     ...computerUseIpcHandlers({
       cuaDriver,
@@ -805,8 +832,21 @@ function registerIpcHandlers({
     }),
     ...macAutomationIpcHandlers({ platform: process.platform }),
     ...backgroundProcessIpcHandlers({ platform: process.platform, agents: () => service.listAgents() }),
-    ...providerIpcHandlers({ service, providerRuntimes, credentials: providerCredentials, openLink }),
-    ...voiceIpcHandlers({ voice, speech, server: voiceServer, service }),
+    ...providerIpcHandlers({
+      service,
+      providerRuntimes,
+      credentials: providerCredentials,
+      claudeUserSetup,
+      openLink,
+    }),
+    ...voiceIpcHandlers({
+      voice,
+      speech,
+      server: voiceServer,
+      service,
+      remoteServers,
+      forwardLiveEvent: forwardVoiceLiveEvent,
+    }),
     ...accountIpcHandlers({ centralAuth, host }),
     ...skillIpcHandlers({ skills, getMainWindow: getDialogParent, translate: language.translate }),
     ...agentFolderIpcHandlers({
@@ -899,6 +939,7 @@ function registerIpcHandlers({
       host,
       remoteServers,
       serverTimezone,
+      serverPersonality,
       agentMemoryLimit,
       memoryReview,
       machineAlerts,
@@ -1383,6 +1424,7 @@ if (!hasSingleInstanceLock) {
         remoteServers,
         updater,
         dynamicIsland,
+        agentDock,
         teamStore,
         language,
         logoColor,
@@ -1539,6 +1581,30 @@ if (!hasSingleInstanceLock) {
         });
         return;
       }
+      const publishOnLaunch = () => {
+        const teamIdentity = teamStore.getIdentity();
+        if (built.serverMode) {
+          const serverModeControl = built.serverMode;
+          void runCauseEffect(
+            built.centralAuthInitialization.pipe(Effect.flatMap(() => serverModeControl.publish(true))),
+          ).catch((error) => logger.error("Unable to publish this server:", toLogValue(error)));
+        } else if (
+          shouldAutoStartHost({
+            configured: Boolean(teamIdentity),
+            enabledOnLaunch: teamIdentity?.enabledOnLaunch ?? false,
+            remoteRole: developmentRemoteRole,
+          })
+        ) {
+          void runCauseEffect(built.centralAuthInitialization.pipe(Effect.flatMap(() => host.start(true)))).catch(
+            (error) => logger.error("Unable to republish this OpenBot:", toLogValue(error)),
+          );
+        }
+      };
+      // Nobody looks at the window of a server, and a device that woke it waits for the publish. So a
+      // server publishes now, before the window loads. A desktop publishes after its window loads, so
+      // the bridge window does not compete with the first window for the CPU.
+      const publishesBeforeRenderer = Boolean(built.serverMode || hostedServer);
+      if (publishesBeforeRenderer) publishOnLaunch();
       void requestDesktopNotificationPermission(built.notificationPreference, language.translate).catch((error) =>
         logger.warn("Unable to ask for notification permission:", toLogValue(error)),
       );
@@ -1548,6 +1614,8 @@ if (!hasSingleInstanceLock) {
         interfaceSize,
         language.translate,
         () => windowHolder.current,
+        workingAgents,
+        quitGuard,
         quitFor,
       );
       // The way back to a window hidden in the background, and the sign that a member controls
@@ -1587,6 +1655,8 @@ if (!hasSingleInstanceLock) {
           interfaceSize,
           language.translate,
           () => windowHolder.current,
+          workingAgents,
+          quitGuard,
           quitFor,
         );
         tray.relabel();
@@ -1637,6 +1707,15 @@ if (!hasSingleInstanceLock) {
       screen.on("display-removed", reconcileDynamicIsland);
       screen.on("display-metrics-changed", reconcileDynamicIsland);
       powerMonitor.on("resume", reconcileDynamicIsland);
+      // The agent dock window opens when the main renderer publishes the dock; this only moves it.
+      const reconcileAgentDock = () =>
+        void Effect.runPromise(agentDock.reconcileWindow()).catch((error) =>
+          logger.error("Unable to place the agent dock:", toLogValue(error)),
+        );
+      screen.on("display-added", reconcileAgentDock);
+      screen.on("display-removed", reconcileAgentDock);
+      screen.on("display-metrics-changed", reconcileAgentDock);
+      powerMonitor.on("resume", reconcileAgentDock);
       powerMonitor.on("resume", () => void Effect.runPromise(remoteServers.wake()));
       // A Slack socket can be dead after sleep without knowing it; reconnect instead of waiting for a ping.
       powerMonitor.on("resume", () => built.messaging.resume());
@@ -1664,23 +1743,7 @@ if (!hasSingleInstanceLock) {
         powerMonitor.off("on-battery", syncKeepAwake);
         keepAwake.dispose();
       });
-      const teamIdentity = teamStore.getIdentity();
-      if (built.serverMode) {
-        const serverModeControl = built.serverMode;
-        void runCauseEffect(
-          built.centralAuthInitialization.pipe(Effect.flatMap(() => serverModeControl.publish(true))),
-        ).catch((error) => logger.error("Unable to publish this server:", toLogValue(error)));
-      } else if (
-        shouldAutoStartHost({
-          configured: Boolean(teamIdentity),
-          enabledOnLaunch: teamIdentity?.enabledOnLaunch ?? false,
-          remoteRole: developmentRemoteRole,
-        })
-      ) {
-        void runCauseEffect(built.centralAuthInitialization.pipe(Effect.flatMap(() => host.start(true)))).catch(
-          (error) => logger.error("Unable to republish this OpenBot:", toLogValue(error)),
-        );
-      }
+      if (!publishesBeforeRenderer) publishOnLaunch();
       void runCauseEffect(built.agentInitialization.start()).catch((error) => {
         logger.error("Unable to initialize the local agent backend:", toLogValue(error));
       });
@@ -1876,6 +1939,7 @@ async function prepareForShutdown(deadlineMs = SHUTDOWN_DEADLINE_MS): Promise<vo
   // After the bounds are saved.
   hideWindowsForQuit();
   services?.dynamicIsland.destroy();
+  services?.agentDock.destroy();
   macHapticFeedback.destroy();
   await teardown.runAll();
   runMarker?.clean();

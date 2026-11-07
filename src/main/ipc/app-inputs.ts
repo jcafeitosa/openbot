@@ -2,6 +2,9 @@ import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type {
   AgentCapabilitySwitches,
   AgentDefaults,
+  AgentDockAction,
+  AgentDockDragPhase,
+  AgentDockPresentation,
   AgentMemoryLimitPreference,
   AgentProviderId,
   AppBehaviorPreferenceChange,
@@ -10,6 +13,7 @@ import type {
   BrowserDockFrame,
   BrowserDockPresentation,
   BusyMessageModePreference,
+  ChatBackgroundColor,
   ChatWindowTarget,
   DeleteHostedSiteInput,
   DynamicIslandAction,
@@ -34,6 +38,7 @@ import type {
   RendererTimingReport,
   ReplaceHostedSiteInput,
   SaveSetupInput,
+  SetAgentDockInteractiveInput,
   SetAnalyticsPreferenceInput,
   SetAppAppearancePreferenceInput,
   SetAppInterfaceSizePreferenceInput,
@@ -52,6 +57,10 @@ import {
   IDLE_RESTART_TARGETS,
   isAgentCapabilitySwitches,
   isAgentDefaults,
+  isAgentDockAction,
+  isAgentDockDragPhase,
+  isAgentDockInteractive,
+  isAgentDockPresentation,
   isAgentMemoryLimit,
   isAgentModel,
   isAgentProvider,
@@ -65,6 +74,7 @@ import {
   isBrowserDockFrame,
   isBrowserDockPresentation,
   isBusyMessageMode,
+  isChatBackgroundColor,
   isDynamicIslandAction,
   isDynamicIslandInteractive,
   isDynamicIslandPreference,
@@ -73,6 +83,7 @@ import {
   isRemoteNetworkRoute,
   isSkillCategory,
   MAC_AUTOMATION_TARGETS,
+  QUIT_GUARDS,
   RENDERER_TIMING_LIMITS,
 } from "@openbot/contracts/ipc";
 import {
@@ -198,20 +209,33 @@ export function parseAppLogoColorPreference(input: unknown): SetAppLogoColorPref
   return { color: input.color };
 }
 
+function parseChatBackground(value: unknown): ChatBackgroundColor | null {
+  if (value !== null && !isChatBackgroundColor(value)) throw new Error("Chat background is invalid.");
+  return value;
+}
+
 export function parseAppAppearancePreference(input: unknown): SetAppAppearancePreferenceInput {
   if (!isDynamicRecord(input)) throw new Error("Appearance is required.");
-  const { appearance, transparentWindow, palette } = input;
+  const { appearance, transparentWindow, palette, chatBackgroundLight, chatBackgroundDark } = input;
   if (appearance !== undefined && !isAppAppearance(appearance)) throw new Error("Appearance is invalid.");
   if (transparentWindow !== undefined && typeof transparentWindow !== "boolean")
     throw new Error("Transparent window must be true or false.");
   if (palette !== undefined && palette !== null && !isAppThemePaletteId(palette))
     throw new Error("Theme palette is invalid.");
-  if (appearance === undefined && transparentWindow === undefined && palette === undefined)
+  if (
+    appearance === undefined &&
+    transparentWindow === undefined &&
+    palette === undefined &&
+    chatBackgroundLight === undefined &&
+    chatBackgroundDark === undefined
+  )
     throw new Error("Appearance is required.");
   return {
     ...(appearance === undefined ? {} : { appearance }),
     ...(transparentWindow === undefined ? {} : { transparentWindow }),
     ...(palette === undefined ? {} : { palette }),
+    ...(chatBackgroundLight === undefined ? {} : { chatBackgroundLight: parseChatBackground(chatBackgroundLight) }),
+    ...(chatBackgroundDark === undefined ? {} : { chatBackgroundDark: parseChatBackground(chatBackgroundDark) }),
   };
 }
 
@@ -225,12 +249,20 @@ export function parseIdleRestartTarget(input: unknown): IdleRestartTarget {
   return input;
 }
 
+const APP_BEHAVIOR_SWITCHES = ["launchAtLogin", "keepRunningInBackground", "keepAwake", "keepAwakeOnBattery"] as const;
+
+/** At least one switch or the quit guard. */
 export function parseAppBehaviorPreferenceChange(input: unknown): AppBehaviorPreferenceChange {
-  return parseSwitches(
-    input,
-    ["launchAtLogin", "keepRunningInBackground", "keepAwake", "keepAwakeOnBattery"],
-    "The app behavior setting is required.",
-  );
+  const message = "The app behavior setting is required.";
+  if (!isDynamicRecord(input)) throw new Error(message);
+  const hasSwitch = APP_BEHAVIOR_SWITCHES.some((key) => input[key] !== undefined);
+  const change: AppBehaviorPreferenceChange = hasSwitch ? parseSwitches(input, APP_BEHAVIOR_SWITCHES, message) : {};
+  if (input.quitGuard !== undefined) {
+    if (!isOneOf(QUIT_GUARDS, input.quitGuard)) throw new Error(message);
+    change.quitGuard = input.quitGuard;
+  }
+  if (Object.keys(change).length === 0) throw new Error(message);
+  return change;
 }
 
 export function parseUpdatePreference(input: unknown): UpdatePreferenceChange {
@@ -304,6 +336,26 @@ export function parseBrowserDockAction(input: unknown): BrowserDockAction {
 export function parseBrowserDockFrame(input: unknown): BrowserDockFrame {
   if (isBrowserDockFrame(input)) return input;
   throw new Error("Browser dock frame is invalid.");
+}
+
+export function parseAgentDockPresentation(input: unknown): AgentDockPresentation | null {
+  if (input === null || isAgentDockPresentation(input)) return input;
+  throw new Error("Agent dock presentation is invalid.");
+}
+
+export function parseAgentDockAction(input: unknown): AgentDockAction {
+  if (isAgentDockAction(input)) return input;
+  throw new Error("Agent dock action is invalid.");
+}
+
+export function parseAgentDockInteractive(input: unknown): SetAgentDockInteractiveInput {
+  if (isAgentDockInteractive(input)) return input;
+  throw new Error("Agent dock interaction state is required.");
+}
+
+export function parseAgentDockDragPhase(input: unknown): AgentDockDragPhase {
+  if (isAgentDockDragPhase(input)) return input;
+  throw new Error("Agent dock drag phase is invalid.");
 }
 
 export function parseMacPermission(input: unknown): MacPermissionId {

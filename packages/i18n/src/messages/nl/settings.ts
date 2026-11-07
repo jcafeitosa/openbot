@@ -29,6 +29,12 @@ export const messages = {
   "settings.logoColor.beige": "Beige",
   "settings.logoColor.gray": "Grijs",
   "settings.logoColor.white": "Wit",
+  "settings.chatBackground.title": "Chatachtergrond",
+  "settings.chatBackground.description":
+    "Elk thema houdt een eigen kleur. Een kleur die tekst moeilijk leesbaar maakt, wordt donkerder of lichter.",
+  "settings.chatBackground.light": "Chatachtergrond in Licht",
+  "settings.chatBackground.dark": "Chatachtergrond in Donker",
+  "settings.chatBackground.default": "Standaard",
   "settings.chatColor.title": "Chatkleur",
   "settings.chatColor.description": "Geeft de ballonnen van je berichten een tint. Mensen op je servers zien hem ook.",
   "settings.chatColor.yours": "Jouw chatkleur",
@@ -64,6 +70,12 @@ export const messages = {
     "Houd de computer ook op batterijstroom wakker. De batterij loopt dan sneller leeg.",
   "settings.restoreWorkspace.title": "Herstel de laatste werkruimte bij openen",
   "settings.restoreWorkspace.description": "Open de werkruimte en taken van je vorige sessie.",
+  "settings.quitGuard.title": "⌘Q ingedrukt houden om te stoppen",
+  "settings.quitGuard.description":
+    "Houd ⌘Q ingedrukt of druk twee keer om te stoppen. Met ‘Nooit’ stopt één ⌘Q OpenBot en de agents.",
+  "settings.quitGuard.working": "Als agents werken",
+  "settings.quitGuard.always": "Altijd",
+  "settings.quitGuard.never": "Nooit",
   "settings.externalLinks.title": "Open externe links in",
   "settings.externalLinks.description": "Links in chats, inlogpagina’s en betaalpagina’s openen hier.",
   "settings.externalLinks.defaultBrowser": "Standaardbrowser",
@@ -84,6 +96,9 @@ export const messages = {
   "settings.showAgentSteps.title": "Toon stappen van agents",
   "settings.showAgentSteps.description":
     "Open standaard het denkwerk, de toolstappen en de geheugenwijzigingen van elke beurt op dit apparaat en in deze browser.",
+  "settings.compactMessageActions.title": "Compacte berichtacties",
+  "settings.compactMessageActions.description":
+    "Toont Reageren, Beantwoorden en Meer naast een bericht, en de tijd tussen berichten. Als dit uit staat, staan alle acties en de tijd onder elk bericht.",
   "settings.busyMessage.title": "Stuur agents bij terwijl ze werken",
   "settings.busyMessage.description":
     "Nieuwe berichten gaan naar het huidige werk van de agent, niet naar de wachtrij. Werkt met ChatGPT en Claude.",
@@ -217,6 +232,34 @@ export const messages = {
   "settings.notch.size.height": "Hoogte",
   "settings.notch.size.previewNotch": "Ingebouwd scherm",
   "settings.notch.size.previewIsland": "Extern scherm",
+  "settings.agentDock.title": "Gedrag",
+  "settings.agentDock.show.title": "Toon de agentdock",
+  "settings.agentDock.show.description": "Toont je agents aan de schermrand, klaar voor een snelle chat.",
+  "settings.agentDock.placement.title": "Positie",
+  "settings.agentDock.placement.description":
+    "‘Boven andere apps’ houdt het dock in beeld als OpenBot op de achtergrond is.",
+  "settings.agentDock.placement.screen": "Boven andere apps",
+  "settings.agentDock.placement.window": "In het OpenBot-venster",
+  "settings.agentDock.display.title": "Scherm",
+  "settings.agentDock.display.description":
+    "Als dat scherm niet is aangesloten, gaat het dock naar het scherm van het OpenBot-venster.",
+  "settings.agentDock.display.window": "Bij het OpenBot-venster",
+  "settings.agentDock.display.primary": "Hoofdscherm",
+  "settings.agentDock.display.all": "Alle schermen",
+  "settings.agentDock.display.unnamed": "Scherm {number}",
+  "settings.agentDock.display.disconnected": "Scherm niet aangesloten",
+  "settings.agentDock.edge.title": "Schermrand",
+  "settings.agentDock.edge.description": "Sleep het dock omhoog of omlaag om het langs de rand te verplaatsen.",
+  "settings.agentDock.edge.right": "Rechts",
+  "settings.agentDock.edge.left": "Links",
+  "settings.agentDock.autoHide.title": "Verbergen als het niet wordt gebruikt",
+  "settings.agentDock.autoHide.description":
+    "Het dock schuift in de rand. Beweeg de aanwijzer naar de rand om het te tonen.",
+  "settings.agentDock.results.title": "Klaar werk tonen",
+  "settings.agentDock.results.description": "Resultaten van agents verschijnen kort naast het dock.",
+  "settings.agentDock.agents.title": "Agents in het dock",
+  "settings.agentDock.agents.description": "De agents van {server}. Elke server heeft een eigen dock.",
+  "settings.agentDock.agents.empty": "Deze server heeft nog geen agents.",
   "settings.analytics.title": "Analyse aan mijn account koppelen",
   "settings.analytics.description":
     "Aan: metadata over gebruik en betrouwbaarheid gaat met je account-ID en e-mailadres naar de zelfgehoste analyse van OpenBot, met de websites die jij en je agents bezoeken, het gebruik van tools en een dagelijks overzicht van je installatie. Uit: alleen basisgebruik, zoals beurten en aantallen tokens, gaat met een willekeurige installatie-ID. Chats, bestanden en prompts worden nooit verstuurd.",
@@ -231,7 +274,7 @@ export const messages = {
   "settings.tab.notifications.description": "Kies hoe OpenBot je waarschuwt.",
   "settings.tab.voice.title": "Spraak",
   "settings.tab.voice.description":
-    "Dicteren in het berichtvak. Lokale modellen draaien op deze computer; ElevenLabs draait in de cloud.",
+    "Dicteren in het berichtvak. Lokale modellen draaien op deze computer; ElevenLabs en Groq draaien in de cloud.",
   "settings.tab.computerUse.title": "PC-besturing",
   "settings.tab.computerUse.description":
     "Laat agents in de OpenBot van deze computer de apps ervan zien en gebruiken. Agents op een andere server gebruiken de computer van die server.",
@@ -241,6 +284,8 @@ export const messages = {
   "settings.tab.mobileConnect.description": "Log veilig in op je telefoon.",
   "settings.tab.dynamicIsland.title": "Dynamic Island",
   "settings.tab.dynamicIsland.description": "Kies wanneer het eiland verschijnt en hoe groot het is.",
+  "settings.tab.agentDock.title": "Agentdock",
+  "settings.tab.agentDock.description": "Kies waar het dock verschijnt en welke agents erin staan.",
   "settings.tab.updates.title": "Updates",
   "settings.tab.updates.description": "Houd OpenBot op deze computer up-to-date.",
   "settings.tab.billing.title": "Facturering",
@@ -563,13 +608,10 @@ export const messages = {
   "settings.voice.model.cohere.description":
     "Trager. 14 talen. Je stelt de gesproken taal zelf in. Gebruikt ongeveer 4 GB geheugen.",
   "settings.voice.model.size": "Downloadgrootte: {size}",
-  "settings.voice.model.downloading": "Downloaden · {received} van {total}",
   "settings.voice.model.failed": "De download is gestopt. Controleer de verbinding en probeer het opnieuw.",
   "settings.voice.model.progressLabel": "{name} downloaden",
   "settings.voice.model.use": "Gebruik",
-  "settings.voice.model.inUse": "In gebruik",
   "settings.voice.model.downloadLabel": "Download {name}",
-  "settings.voice.model.cancelLabel": "Stop de download van {name}",
   "settings.voice.model.retryLabel": "Download {name} opnieuw",
   "settings.voice.model.useLabel": "Gebruik {name} voor dicteren",
   "settings.voice.model.removeLabel": "Verwijder {name} van deze computer",
@@ -591,9 +633,10 @@ export const messages = {
   "settings.voice.removeFailed": "Kan het model niet verwijderen. Probeer het opnieuw.",
   "settings.voice.model.elevenlabs.description":
     "Streamt je stem naar ElevenLabs. Tekst verschijnt terwijl je spreekt en blijft staan. Gebruikt je eigen API-sleutel, en ElevenLabs rekent elk gebruik af.",
-  "settings.voice.model.keySaved": "API-sleutel opgeslagen",
-  "settings.voice.model.keyMissing": "Vereist een ElevenLabs-API-sleutel",
-  "settings.voice.apiKey.label": "ElevenLabs-API-sleutel",
+  "settings.voice.model.groqTurbo.description":
+    "Stuurt elke opname naar Groq als je stopt. Snel, en kent veel talen. Gebruikt je eigen API-sleutel, en Groq rekent elk gebruik af.",
+  "settings.voice.model.groqLarge.description":
+    "Stuurt elke opname naar Groq als je stopt. Nauwkeuriger dan turbo, maar trager. Gebruikt je eigen API-sleutel, en Groq rekent elk gebruik af.",
   "settings.voice.apiKey.placeholder": "Plak de sleutel",
   "settings.voice.apiKey.save": "Sleutel opslaan",
   "settings.voice.apiKey.remove": "Sleutel verwijderen",

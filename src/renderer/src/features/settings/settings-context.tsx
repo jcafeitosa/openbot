@@ -13,6 +13,11 @@ import { isActionSoundEnabled, readActionSoundTheme, setActionSoundChoice } from
 import { actionToast } from "../../action-toast";
 import { readShowAgentSteps, setShowAgentSteps, useShowAgentSteps } from "../../agent-steps-preference";
 import { desktopAnalytics } from "../../analytics";
+import {
+  readCompactMessageActions,
+  setCompactMessageActions,
+  useCompactMessageActions,
+} from "../../compact-message-actions-preference";
 import { playSoundChoice, readTaskSound, setTaskSound } from "../../completion-sound";
 import { usePlatform } from "../../platform";
 import { readSendShortcutMode, setSendShortcutMode, useSendShortcutMode } from "../../send-shortcut-preference";
@@ -119,6 +124,7 @@ const Settings = createSimpleContext({
       taskSound: readTaskSound(),
       sendShortcut: readSendShortcutMode(),
       showAgentSteps: readShowAgentSteps(),
+      compactMessageActions: readCompactMessageActions(),
       soundFeedback: isActionSoundEnabled(),
       soundTheme: readActionSoundTheme(),
     });
@@ -138,6 +144,15 @@ const Settings = createSimpleContext({
       (show) => {
         setGeneralSettings((current) =>
           current.showAgentSteps === show ? current : { ...current, showAgentSteps: show },
+        );
+      },
+    );
+    const compactMessageActions = useCompactMessageActions();
+    createEffect(
+      () => compactMessageActions(),
+      (compact) => {
+        setGeneralSettings((current) =>
+          current.compactMessageActions === compact ? current : { ...current, compactMessageActions: compact },
         );
       },
     );
@@ -161,6 +176,7 @@ const Settings = createSimpleContext({
     let keepRunningInBackgroundChanged = false;
     let keepAwakeChanged = false;
     let keepAwakeOnBatteryChanged = false;
+    let quitGuardChanged = false;
 
     createEffect(
       () => ({
@@ -229,6 +245,9 @@ const Settings = createSimpleContext({
       }
       if (previous.showAgentSteps !== value.showAgentSteps) {
         setShowAgentSteps(value.showAgentSteps);
+      }
+      if (previous.compactMessageActions !== value.compactMessageActions) {
+        setCompactMessageActions(value.compactMessageActions);
       }
       if (previous.soundFeedback !== value.soundFeedback || previous.soundTheme !== value.soundTheme) {
         setActionSoundChoice(value.soundFeedback ? value.soundTheme : "off");
@@ -344,6 +363,14 @@ const Settings = createSimpleContext({
           "keepAwakeOnBattery",
           settingsPort().setAppBehaviorPreference({ keepAwakeOnBattery: value.keepAwakeOnBattery }),
           (preference) => preference.keepAwakeOnBattery,
+        );
+      }
+      if (value.quitGuard !== null && previous.quitGuard !== value.quitGuard) {
+        quitGuardChanged = true;
+        persistField(
+          "quitGuard",
+          settingsPort().setAppBehaviorPreference({ quitGuard: value.quitGuard }),
+          (preference) => preference.quitGuard,
         );
       }
       if (!sameExternalLinkTarget(previous.externalLinkTarget, value.externalLinkTarget)) {
@@ -578,6 +605,7 @@ const Settings = createSimpleContext({
               keepAwakeOnBattery: keepAwakeOnBatteryChanged
                 ? current.keepAwakeOnBattery
                 : preference.keepAwakeOnBattery,
+              quitGuard: quitGuardChanged ? current.quitGuard : preference.quitGuard,
             }));
           }),
         settingsPort()

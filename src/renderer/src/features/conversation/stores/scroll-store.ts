@@ -25,6 +25,7 @@ import { formatMessageTime } from "../../../app-message-projection";
 import { groupAgentMessageMarkers, markOpenAgentMessages } from "../agent-message-timeline";
 import type { ConversationProps, ConversationTarget } from "../conversation-types";
 import { summarizeHostedSiteMessages } from "../hosted-site-timeline";
+import { narrationRows } from "../narration-rows";
 import {
   expandRoutineRunGroups,
   groupRoutineRunMarkers,
@@ -47,6 +48,8 @@ interface ScrollStickyState {
   getStickToLatest: () => boolean;
   setStickToLatest: (value: boolean) => void;
   getCurrentUnreadCount: () => number;
+  /** Moves a following reader to the newest message. */
+  followLatest: (element: HTMLDivElement) => void;
 }
 
 export interface ScrollStoreDeps {
@@ -94,20 +97,23 @@ export function createScrollStore(deps: ScrollStoreDeps) {
       ]),
   );
   const shownMessages = createMemo(() => {
-    const shown = deps.props.messages.filter(
-      (message) =>
-        !(
-          message.kind === "thinking" &&
-          (!message.turnId ||
-            thinkingRowHiddenTurns().has(message.turnId) ||
-            !message.items?.some((item) => item.trim()))
-        ) &&
-        !(message.kind === "memory-changes" && answeredTurns().has(message.turnId)) &&
-        !silentAgentAnswer(message),
-    );
     // A channel row has the id of its channel entry and an author of its own, so this is for an agent's chat.
+    const progressUpdates = !deps.props.channel && deps.props.responseStyle === "natural";
+    const shown = deps.props.messages.flatMap((message) => {
+      if (message.kind === "thinking") {
+        const rows = progressUpdates ? narrationRows(message, deps.props.agent?.provider) : [];
+        const showsSteps =
+          message.turnId && !thinkingRowHiddenTurns().has(message.turnId) && message.items?.some((item) => item.trim());
+        return showsSteps ? [...rows, message] : rows;
+      }
+      if (message.kind === "memory-changes" && answeredTurns().has(message.turnId)) return [];
+      return silentAgentAnswer(message) ? [] : [message];
+    });
+    // Natural shows an agent's text once it is complete, as one bubble, while the activity line
+    // names the step. A bubble that grows as the text arrives moves the chat at each line.
+    const complete = progressUpdates ? shown.filter((message) => !heldWhileWritten(message)) : shown;
     const questionTurnId = deps.props.channel ? undefined : deps.props.prompt?.turnId;
-    return summarizeHostedSiteMessages(withQuestionContext(shown, deps.props.messages, questionTurnId));
+    return summarizeHostedSiteMessages(withQuestionContext(complete, deps.props.messages, questionTurnId));
   });
   const routineRunTurns = createMemo(() => routineRunTurnMessages(deps.props.messages, shownMessages()));
   /* The messages of a routine run follow its row and open and close with it. */
@@ -253,6 +259,7 @@ export function createScrollStore(deps: ScrollStoreDeps) {
     },
     scrollMargin: virtualScrollMargin,
     stickToLatest: deps.sticky.getStickToLatest,
+    followLatest: deps.sticky.followLatest,
     onChange: (instance) => {
       const first = instance.getVirtualItems()[0];
       if (!first) return;
@@ -271,7 +278,9 @@ export function createScrollStore(deps: ScrollStoreDeps) {
     scrollFades.measure();
     updateHistoryBoundary(element);
     const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
-    setShowScrollToLatest(remaining > 80);
+    // A chat that follows the latest message is on its way down: a new row is taller than 80px for
+    // the frames before the follow lands, and the button must not flash over it.
+    setShowScrollToLatest(remaining > 80 && !deps.sticky.getStickToLatest());
     if (remaining <= 80) clearNewMessages();
   }
 
@@ -387,6 +396,13 @@ export function createScrollStore(deps: ScrollStoreDeps) {
   };
 }
 
+/** Agent text that the host still writes. A plan, the subagents, a card and an image show while they run. */
+function heldWhileWritten(message: AgentMessage): boolean {
+  return (
+    message.author === "agent" && message.streaming === true && message.kind === "text" && !message.imageGeneration
+  );
+}
+
 /** The ids Claude and the ACP agents give a turn's thinking, beside its narration, as `REASONING_ID` in the backend. */
 const THINKING_ITEM_ID = /:(?:reasoning|thought(?::\d+)?)$/u;
 
@@ -403,7 +419,8 @@ function withQuestionContext(
   if (!turnId) return shown;
   const thinking = messages.find((message) => message.kind === "thinking" && message.turnId === turnId);
   const context = thinking ? lastNarration(thinking) : null;
-  if (!context) return shown;
+  // With progress updates on, the narration is already a row of its own.
+  if (!context || shown.some((message) => message.id === context.id)) return shown;
   const turnEnd = shown.findLastIndex((message) => message.turnId === turnId) + 1;
   const at = turnEnd > 0 ? turnEnd : shown.length;
   return [...shown.slice(0, at), context, ...shown.slice(at)];

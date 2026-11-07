@@ -58,6 +58,8 @@ export interface ChatMessageRowProps {
   /** Opens a folded long message, as its "Show full message" button does. The reader can fold it again. */
   open?: boolean | undefined;
   animate?: boolean;
+  /** An entering agent message shows its text at once instead of fading its words in. */
+  textAtOnce?: boolean | undefined;
   agents: AgentProfile[];
   skills?: InstalledSkill[] | undefined;
   referencedMessage?: AgentMessage | undefined;
@@ -81,6 +83,13 @@ export interface ChatMessageRowProps {
   steps?: JSX.Element;
   /** True when the actions and steps stand beside the bubble, as a channel shows an agent's answer. They go under it when the line has no room. */
   actionsBeside?: boolean | undefined;
+  /**
+   * False draws no row under the bubble: a progress update has no actions, and the answer of its turn
+   * carries the time, so the updates of a turn stand close together.
+   */
+  actionRow?: boolean | undefined;
+  /** False keeps the time out of the action row, when the separators of the chat show the time. */
+  actionTime?: boolean | undefined;
   class?: string | undefined;
   "data-chat-search-message"?: string | undefined;
   onSelectAgent: (agentId: string) => void;
@@ -200,7 +209,7 @@ export function ChatMessageRow(props: ChatMessageRowProps): JSX.Element {
       frame={frame}
       showFull={props.showFull}
       open={props.open}
-      animate={props.animate}
+      animate={props.animate === true && props.textAtOnce !== true}
       message={props.message}
       referencedMessage={props.referencedMessage}
       referencedAuthorName={props.referencedAuthorName}
@@ -283,12 +292,13 @@ export function ChatMessageRow(props: ChatMessageRowProps): JSX.Element {
     </Bubble>
   );
   // The actions, the time and the steps stand under the bubble. A named author shows the time beside
-  // the name. A row beside the bubble goes under it only when the line has no room.
-  const beside = () => props.actionsBeside === true && !person();
+  // the name. A row beside the bubble goes under it only when the line has no room. The reader's own
+  // row can stand beside the bubble too, before it; another person's row stays under it.
+  const beside = () => props.actionsBeside === true && !member();
   const actionRow = (): JSX.Element => (
     <div class="message-action-row">
       {props.actions}
-      <Show when={!props.showAuthor || own()}>
+      <Show when={props.actionTime !== false && (!props.showAuthor || own())}>
         <time class="message-time" datetime={props.message.createdAt}>
           {props.message.time}
         </time>
@@ -352,9 +362,9 @@ export function ChatMessageRow(props: ChatMessageRowProps): JSX.Element {
               ))}
             </div>
           </Show>
-          <Show when={beside()}>{actionRow()}</Show>
+          <Show when={props.actionRow !== false && beside()}>{actionRow()}</Show>
         </div>
-        <Show when={!beside()}>{actionRow()}</Show>
+        <Show when={props.actionRow !== false && !beside()}>{actionRow()}</Show>
       </MessageContent>
     </>
   );

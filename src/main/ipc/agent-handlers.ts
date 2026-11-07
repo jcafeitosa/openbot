@@ -552,6 +552,26 @@ export function agentIpcHandlers({
           throw new Error(sourceText("error.team.channelPictureUnsupported"));
         },
       }),
+      // Team API has no route for these yet; the channel editor offers them only for this computer.
+      clearChannelContext: scopedHandler(parseChannelId, {
+        local: (channelId) => runCauseEffect(service.clearChannelContext(channelId, host.channelActor())),
+        remote: () => {
+          throw new Error(sourceText("error.team.channelContextUnsupported"));
+        },
+      }),
+      // Only this computer deletes a channel history. Team API has no route for it.
+      deleteChannelHistory: scopedHandler(parseChannelId, {
+        local: (channelId) => runCauseEffect(service.deleteChannelHistory(channelId)),
+        remote: () => {
+          throw new Error(sourceText("error.team.historyDeleteUnsupported"));
+        },
+      }),
+      compactChannelContext: scopedHandler(parseChannelId, {
+        local: (channelId) => runCauseEffect(service.compactChannelContext(channelId)),
+        remote: () => {
+          throw new Error(sourceText("error.team.channelContextUnsupported"));
+        },
+      }),
       getSidebarLayout: scopedQueryHandler({
         local: () => sidebarLayout.getSnapshot(),
         remote: (serverId) =>
@@ -1171,6 +1191,13 @@ export function agentIpcHandlers({
               body: { agentId },
             }),
           );
+        },
+      }),
+      // Only this computer deletes an agent's history. Team API has no route for it.
+      deleteHistory: scopedHandler(parseAgentId, {
+        local: (agentId) => runCauseEffect(service.deleteAgentHistory(agentId)),
+        remote: () => {
+          throw new Error(sourceText("error.team.historyDeleteUnsupported"));
         },
       }),
       // A joined server compacts with `context-compact-v1`.

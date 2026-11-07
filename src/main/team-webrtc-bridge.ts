@@ -18,6 +18,8 @@ interface TeamWebRtcBridgeEvents {
   signalReady: [peerId: string];
   /** The Signal socket of a peer opened. Only the connection trace reads it. */
   signalOpen: [peerId: string];
+  /** Signal holds a client attempt with `waitForHost` until the offline host connects. */
+  hostWaiting: [peerId: string];
   /** A host's own Signal socket closed. `terminal`: the peer does not connect it again. */
   signalClosed: [peerId: string, code: string, terminal: boolean];
   incoming: [
@@ -110,6 +112,7 @@ type BridgeCommand =
       peer: "host" | "client";
       iceTransportPolicy: "all" | "relay";
       privateNetwork?: boolean;
+      waitForHost?: boolean;
     }
   | { type: "prepare-signal"; peerId: string; signalUrl: string }
   | { type: "set-private-network"; peerId: string; privateNetwork: boolean }
@@ -161,7 +164,14 @@ export class TeamWebRtcBridge extends EventEmitter<TeamWebRtcBridgeEvents> {
 
   readonly connect = Effect.fn("TeamWebRtcBridge.connect")(function* (
     this: TeamWebRtcBridge,
-    input: { peerId: string; signalUrl: string; token: string; peer: "host" | "client"; privateNetwork?: boolean },
+    input: {
+      peerId: string;
+      signalUrl: string;
+      token: string;
+      peer: "host" | "client";
+      privateNetwork?: boolean;
+      waitForHost?: boolean;
+    },
   ) {
     yield* this.start();
     yield* this.#command({ type: "connect", ...input, iceTransportPolicy: this.#options.iceTransportPolicy ?? "all" });
@@ -415,6 +425,7 @@ export class TeamWebRtcBridge extends EventEmitter<TeamWebRtcBridgeEvents> {
     else if (message.type === "account-servers-changed") this.emit("accountServersChanged", message.peerId);
     else if (message.type === "signal-ready") this.emit("signalReady", message.peerId);
     else if (message.type === "signal-open") this.emit("signalOpen", message.peerId);
+    else if (message.type === "host-waiting") this.emit("hostWaiting", message.peerId);
     else if (message.type === "signal-closed" && message.code)
       this.emit("signalClosed", message.peerId, message.code, message.terminal === true);
     else if (message.type === "peer-connected" && message.localFingerprint && message.remoteFingerprint)

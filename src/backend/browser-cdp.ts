@@ -33,10 +33,13 @@ import {
 import {
   buttonMask,
   dispatchMouseClick,
+  dispatchPointerMove,
   dispatchShortcut,
+  dispatchText,
   dispatchTextKey,
   modifierMask,
   namedKey,
+  type PointerPoint,
   SHIFT_MODIFIER,
 } from "./browser-cdp-input";
 import {
@@ -73,6 +76,7 @@ import {
   type SendCommand,
   stringValue,
 } from "./browser-cdp-values";
+import { type DetectedChallenge, detectChallenge } from "./browser-challenge";
 import { type BrowserOperationError, browserCall, browserFailure, browserSync } from "./browser-effects";
 import {
   type BrowserFillFieldsProgress,
@@ -83,6 +87,7 @@ import {
 } from "./browser-fill-fields";
 import { describeBrowserTarget, stopLoadingAndWait, waitForLoading } from "./browser-navigation";
 import { createFramePacer } from "./browser-screencast-pacing";
+import { probeSettle, SETTLE_BUSY_WAIT_MS, SETTLE_RESERVE_MS, waitForSettle } from "./browser-settle";
 import type { VaultCardSecret } from "./vault-items";
 
 const ACTION_TIMEOUT_MS = 10_000;
@@ -99,6 +104,8 @@ export interface SnapshotReadResult {
   snapshot: BrowserSnapshot;
   recommendImage: boolean;
   imageReason: string;
+  /** A bot check on the main frame. The tab read decides whether to wait for it. */
+  challenge: DetectedChallenge | null;
 }
 
 /** The page state that an action reports when it does not read a snapshot. */
@@ -120,6 +127,8 @@ export interface SnapshotContext {
   environment: BrowserEnvironment;
   diagnostics: BrowserDiagnosticEntry[];
   actions: BrowserActionHistoryEntry[];
+  /** The time, as `Date.now()`, at which the read times out. A settle wait ends before it. */
+  deadline: number;
 }
 
 export interface BrowserScreencastOptions {
@@ -199,10 +208,33 @@ const FOCUSED_FRAME_SCRIPT = `(() => {${FOCUSED_SELECTION}
 /** Frames inside frames. Past this the focus is treated as in the last frame reached. */
 const MAX_FOCUSED_FRAME_DEPTH = 8;
 
+// Counts the key events that reach the target's window, in the automation world, so the page does
+// not see the listener. `TYPED_KEY_ARRIVED_FUNCTION` reads the count and removes the listener. A key
+// also arrived when the text changed: a page listener that stops the event can hide it from the count.
+const COUNT_TYPED_KEYS = `
+  globalThis.openbotTypedKeys?.view.removeEventListener('keydown', globalThis.openbotTypedKeys.listener, true);
+  const typedKeys = {
+    view: this.ownerDocument.defaultView, count: 0, text: 'value' in this ? String(this.value) : this.textContent,
+    listener: () => { typedKeys.count += 1; },
+  };
+  typedKeys.view.addEventListener('keydown', typedKeys.listener, true);
+  globalThis.openbotTypedKeys = typedKeys;`;
+const TYPED_KEY_ARRIVED_FUNCTION = `function(expected) {
+  const typedKeys = globalThis.openbotTypedKeys;
+  if (!typedKeys) return true;
+  typedKeys.view.removeEventListener('keydown', typedKeys.listener, true);
+  globalThis.openbotTypedKeys = undefined;
+  const text = 'value' in this ? String(this.value) : this.textContent;
+  return typedKeys.count >= expected || text !== typedKeys.text;
+}`;
+const SAVE_TYPED_TEXT_FUNCTION = `function() {
+  if (globalThis.openbotTypedKeys) globalThis.openbotTypedKeys.text = 'value' in this ? String(this.value) : this.textContent;
+}`;
 /**
  * True when this node holds focus in its own document: every shadow root on the way up names it or
  * its host as active. It starts inside the node, so a closed shadow root does not hide it.
  */
+
 const HOLDS_FOCUS_FUNCTION = `function() {
   if (!this.isConnected) return false;
   for (let node = this;;) {
@@ -294,12 +326,20 @@ export class BrowserCdpEngine {
    * move between a press and a release names this one.
    */
   #viewButton: "left" | "middle" | "right" | null = null;
+  /** Where the last mouse event put the pointer, so the next agent move starts there. */
+  #pointer: { point: PointerPoint; sessionId: string | undefined } | null = null;
   #targets = new Map<string, TargetRecord>();
   #lastSnapshot: BrowserSnapshot | null = null;
   #environment: BrowserEnvironment | null = null;
   /** The page sizes of the open views that asked for one. The newest one applies. */
   readonly #viewViewports: Array<{ width: number; height: number }> = [];
   #navigationGeneration = 0;
+  /** Counts new documents only. A same-document navigation, such as `history.replaceState`, keeps it. */
+  #documentGeneration = 0;
+  /** The document whose loading markers stayed for a full settle wait. Its snapshots do not wait again. */
+  #settleTimedOutDocument = -1;
+  /** The `timeOrigin` of the document that already waited for its first content. It does not wait again. */
+  #emptyWaitedDocument = -1;
   readonly #cardScrub: CardValueScrub;
 
   readonly prepareSecret = Effect.fn("BrowserCdp.prepareSecret")(function* (
@@ -654,6 +694,7 @@ export class BrowserCdpEngine {
   });
   #retainDebugger = false;
   #ownsDebugger = false;
+  #idleDetach: NodeJS.Immediate | undefined;
   #closing = false;
   #disposed = false;
   readonly #scope = Scope.makeUnsafe();
@@ -700,6 +741,7 @@ export class BrowserCdpEngine {
     });
     contents.on("did-start-navigation", (details) => {
       if (details.isMainFrame) this.#navigationGeneration += 1;
+      if (details.isMainFrame && !details.isSameDocument) this.#documentGeneration += 1;
       this.#targets.clear();
       this.#lastSnapshot = null;
     });
@@ -734,15 +776,48 @@ export class BrowserCdpEngine {
   ): Effect.fn.Return<SnapshotReadResult, BrowserOperationError> {
     return yield* this.#leaseEffect((send) =>
       Effect.gen({ self: this }, function* () {
-        const navigationGeneration = this.#navigationGeneration;
-        const [metrics, parsed, focus] = yield* Effect.all(
-          [
-            send("Page.getLayoutMetrics"),
-            collectBoundedSnapshot(send, this.#snapshotTargets(), context.revision, true),
-            collectFocus(send).pipe(Effect.catch(() => Effect.succeed(null))),
-          ],
+        let navigationGeneration = this.#navigationGeneration;
+        const documentGeneration = this.#documentGeneration;
+        const collect = () =>
+          Effect.all(
+            [
+              collectBoundedSnapshot(send, this.#snapshotTargets(), context.revision, true),
+              collectFocus(send).pipe(Effect.catch(() => Effect.succeed(null))),
+            ],
+            { concurrency: "unbounded" },
+          );
+        let [metrics, [parsed, focus], challenge, settle] = yield* Effect.all(
+          [send("Page.getLayoutMetrics"), collect(), detectChallenge(this.#contents, send), probeSettle(send)],
           { concurrency: "unbounded" },
         );
+        // A page that still shows loading placeholders, or a new page with no controls yet, would
+        // make the agent take a second snapshot. Wait a short time in this one instead. A bot check
+        // has its own wait in the tab read.
+        const busyWait = settle?.busy === true && this.#settleTimedOutDocument !== documentGeneration;
+        const emptyWait =
+          settle !== null &&
+          !settle.busy &&
+          parsed.elements.length === 0 &&
+          settle.emptyWaitMs > 0 &&
+          settle.document !== this.#emptyWaitedDocument;
+        // The second collect needs time before the read's deadline.
+        const settleBudget = Math.min(
+          busyWait ? SETTLE_BUSY_WAIT_MS : (settle?.emptyWaitMs ?? 0),
+          context.deadline - Date.now() - SETTLE_RESERVE_MS,
+        );
+        if (
+          challenge === null &&
+          (busyWait || emptyWait) &&
+          settleBudget > 0 &&
+          navigationGeneration === this.#navigationGeneration
+        ) {
+          if (emptyWait && settle !== null) this.#emptyWaitedDocument = settle.document;
+          const settled = yield* waitForSettle(send, emptyWait, settleBudget);
+          if (!settled && busyWait) this.#settleTimedOutDocument = documentGeneration;
+          // A page that loads often sets its URL with history.replaceState. That keeps the document.
+          if (documentGeneration === this.#documentGeneration) navigationGeneration = this.#navigationGeneration;
+          if (navigationGeneration === this.#navigationGeneration) [parsed, focus] = yield* collect();
+        }
         if (navigationGeneration !== this.#navigationGeneration) {
           return yield* browserFailure(new Error("Page navigated during the browser snapshot. Take a fresh snapshot."));
         }
@@ -773,7 +848,7 @@ export class BrowserCdpEngine {
             ? "iframe"
             : "low-semantic-coverage";
         // The kept references compare the page with the unscrubbed elements.
-        return { snapshot: this.#cardScrub.snapshot(snapshot), recommendImage, imageReason };
+        return { snapshot: this.#cardScrub.snapshot(snapshot), recommendImage, imageReason, challenge };
       }),
     );
   });
@@ -814,7 +889,9 @@ export class BrowserCdpEngine {
         const modifiers = modifierMask(options.modifiers ?? []);
         yield* browserSync(() => assertBeforeDeadline(deadline));
         onDispatch?.();
-        yield* dispatchMouseClick(send, coordinates, button, totalClicks, modifiers, sessionId);
+        const from = this.#pointerIn(sessionId);
+        this.#pointer = { point: coordinates, sessionId };
+        yield* dispatchMouseClick(send, coordinates, button, totalClicks, modifiers, sessionId, from);
       }),
     );
   });
@@ -831,7 +908,9 @@ export class BrowserCdpEngine {
         const { sessionId, ...coordinates } = point;
         yield* browserSync(() => assertBeforeDeadline(deadline));
         onDispatch?.();
-        yield* send("Input.dispatchMouseEvent", { type: "mouseMoved", ...coordinates }, sessionId);
+        const from = this.#pointerIn(sessionId);
+        this.#pointer = { point: coordinates, sessionId };
+        yield* dispatchPointerMove(send, from, coordinates, 0, sessionId);
       }),
     );
   });
@@ -855,7 +934,10 @@ export class BrowserCdpEngine {
         // A frame in another process can keep its own active element after the page takes focus, so
         // each frame element on the way up must hold focus too.
         const checkFocus = (
-          key: "error.backend.browserTypingFocusMoved" | "error.backend.browserTypingSubmitSkipped",
+          key:
+            | "error.backend.browserTypingFocusMoved"
+            | "error.backend.browserTypingFocusMovedWhileTyping"
+            | "error.backend.browserTypingSubmitSkipped",
         ) =>
           Effect.forEach(
             chain,
@@ -883,6 +965,7 @@ export class BrowserCdpEngine {
           resolved.backendNodeId,
           `function(mode) {
           if (!('value' in this) && !this.isContentEditable) throw new Error('Target does not accept text.');
+          ${COUNT_TYPED_KEYS}
           if (mode === 'replace') {
             if ('select' in this && typeof this.select === 'function') this.select();
             else {
@@ -910,14 +993,41 @@ export class BrowserCdpEngine {
         }
         yield* checkFocus("error.backend.browserTypingFocusMoved");
         yield* browserSync(() => assertBeforeDeadline(deadline));
-        yield* send("Input.insertText", { text }, resolved.sessionId);
+        const keyArrived = this.#callOnNode(
+          send,
+          resolved.backendNodeId,
+          TYPED_KEY_ARRIVED_FUNCTION,
+          [useEndKey === true ? 2 : 1],
+          resolved.sessionId,
+        ).pipe(
+          Effect.map((arrived) => arrived !== false),
+          // A handler that removed the target after the key shows that the key arrived.
+          Effect.catch(() => Effect.succeed(true)),
+        );
+        yield* dispatchText(send, text, resolved.sessionId, {
+          keyArrived,
+          saveText: this.#callOnNode(
+            send,
+            resolved.backendNodeId,
+            SAVE_TYPED_TEXT_FUNCTION,
+            [],
+            resolved.sessionId,
+          ).pipe(Effect.asVoid),
+          // Short text arrives one key at a time. The deadline can pass, or a key handler can move focus
+          // to another element, after the page already has part of the text.
+          beforeNext: (typed, total) =>
+            browserSync(() => assertTypingProgressBeforeDeadline(deadline, typed, total)).pipe(
+              Effect.andThen(checkFocus("error.backend.browserTypingFocusMovedWhileTyping")),
+            ),
+        });
         // Submitting is part of typing rather than a second action, because it has to reach the node
         // this lease already resolved. Re-resolving a snapshot ref here would fingerprint the element
         // against its pre-typing text, so a contenteditable would fail with "The target changed after
         // the snapshot" and `submit: true` would insert the text without ever submitting it.
         if (options.submit === true) {
           yield* checkFocus("error.backend.browserTypingSubmitSkipped");
-          yield* browserSync(() => assertBeforeDeadline(deadline));
+          const total = [...text].length;
+          yield* browserSync(() => assertTypingProgressBeforeDeadline(deadline, total, total));
           yield* dispatchShortcut(send, "Enter", resolved.sessionId);
         }
       }),
@@ -1969,8 +2079,18 @@ export class BrowserCdpEngine {
 
   /** The engine sees a dialog only while it stays attached: for each lease, watch, and open dialog. */
   #releaseIdleDebugger(): void {
-    if (this.#activeLeases === 0 && !this.#retainDebugger && !this.#dialog && this.#dialogWatches.size === 0)
-      this.#detachOwnedDebugger();
+    if (!this.#debuggerIdle() || this.#idleDetach) return;
+    // A lease can end inside a CDP message: a command fails while Chromium detaches the frame sessions
+    // of a committing navigation. A detach there frees the sessions that Chromium still uses, and the
+    // main process crashes (#5520). Detach on a later task, if the debugger is still idle then.
+    this.#idleDetach = setImmediate(() => {
+      this.#idleDetach = undefined;
+      if (this.#debuggerIdle()) this.#detachOwnedDebugger();
+    });
+  }
+
+  #debuggerIdle(): boolean {
+    return this.#activeLeases === 0 && !this.#retainDebugger && !this.#dialog && this.#dialogWatches.size === 0;
   }
 
   #signalDialogChange(): void {
@@ -2283,6 +2403,7 @@ export class BrowserCdpEngine {
             return;
           }
           const held = this.#viewButton;
+          this.#pointer = { point: { x: input.x, y: input.y }, sessionId: undefined };
           if (input.action === "down") this.#viewButton = input.button;
           if (input.action === "up") this.#viewButton = null;
           yield* send("Input.dispatchMouseEvent", {
@@ -2430,6 +2551,12 @@ export class BrowserCdpEngine {
     this.#viewButton = null;
   }
 
+  /** The pointer's last point, when it is in the coordinates of the frame of `sessionId`. */
+  #pointerIn(sessionId: string | undefined): PointerPoint | undefined {
+    const pointer = this.#pointer;
+    return pointer && pointer.sessionId === sessionId ? pointer.point : undefined;
+  }
+
   readonly navigate = Effect.fn("BrowserCdp.navigate")(function* (
     this: BrowserCdpEngine,
     url: string,
@@ -2461,6 +2588,8 @@ export class BrowserCdpEngine {
     this.#disposed = true;
     yield* Scope.close(this.#scope, Exit.void);
     this.#retainDebugger = false;
+    clearImmediate(this.#idleDetach);
+    this.#idleDetach = undefined;
     this.#detachOwnedDebugger();
     // Electron keeps its box open after the page closes, a person's box too, and nobody can answer it
     // then. The box can also show after the close. The emit only runs JavaScript listeners.

@@ -19,6 +19,7 @@ import {
   decodeAgentNewChatSettings,
   decodeAgentPlanCardSettings,
   decodeAgentTaskLimitSettings,
+  LEGACY_RESPONSE_STYLE,
   type ServerConnectionState,
   type ServerSummary,
 } from "@openbot/contracts/ipc";
@@ -42,12 +43,14 @@ import { CONTEXT_RESET_CAPABILITY } from "@openbot/contracts/team-protocol/conte
 import { AGENT_HIDDEN_CAPABILITY, TEAM_AGENT_CREATE_MODEL_CAPABILITY } from "@openbot/contracts/team-protocol/current";
 import { DISCORD_ACCESS_CAPABILITY } from "@openbot/contracts/team-protocol/discord-access-v1";
 import { EVENTS_CAPABILITY } from "@openbot/contracts/team-protocol/events-v1";
+import { HOST_PERSONALITY_CAPABILITY } from "@openbot/contracts/team-protocol/host-personality-v1";
 import { HOST_RELEASE_CAPABILITY } from "@openbot/contracts/team-protocol/host-release-v1";
 import { HOSTED_SITES_CAPABILITY } from "@openbot/contracts/team-protocol/hosted-sites-v1";
 import { MCP_SIGN_IN_CAPABILITY } from "@openbot/contracts/team-protocol/mcp-sign-in-v1";
 import { MESSAGE_DELETE_CAPABILITY } from "@openbot/contracts/team-protocol/message-delete-v1";
 import { ROUTINE_FLOWS_CAPABILITY } from "@openbot/contracts/team-protocol/routine-flows-v1";
 import { ROUTINE_RECOVERY_CAPABILITY } from "@openbot/contracts/team-protocol/routine-recovery-v1";
+import { ROUTINE_RUN_PLACE_CAPABILITY } from "@openbot/contracts/team-protocol/routine-run-place-v1";
 import { SIDE_QUESTION_CAPABILITY } from "@openbot/contracts/team-protocol/side-question-v1";
 import { SIGN_IN_RELAY_CAPABILITY } from "@openbot/contracts/team-protocol/sign-in-relay-v1";
 import { VAULT_CAPABILITY } from "@openbot/contracts/team-protocol/vault-v1";
@@ -70,6 +73,7 @@ import {
   getHostAuditLog,
   getHostMemoryReview,
   getHostModelVisibility,
+  getHostPersonality,
   getHostPromptCacheTtl,
   getHostReleaseStatus,
   getHostTimezone,
@@ -80,6 +84,7 @@ import {
   setHostAgentMemoryLimit,
   setHostMemoryReview,
   setHostModelVisibility,
+  setHostPersonality,
   setHostPromptCacheTtl,
   setHostTimezone,
   setHostUpdateSettings,
@@ -209,6 +214,7 @@ import {
   serverRoleCanAdminister,
 } from "../servers/server-capabilities";
 import { createServerConnectionToast } from "../servers/server-connection-toast";
+import { type HostPersonalityCalls, loadServerPersonality, serverResponseStyle } from "../servers/server-personality";
 import {
   offerServerUpdate,
   ServerUpdateDialogHost,
@@ -846,6 +852,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     () => workspace.state.capabilities.includes(BROWSER_PROFILES_CAPABILITY),
     webhookSenderSecretEnabled,
     () => workspace.state.capabilities.includes(BROWSER_PROXIES_CAPABILITY),
+    () => workspace.state.capabilities.includes(ROUTINE_RUN_PLACE_CAPABILITY),
   );
   const remoteAgentAdmin = createRemoteAgentAdmin(
     () => {
@@ -1226,6 +1233,29 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     setTimezone: async (timezone, serverId) =>
       runTeamEffect(setHostTimezone(hostRequest(serverId), timezone).pipe(Effect.mapError((error) => error.cause))),
   };
+  const hostPersonalityCalls: HostPersonalityCalls = {
+    // A host before host-personality-v1 uses the classic prompt.
+    getPersonality: async (serverId) =>
+      workspace.state.capabilities.includes(HOST_PERSONALITY_CAPABILITY)
+        ? runTeamEffect(getHostPersonality(hostRequest(serverId)).pipe(Effect.mapError((error) => error.cause)))
+        : { responseStyle: LEGACY_RESPONSE_STYLE },
+    setPersonality: async (personality, serverId) =>
+      runTeamEffect(
+        setHostPersonality(hostRequest(serverId), personality).pipe(Effect.mapError((error) => error.cause)),
+      ),
+  };
+  // The server's response style decides whether progress updates show as messages. The host
+  // advertises its capabilities when it answers, so the read waits for that.
+  createEffect(
+    () => (workspace.state.status === "online" ? server()?.id : undefined),
+    (serverId) => {
+      if (serverId) loadServerPersonality(serverId, hostPersonalityCalls);
+    },
+  );
+  const responseStyle = () => {
+    const serverId = server()?.id;
+    return serverId ? serverResponseStyle(serverId) : undefined;
+  };
   const hostMemoryLimitCalls: HostMemoryLimitCalls = {
     getAgentMemoryLimit: async (serverId) =>
       runTeamEffect(getHostAgentMemoryLimit(hostRequest(serverId)).pipe(Effect.mapError((error) => error.cause))),
@@ -1417,6 +1447,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     messageDeletionSupported: () => workspace.state.capabilities.includes(MESSAGE_DELETE_CAPABILITY),
     deletesAnyMessage: () => canAdministerServer(workspace.state.host?.role),
     pictureSupported: () => false,
+    contextActionsSupported: () => false,
     beforeOpen: () => {
       setCreating(false);
       // Not `showAgents`: the list restores the saved channel after a host connects, and that must
@@ -2474,6 +2505,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
                         providers={providerSettings()}
                         hostUpdate={{ calls: hostUpdateCalls }}
                         hostTimezone={{ calls: hostTimezoneCalls }}
+                        hostPersonality={{ calls: hostPersonalityCalls }}
                         hostMemoryLimit={{ calls: hostMemoryLimitCalls }}
                         memoryReview={{ calls: hostMemoryReviewCalls }}
                         hostPromptCacheTtl={{ calls: hostPromptCacheTtlCalls }}
@@ -2859,6 +2891,16 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
                       ? workspace.state.progress[workspace.state.selectedId]?.detail
                       : undefined
                   }
+                  activityRunning={
+                    workspace.state.selectedId
+                      ? workspace.state.progress[workspace.state.selectedId]?.running
+                      : undefined
+                  }
+                  activityKind={
+                    workspace.state.selectedId
+                      ? workspace.state.progress[workspace.state.selectedId]?.activity
+                      : undefined
+                  }
                   turnStepLines={workspace.stepLines()}
                   skillsMarketplaceOpen={marketplaceOpen()}
                   mcpSettingsOpen={serverSettings.state.open || marketplaceOpen()}
@@ -2875,6 +2917,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
                   workspaceCovered={pageCovered() || hostOffline()}
                   browserControlState={workspace.state.browserControlState}
                   server={server()}
+                  responseStyle={responseStyle()}
                   presence={workspace.state.presence ?? { serverId: server()?.id ?? null, members: [], updatedAt: "" }}
                   currentUserEmail={props.accountEmail ?? ""}
                   isOwnSender={isOwnAgentChatSender}

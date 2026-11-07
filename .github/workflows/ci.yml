@@ -188,6 +188,9 @@ jobs:
       - name: Run the browser dialogs E2E
         run: xvfb-run -a bun run test:browser-dialogs
 
+      - name: Run the browser fingerprint E2E
+        run: xvfb-run -a bun run test:browser-fingerprint
+
       - name: Run the browser ambiguous targets E2E
         run: xvfb-run -a bun run test:browser-ambiguous-targets
 
@@ -338,6 +341,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: bun run test:sign-in-relay-replay
 
+      - name: Run the MCP member access E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:mcp-member-access
+
       - name: Run the server mute and unmute E2E test
         if: ${{ !cancelled() }}
         run: bun run test:server-mute
@@ -385,6 +392,10 @@ jobs:
       - name: Run the Discord role list and reply context E2E test
         if: ${{ !cancelled() }}
         run: bun run test:messaging-discord-access
+
+      - name: Run the Telegram answer mentions E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:messaging-telegram-mentions
 
       - name: Run the turn input E2E test
         if: ${{ !cancelled() }}
@@ -522,6 +533,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: bun run test:mcp-sign-in-client-refused
 
+      - name: Run the MCP sign-in client metadata document E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:mcp-sign-in-client-metadata-document
+
       - name: Run the unreadable MCP server row E2E test
         if: ${{ !cancelled() }}
         run: bun run test:mcp-server-unreadable-row
@@ -565,6 +580,10 @@ jobs:
       - name: Run the workflow agent tools E2E test
         if: ${{ !cancelled() }}
         run: bun run test:workflow-agent-tools
+
+      - name: Run the workflow join E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:workflow-join
 
       - name: Run the Discord files to GitHub E2E test
         if: ${{ !cancelled() }}
@@ -612,6 +631,7 @@ jobs:
             .openbot-build/team-session-revoke-e2e/
             .openbot-build/sign-in-relay-paste-e2e/
             .openbot-build/sign-in-relay-replay-e2e/
+            .openbot-build/mcp-member-access-e2e/
             .openbot-build/server-mute-e2e/
             .openbot-build/desktop-notifications-e2e/
             .openbot-build/push-notification-away-e2e/
@@ -624,6 +644,7 @@ jobs:
             .openbot-build/agent-hide-restore-e2e/
             .openbot-build/messaging-pause-resume-e2e/
             .openbot-build/messaging-discord-access-e2e/
+            .openbot-build/messaging-telegram-mentions-e2e/
             .openbot-build/turn-input-e2e/
             .openbot-build/zero-filled-settings-e2e/
             .openbot-build/provider-update-busy-e2e/
@@ -666,6 +687,7 @@ jobs:
             .openbot-build/workflow-telegram-e2e/
             .openbot-build/workflow-slack-e2e/
             .openbot-build/workflow-agent-tools-e2e/
+            .openbot-build/workflow-join-e2e/
             .openbot-build/discord-github-files-e2e/
             .openbot-build/opencode-usage-metering-e2e/
             .openbot-build/claude-api-key-e2e/

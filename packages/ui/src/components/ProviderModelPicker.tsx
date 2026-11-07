@@ -33,6 +33,7 @@ import {
   Badge,
   Button,
   Input,
+  KeyRound,
   Listbox,
   Plus,
   Popover,
@@ -55,7 +56,7 @@ import { createEffect, createMemo, createSignal, For, onSettled, Show, untrack }
 import { formatUsageReset, usageWindowLabel } from "../features/account/account-usage-view";
 import { currentText, type TextValue, useText } from "../text";
 import { createScrollFades } from "./createScrollFades";
-import { findModelOption, providerAccountName } from "./provider-accounts";
+import { findModelOption, isApiKeyAccount, providerAccountName } from "./provider-accounts";
 import {
   customProviderIds,
   groupPickerModels,
@@ -723,8 +724,12 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
                             <ProviderMark provider={provider} large />
                             <Show when={account()}>
                               {(entry) => (
+                                // An API key bills the key's credit, not the plan of the other accounts,
+                                // so its badge is a key, not a number (#5550).
                                 <span class="provider-model-rail-account" aria-hidden="true">
-                                  {entry().number}
+                                  <Show when={isApiKeyAccount(entry().account.id)} fallback={entry().number}>
+                                    <KeyRound />
+                                  </Show>
                                 </span>
                               )}
                             </Show>
@@ -780,7 +785,7 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
                   return id && id !== DEFAULT_PROVIDER_ACCOUNT_ID ? id : null;
                 };
                 const status = () => entryStatus(key);
-                const models = createMemo(() => pickerModels(entryModelOptions(key)));
+                const models = createMemo(() => pickerModels(entryModelOptions(key), props.customProviders));
                 const [showOlder, setShowOlder] = createSignal(false);
                 const olderExpanded = () => (showOlder() ? "true" : "false");
                 // An endpoint and a custom agent can both list `goose/default`: match the provider too.

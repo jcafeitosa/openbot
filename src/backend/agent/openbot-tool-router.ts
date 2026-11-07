@@ -93,7 +93,7 @@ import { handleDataTool } from "./data-tools";
 import { responseAttachmentMessageId, visualReplyFileName, visualReplyMessageId } from "./delivery-content";
 import type { DrainScheduler } from "./drain-scheduler";
 import { dryRunPreview, isIrreversibleTool } from "./dry-run-policy";
-import { HistoryTools } from "./history-tools";
+import { HistoryTools, isHistoryBrowse, MAIN_CHAT_TASK_ID } from "./history-tools";
 import type { HostedSiteCoordinator } from "./hosted-site-coordinator";
 import { isHostedSiteMutationTool } from "./hosted-site-events";
 import { handleMacAccessTool, isMacAccessTool, type MacAgentAccessHost } from "./mac-agent-access";
@@ -151,9 +151,11 @@ import { LOCAL_SKILL_TOOL_DEFINITIONS, type LocalSkillTools, runLocalSkillTool }
 import { isDynamicToolCall } from "./thread-items";
 import { toolCallIdempotencyKey } from "./tool-call-idempotency";
 import {
+  browserToolsPrimer,
   CODEX_DEFERRED_MCP_NOTE,
   DEFERRED_MCP_NOTE,
   discoverTools,
+  givesBrowserSchemas,
   namesInSearch,
   resolveDeferredTool,
 } from "./tool-catalog";
@@ -324,12 +326,15 @@ export class OpenBotToolRouter {
   readonly #workstate: WorkstateTools;
   /** The ids of the plan cards this process showed. A plan card's start counts only for one of these ids. */
   readonly #planCardIds = new Set<string>();
+  /** Provider threads whose agent has the browser schemas, from a search or from a first browser result. */
+  readonly #browserSchemasGiven = new Set<string>();
 
   constructor(options: OpenBotToolRouterOptions) {
     this.#history = new HistoryTools({
       store: options.store,
       redact: options.hooks.redactMcp,
       capturedSteps: options.capturedSteps ?? (() => Effect.succeed(null)),
+      recentThreads: (agentId, after, limit) => options.tasks.recent(agentId, after, limit),
     });
     this.#store = options.store;
     this.#mailbox = options.mailbox;
@@ -442,6 +447,7 @@ export class OpenBotToolRouter {
                 client.respond(request.id, openBotToolFailure(invalid, VALIDATION_FAILURE));
                 return;
               }
+              if (givesBrowserSchemas(result)) this.#browserSchemasGiven.add(params.threadId);
               const signIns = yield* this.#searchSignIns(agentId, params);
               if (request.signal?.aborted || !client.running) return;
               const found =
@@ -473,22 +479,66 @@ export class OpenBotToolRouter {
               );
               return;
             }
-            // A taskId reads a side thread of the same agent. A thread of another agent reads as unknown.
+            // The agent's other conversations open only from its own chat and its side threads. A
+            // messaging chat is neither: other people can write there, and must not read the owner's chats.
+            const mainThreadId = this.#store.list().find((agent) => agent.id === scope.agentId)?.threadId ?? null;
+            const scopeTask = this.#tasks.taskForThread(scope.threadId);
+            const ownConversation =
+              scope.threadId === mainThreadId || (scopeTask !== null && this.#tasks.has(scope.agentId, scopeTask));
+            // A taskId reads a side thread of the same agent, or "main" its own chat. A thread of another
+            // agent reads as unknown.
             const taskId = isRecord(params.arguments) ? params.arguments.taskId : undefined;
             const targetThreadId =
               taskId === undefined
                 ? scope.threadId
-                : typeof taskId === "string" && this.#tasks.has(scope.agentId, taskId)
-                  ? this.#tasks.require(scope.agentId, taskId).threadId
-                  : null;
-            if (targetThreadId === null) {
+                : !ownConversation
+                  ? null
+                  : taskId === MAIN_CHAT_TASK_ID
+                    ? mainThreadId
+                    : typeof taskId === "string" && this.#tasks.has(scope.agentId, taskId)
+                      ? this.#tasks.require(scope.agentId, taskId).threadId
+                      : null;
+            const browse = isHistoryBrowse(params.tool, params.arguments);
+            if (browse && !ownConversation) {
+              client.respond(
+                request.id,
+                openBotToolFailure(sourceText("error.agent.historyUnavailable"), { code: "denied", retryable: false }),
+              );
+              return;
+            }
+            if (!browse && targetThreadId === null) {
               client.respond(
                 request.id,
                 openBotToolFailure(sourceText("error.backend.threadNotFound"), { code: "not_found", retryable: false }),
               );
               return;
             }
-            const result = yield* this.#history.call(scope.agentId, targetThreadId, params.tool, params.arguments).pipe(
+            // A query with no taskId and no cursor searches all own conversations: a model that skips
+            // the tool description asks "find X" without naming the conversation.
+            const searchAll =
+              ownConversation &&
+              params.tool === "history_search" &&
+              taskId === undefined &&
+              isRecord(params.arguments) &&
+              params.arguments.cursor === undefined;
+            // "No query lists chats, a taskId reads one": a search with only a taskId reads that one.
+            const readsOne =
+              params.tool === "history_search" &&
+              taskId !== undefined &&
+              isRecord(params.arguments) &&
+              params.arguments.query === undefined &&
+              params.arguments.cursor === undefined;
+            const limit = isRecord(params.arguments) ? params.arguments.limit : undefined;
+            const history = browse
+              ? this.#history.threads(scope.agentId, scope.threadId, params.arguments)
+              : searchAll
+                ? this.#history.searchAll(scope.agentId, scope.threadId, params.arguments)
+                : readsOne
+                  ? this.#history.call(scope.agentId, targetThreadId ?? scope.threadId, "history_read", {
+                      ...(typeof limit === "number" ? { limit } : {}),
+                    })
+                  : this.#history.call(scope.agentId, targetThreadId ?? scope.threadId, params.tool, params.arguments);
+            const result = yield* history.pipe(
               Effect.catch(() =>
                 Effect.succeed(
                   openBotToolFailure(sourceText("error.agent.historyUnavailable"), {
@@ -599,7 +649,19 @@ export class OpenBotToolRouter {
               Effect.raceFirst(cancelled),
               Effect.onInterrupt(() => Effect.sync(() => this.#browser.endControl(params.threadId, params.turnId))),
             );
-            if (!signal?.aborted && client.running) client.respond(toolRequest.id, result);
+            if (signal?.aborted || !client.running) return;
+            const threadId = toolRequest.params.threadId;
+            if (this.#browserSchemasGiven.has(threadId)) client.respond(toolRequest.id, result);
+            else {
+              this.#browserSchemasGiven.add(threadId);
+              client.respond(toolRequest.id, {
+                ...result,
+                contentItems: [
+                  ...result.contentItems,
+                  { type: "inputText", text: JSON.stringify({ browserTools: browserToolsPrimer() }) },
+                ],
+              });
+            }
             return;
           }
           if (toolRequest.params.namespace === "openbot") {
@@ -2465,11 +2527,33 @@ export class OpenBotToolRouter {
         .find((taskId) => taskId !== null);
       // An agent can send "" for no reply. Every reader rejects an empty id. A model can also copy the
       // quotes around the id in the delivery prompt; such an id refers to no message.
-      const replyTo =
+      const replyReference =
         replyToMessageId
           ?.trim()
           .replace(/^"(.*)"$/s, "$1")
           .trim() || null;
+      const replyTo = replyReference && this.#mailbox.replyReferenceMessageId(replyReference);
+      // An id that names no message would store the answer outside the thread that asked, and stop the
+      // automatic result for the request (#5452). Nothing is written, so the agent can send it again. The
+      // agent corrects its own call, so the user gets no error for it.
+      if (replyReference && !replyTo) {
+        const requestIds = turnDeliveries
+          .filter(
+            ({ delivery }) =>
+              delivery.sender.kind === "agent" &&
+              recipientValues.includes(delivery.sender.agentId) &&
+              delivery.expectsReply !== false,
+          )
+          .map(({ delivery }) => delivery.messageId);
+        return openBotToolFailure(
+          [
+            sourceText("error.backend.replyReferenceUnknown", { id: replyReference }),
+            ...(requestIds.length > 0
+              ? [sourceText("error.backend.replyReferenceRequests", { ids: requestIds.join(", ") })]
+              : []),
+          ].join(" "),
+        );
+      }
       // An answer to a request from a side thread runs in that thread. When the thread is archived, the
       // answer goes to the recipient's own chat, so it is not lost. A message without replyToMessageId,
       // such as a question back, goes to the thread of the requests from its recipient that this turn
@@ -2511,6 +2595,8 @@ export class OpenBotToolRouter {
           sourceText("error.backend.agentHopLimit", { limit: AGENT_MESSAGE_HOP_LIMIT }),
         );
       }
+      // The same rule for a request from a Slack thread or another external conversation (#5517).
+      const messaging = this.#mailbox.answerReturn(answeredRequestIds, recipientValues);
       const text = params.arguments.text;
       const receipt = yield* this.#mailbox
         .enqueue({
@@ -2521,6 +2607,7 @@ export class OpenBotToolRouter {
           replyToMessageId: replyTo,
           ...(expectsReply === undefined ? {} : { expectsReply }),
           chain,
+          ...(messaging ? { messaging } : {}),
           ...(messagingReturn ? { messagingReturn } : {}),
           ...(senderTaskId ? { senderTaskId } : {}),
           ...(taskId ? { taskId } : {}),

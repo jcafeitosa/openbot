@@ -27,6 +27,7 @@ import type { ProviderRuntimeManager } from "../provider-runtime-manager";
 import type { RemoteWorkflowError } from "../remote-service-effects";
 import type { RequestedUpdate } from "../requested-update";
 import type { ServerAuditStore } from "../server-audit-store";
+import type { ServerPersonalityPreferenceStore } from "../server-personality-preference-store";
 import type { ServerTimezonePreferenceStore } from "../server-timezone-preference-store";
 import type { SkillMarketplaceService } from "../skill-marketplace-service";
 // What `TeamApiServer` needs from the rest of the main process, and nothing else.
@@ -58,6 +59,7 @@ import type {
   SidebarPinsSnapshot,
   TeamPresenceSnapshot,
   UpdateHostIdentityInput,
+  VoiceLiveEvent,
 } from "@openbot/contracts/ipc";
 import type { Logger } from "@openbot/logging";
 import type { AgentService } from "../../backend/agent-service";
@@ -78,6 +80,7 @@ import type { InstanceTransferService } from "../instance-transfer-service";
 import type { McpToolRuntimePreparation } from "../ipc/mcp-server-handlers";
 import type { LiveActivityPushService } from "../live-activity-push";
 import type { McpHostSignIns } from "../mcp-host-sign-ins";
+import type { McpServerOwnersStore } from "../mcp-server-owners-store";
 import type { OnePasswordConnectorService } from "../onepassword-connector-service";
 import type { PasswordManagersService } from "../password-managers/password-managers-service";
 import type { ProviderAccountsHost } from "../provider-accounts-host";
@@ -185,6 +188,12 @@ export type TeamApiMcpServers = Pick<
   "listMcpServers" | "saveMcpServer" | "removeMcpServer" | "setMcpServerEnabled" | "testMcpServer"
 >;
 
+/**
+ * Who added each MCP server. Its presence, beside `mcpServers`, is what `#protocolSupport` advertises
+ * `mcp-member-access-v1` on.
+ */
+export type TeamApiMcpServerOwners = Pick<McpServerOwnersStore, "addedBy" | "add" | "remove">;
+
 /** Its presence, beside `mcpServers`, is what `#protocolSupport` advertises `mcp-sign-in-v1` on. */
 export type TeamApiMcpSignIns = Pick<
   McpHostSignIns,
@@ -270,6 +279,9 @@ export type TeamApiHostedSites = Pick<HostedSiteDesktopService, "listServerSites
 
 /** Its presence is what `#protocolSupport` advertises `agent-hidden-v1` on. Any member can use it. */
 export type TeamApiHiddenAgents = Pick<AgentService, "listHiddenAgents" | "setAgentHidden">;
+
+/** `routine-run-place-v1`: the routine records of each agent, of every trigger kind. */
+export type TeamApiRoutineRunPlaces = Pick<AgentService["routineRecords"], "list" | "get" | "save">;
 
 /**
  * `agent-notification-levels-v1`: the level that each member chose for this server and for each agent.
@@ -461,6 +473,8 @@ export interface TeamApiAdmin {
   update?: Pick<RequestedUpdate, "snapshot" | "check" | "start" | "requestWhenIdle" | "cancel" | "changeSettings">;
   /** `host-timezone-v1`: the server timezone. */
   timezone?: Pick<ServerTimezonePreferenceStore, "get" | "set">;
+  /** `host-personality-v1`: how the server's agents talk while they work. Any member reads it. */
+  personality?: Pick<ServerPersonalityPreferenceStore, "get" | "set">;
   /** `host-key-rotation-v1`: the owner changes this host's key. Resolves with the new public key. */
   hostKey?: { rotate(): Effect.Effect<{ publicKey: string }, RemoteWorkflowError> };
   /**
@@ -600,6 +614,14 @@ export type TeamApiPasswordManagers = Pick<
 /** `vault-v1`: the Vault of this host, for an owner or admin. The route uses no CSV import. */
 export type TeamApiVault = VaultService;
 
+/**
+ * `live-voice-v1`: Codex live voice for a member. The host starts the Codex process; the audio goes
+ * between the member's client and OpenAI. `subscribe` gives each transcript and end with its owner.
+ */
+export type TeamApiLiveVoice = Pick<AgentService, "startLiveVoice" | "stopLiveVoice"> & {
+  subscribe(listener: (event: VoiceLiveEvent, memberId: string | null) => void): () => void;
+};
+
 export type TeamApiAgentAccess = Pick<AgentAccessStore, "copyAgent" | "get" | "levels" | "set" | "subscribe">;
 export type TeamApiServerAudit = Pick<ServerAuditStore, "read">;
 
@@ -608,6 +630,7 @@ export interface TeamApiOptions {
   events?: HostEventsApi | undefined;
   channels?: ChannelService | undefined;
   mcpServers?: TeamApiMcpServers | undefined;
+  mcpServerOwners?: TeamApiMcpServerOwners | undefined;
   mcpSignIns?: TeamApiMcpSignIns | undefined;
   signInRelay?: TeamApiSignInRelay | undefined;
   connectors?: TeamApiConnectors | undefined;
@@ -623,12 +646,14 @@ export interface TeamApiOptions {
   mcpToolRuntimePreparation?: McpToolRuntimePreparation;
   storage?: TeamApiStorage;
   machine?: TeamApiMachine;
+  liveVoice?: TeamApiLiveVoice;
   hostedSites?: TeamApiHostedSites;
   agentImport?: TeamApiAgentImport;
   instanceTransfer?: TeamApiInstanceTransfer;
   routineFlows?: TeamApiRoutineFlows;
   workflows?: TeamApiWorkflows;
   hiddenAgents?: TeamApiHiddenAgents;
+  routineRunPlaces?: TeamApiRoutineRunPlaces;
   agentNotificationLevels?: TeamApiAgentNotificationLevels;
   sidebarPins?: TeamApiSidebarPins;
   /** `agent-access-v1`: the roles that limit what a member can do with each agent. */

@@ -177,7 +177,7 @@ export const messages = {
   "provider.geminiKey.label": "Klucz API Gemini",
   "provider.claudeKey.title": "Klucz API Anthropic",
   "provider.claudeKey.description":
-    "Zapisz klucz API Anthropic na hoście. Anthropic nalicza każde zapytanie na klucz. Aby użyć go dla agenta, wybierz konto „Klucz API” w menu modeli agenta. Gdy Claude nie jest zalogowany, wszyscy agenci używają klucza.",
+    "Zapisz klucz API Anthropic na hoście. Anthropic nalicza każde zapytanie ze środków API klucza, nie z planu Claude. Aby użyć go dla agenta, wybierz konto „Klucz API” w menu modeli agenta. Gdy Claude nie jest zalogowany, wszyscy agenci używają klucza.",
   "provider.claudeKey.label": "Klucz API Anthropic",
   "provider.inceptionKey.title": "Klucz API Inception",
   "provider.inceptionKey.description":
@@ -254,6 +254,11 @@ export const messages = {
   "provider.settings.promptCacheHour": "1 godzina",
   "provider.settings.promptCacheDefault": "Domyślne Claude Code",
   "provider.settings.promptCacheLoadFailed": "Nie udało się wczytać czasu pamięci podręcznej promptów tego serwera.",
+  "provider.settings.claudeSetup": "Claude Code",
+  "provider.settings.claudeUserSetup": "Używaj mojej konfiguracji Claude Code",
+  "provider.settings.claudeUserSetupDescription":
+    "Agenci wczytują Twój CLAUDE.md, umiejętności, agentów, hooki i wtyczki z ~/.claude. Po wyłączeniu każda tura wysyła krótszy prompt. Pliki obszaru roboczego nadal się wczytują.",
+  "provider.settings.claudeUserSetupLoadFailed": "Nie udało się wczytać ustawienia Claude Code.",
   "provider.settings.models": "Modele",
   "provider.settings.modelsDescription": {
     one: "{shown} z {count} modelu jest w wyborze modelu.",

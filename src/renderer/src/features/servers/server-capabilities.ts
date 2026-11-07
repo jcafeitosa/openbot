@@ -40,6 +40,8 @@ export function serverSupportsCapability(
       capability === "mcp-sign-in-v1" ||
       capability === "mcp-sign-in-app-v1" ||
       capability === "mcp-accounts-v1" ||
+      capability === "mcp-member-access-v1" ||
+      capability === "live-voice-v1" ||
       capability === "sign-in-relay-v1" ||
       capability === "connectors-v1" ||
       capability === "onepassword-connector-v1" ||
@@ -84,6 +86,7 @@ export function serverSupportsCapability(
       capability === "model-visibility-v1" ||
       capability === "claude-api-key-v1" ||
       capability === "codex-api-key-v1" ||
+      capability === "host-personality-v1" ||
       capability === "agent-access-v1" ||
       capability === "sidebar-folders-v1" ||
       capability === "server-audit-v1" ||
@@ -92,6 +95,7 @@ export function serverSupportsCapability(
       capability === "context-reset-v1" ||
       capability === "routine-flows-v1" ||
       capability === "routine-recovery-v1" ||
+      capability === "routine-run-place-v1" ||
       capability === "webhook-tests-v1" ||
       capability === "webhook-sender-secret-v1" ||
       capability === "agent-import-v1" ||
@@ -240,6 +244,16 @@ export function localCodeSignInProviders(platform: string | undefined): readonly
     const codeSignIn = agentProviderDescriptor(provider).localCodeSignIn;
     return codeSignIn === "device" || (codeSignIn === "paste" && paste);
   });
+}
+
+/**
+ * Whether this window may manage the MCP servers of `server`: as for `serverCanAdminister` with
+ * `mcp-servers-v1`, or as a member of a joined server with `mcp-member-access-v1`. The host lets a
+ * member change only the servers that the member added, and refuses the others.
+ */
+export function serverCanManageMcp(server: ServerSummary | undefined): server is ServerSummary {
+  if (!server || !serverSupportsCapability(server, "mcp-servers-v1")) return false;
+  return serverRoleCanAdminister(server) || serverSupportsCapability(server, "mcp-member-access-v1");
 }
 
 /** `server` when it is a joined server this account may manage through `capability`, otherwise undefined. */

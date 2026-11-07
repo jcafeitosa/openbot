@@ -19,6 +19,7 @@ import { ResizableTextarea } from "@openbot/ui/components/ResizableTextarea";
 import { SettingsField, SettingsLinkGroup, SettingsLinkRow } from "@openbot/ui/components/SettingsPanel";
 import { AgentAvatar } from "@openbot/ui/features/agents/AgentAvatar";
 import { InstructionsLimit, instructionsTooLong } from "@openbot/ui/features/agents/InstructionsLimit";
+import { ChannelContextActions } from "@openbot/ui/features/channels/ChannelContextActions";
 import { ChannelMemberRow } from "@openbot/ui/features/channels/ChannelMemberRow";
 import { ChannelPictureEditor } from "@openbot/ui/features/channels/ChannelPictureEditor";
 import { ContentExitMotion } from "@openbot/ui/menu-motion";
@@ -52,6 +53,11 @@ export function ChannelEditor(props: ChannelEditorProps) {
   const { t } = useText();
   const agentList = channels.agents;
   const channel = () => channels.state.page?.channel;
+  /** "Delete history" for the settings, or nothing when the host cannot delete it. */
+  function deleteHistoryAction(channelId: string): (() => Promise<void>) | undefined {
+    if (!channels.historyDeletionSupported()) return undefined;
+    return () => channels.deleteHistory(channelId);
+  }
   const [fields, setFields] = createStore({ name: "", title: "", instructions: "" });
   const [dirty, setDirty] = createStore({ name: false, title: false, instructions: false });
   let lastSignature = "";
@@ -397,6 +403,17 @@ export function ChannelEditor(props: ChannelEditorProps) {
           onClick={props.onOpenRoutines}
         />
       </SettingsLinkGroup>
+      {/* The host refuses both for an archived channel. */}
+      <Show when={channels.contextActionsSupported() && !channel()?.archived && channel()}>
+        {(current) => (
+          <ChannelContextActions
+            channelName={current().name}
+            startNewConversation={() => channels.clearContext(current().id)}
+            compact={() => channels.compactContext(current().id)}
+            deleteHistory={deleteHistoryAction(current().id)}
+          />
+        )}
+      </Show>
       <section class="channel-members" aria-label={t("channel.members.title")}>
         <h3 class="channel-members-title">{t("channel.members.title")}</h3>
         <ItemGroup class="channel-member-list">

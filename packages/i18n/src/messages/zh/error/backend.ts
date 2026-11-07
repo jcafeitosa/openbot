@@ -67,6 +67,11 @@ export const messages = {
   "error.backend.channelUnconfirmedStart": "该频道有一项未确认的派活启动，请在删除前确认其结果。",
   "error.backend.channelNotFound": "未找到该频道。",
   "error.backend.channelMemberUnavailable": "有频道成员不可用。",
+  "error.backend.channelWaitBeforeNewConversation": "请等此频道中的工作停止后再开始新对话。",
+  "error.backend.channelWaitBeforeCompact": "请等此频道中的工作停止后再压缩。",
+  "error.backend.channelWaitBeforeDeleteHistory": "请等此频道中的工作停止后再删除其历史记录。",
+  "error.backend.channelCompactUnavailable":
+    "此频道现在没有成员可以压缩上下文。成员必须先在频道中回答,且其提供方必须支持压缩。",
   "error.backend.channelArchived": "请先恢复该频道，再发送消息或更改任务。",
   "error.backend.channelReferenceUnavailable": "引用的频道消息不可用。",
   "error.backend.channelTaskNotFound": "未找到该频道任务。",
@@ -222,6 +227,10 @@ export const messages = {
   "error.backend.mcpSignInMetadataUnreadable": "OpenBot 无法读取该服务器的登录信息。请检查服务器地址后重试。",
   "error.backend.mcpServerExited": "服务器在响应之前就停止了。请在终端中运行该命令以查看错误。",
   "error.backend.mcpServerFailedToStart": "服务器没有启动：{reason}",
+  "error.backend.mcpServerSignInForProvider":
+    "{provider} 无法使用 MCP 服务器 {name}，因为该服务器要求登录。请打开 MCP 设置并选择“登录”。",
+  "error.backend.mcpServerFailedForProvider":
+    "{provider} 无法启动 MCP 服务器 {name}。请打开 MCP 设置并选择“测试连接”查看原因。",
   "error.backend.mcpOAuthProxyUnavailable": "OpenBot 无法为这台服务器建立本地登录连接。请重启 OpenBot 后再试一次。",
   "error.backend.mcpOAuthSignInNeeded": "该 MCP 服务器的登录已结束。用户需要在 OpenBot 中重新登录。",
   "error.backend.mcpServerUnreachable": "OpenBot 无法连接该服务器。请检查地址与网络。",

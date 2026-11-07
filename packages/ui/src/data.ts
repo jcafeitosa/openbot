@@ -81,6 +81,8 @@ export interface AgentMessageMarkerModel {
   replyToMessageId: string | null;
   /** The sender asked for no answer, so the marker names it as information rather than a request. */
   expectsReply: boolean;
+  /** The sender's side thread that sent an incoming message. The sender link opens it. */
+  senderTaskId?: string;
   /** Set when the chat has the text of the message: whether the text shows under the marker. */
   expanded?: boolean;
 }
@@ -230,6 +232,8 @@ export interface AgentMessage {
   itemIds?: string[];
   /** When the host wrote each of `items`, to place them between a turn's progress lines. */
   itemCreatedAt?: string[];
+  /** Whether the host still writes each of `items`. */
+  itemStreaming?: boolean[];
   plan?: AgentMessagePlan | undefined;
   /** The subagents that the agent started in this turn, on a `subagents` message. */
   subagents?: ConversationSubagent[] | undefined;

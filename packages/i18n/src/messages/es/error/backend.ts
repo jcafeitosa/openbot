@@ -73,6 +73,13 @@ export const messages = {
     "El canal tiene un inicio de tarea sin confirmar. Comprueba el resultado antes de eliminarlo.",
   "error.backend.channelNotFound": "No se encontró el canal.",
   "error.backend.channelMemberUnavailable": "Un miembro del canal no está disponible.",
+  "error.backend.channelWaitBeforeNewConversation":
+    "Espera a que termine el trabajo en este canal y luego inicia una nueva conversación.",
+  "error.backend.channelWaitBeforeCompact": "Espera a que termine el trabajo en este canal y luego compáctalo.",
+  "error.backend.channelWaitBeforeDeleteHistory":
+    "Espera a que termine el trabajo en este canal y luego elimina su historial.",
+  "error.backend.channelCompactUnavailable":
+    "Ningún miembro de este canal puede compactar su contexto ahora. Un miembro debe responder primero en el canal y su proveedor debe admitir la compactación.",
   "error.backend.channelArchived": "Restaura este canal antes de enviar mensajes o cambiar tareas.",
   "error.backend.channelReferenceUnavailable": "El mensaje del canal al que se hace referencia no está disponible.",
   "error.backend.channelTaskNotFound": "No se encontró la tarea del canal.",
@@ -258,6 +265,10 @@ export const messages = {
   "error.backend.mcpServerExited":
     "El servidor se detuvo antes de responder. Ejecuta el comando en una terminal para ver su error.",
   "error.backend.mcpServerFailedToStart": "El servidor no se inició: {reason}",
+  "error.backend.mcpServerSignInForProvider":
+    "{provider} no pudo usar el servidor MCP {name} porque el servidor pide iniciar sesión. Abre los ajustes de MCP y elige Iniciar sesión.",
+  "error.backend.mcpServerFailedForProvider":
+    "{provider} no pudo iniciar el servidor MCP {name}. Abre los ajustes de MCP y elige Probar conexión para ver la causa.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot no pudo iniciar su conexión local de inicio de sesión para este servidor. Reinicia OpenBot y vuelve a intentarlo.",
   "error.backend.mcpOAuthSignInNeeded":

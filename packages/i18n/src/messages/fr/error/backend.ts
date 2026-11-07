@@ -74,6 +74,13 @@ export const messages = {
     "Le canal a un démarrage de tâche non confirmé. Vérifiez son résultat avant de le supprimer.",
   "error.backend.channelNotFound": "Canal introuvable.",
   "error.backend.channelMemberUnavailable": "Un membre du canal est indisponible.",
+  "error.backend.channelWaitBeforeNewConversation":
+    "Attendez la fin du travail dans ce canal, puis démarrez une nouvelle conversation.",
+  "error.backend.channelWaitBeforeCompact": "Attendez la fin du travail dans ce canal, puis compactez-le.",
+  "error.backend.channelWaitBeforeDeleteHistory":
+    "Attendez la fin du travail dans ce canal, puis supprimez son historique.",
+  "error.backend.channelCompactUnavailable":
+    "Aucun membre de ce canal ne peut compacter son contexte maintenant. Un membre doit d’abord répondre dans le canal, et son fournisseur doit prendre en charge la compaction.",
   "error.backend.channelArchived": "Restaurez ce canal avant d’envoyer des messages ou de modifier des tâches.",
   "error.backend.channelReferenceUnavailable": "Le message de canal référencé est indisponible.",
   "error.backend.channelTaskNotFound": "Tâche de canal introuvable.",
@@ -263,6 +270,10 @@ export const messages = {
   "error.backend.mcpServerExited":
     "Le serveur s’est arrêté avant de répondre. Exécutez la commande dans un terminal pour voir son erreur.",
   "error.backend.mcpServerFailedToStart": "Le serveur n’a pas démarré : {reason}",
+  "error.backend.mcpServerSignInForProvider":
+    "{provider} n’a pas pu utiliser le serveur MCP {name}, car ce serveur demande une connexion. Ouvrez les réglages MCP et choisissez Se connecter.",
+  "error.backend.mcpServerFailedForProvider":
+    "{provider} n’a pas pu démarrer le serveur MCP {name}. Ouvrez les réglages MCP et choisissez Tester la connexion pour voir la cause.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot n’a pas pu démarrer sa connexion locale de connexion pour ce serveur. Redémarrez OpenBot, puis réessayez.",
   "error.backend.mcpOAuthSignInNeeded":

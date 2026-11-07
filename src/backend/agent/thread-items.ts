@@ -1,8 +1,14 @@
 import { RequestError } from "@agentclientprotocol/sdk";
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
-import { agentProviderName, COMPUTER_USE_MCP_SERVER_NAME, DEFAULT_PROVIDER_ACCOUNT_ID } from "@openbot/contracts/ipc";
+import {
+  type AgentStepActivity,
+  agentProviderName,
+  COMPUTER_USE_MCP_SERVER_NAME,
+  DEFAULT_PROVIDER_ACCOUNT_ID,
+} from "@openbot/contracts/ipc";
 import { type DynamicRecord, isString } from "@openbot/contracts/runtime-values";
 import { sourceText } from "@openbot/i18n/source";
+import { redactText } from "@openbot/logging";
 import {
   type AgentProvider,
   MissingClaudeSessionError,
@@ -21,6 +27,7 @@ import {
   reasoningText,
   type ThreadItem,
 } from "../protocol";
+import { stepLabel } from "./step-labels";
 import { BUILTIN_TOOL_CATALOG } from "./tool-catalog";
 
 export function isNonActionableCodexWarning(message: string): boolean {
@@ -152,6 +159,7 @@ export function isMissingProviderSessionError(error: unknown, provider: AgentPro
       provider !== "kimi" &&
       provider !== "devin" &&
       provider !== "copilot" &&
+      provider !== "mistral" &&
       provider !== "hermes" &&
       provider !== "acp") ||
     !(error instanceof Error)
@@ -441,6 +449,13 @@ export function toolProgressText(item: ThreadItem, completed: boolean): string |
   if (browser !== null) {
     return completed ? sourceText("status.agent.browserReviewing") : browserProgressText(browser);
   }
+  // The model's own label of the step, such as "Show folder sizes in home", tells the user more than
+  // the generic words below. It can quote a path or a value, so it is redacted like the trace's command.
+  const description = completed ? null : getString(item, "description")?.trim();
+  if (description) return redactText(description);
+  // Next, a label from what the step does, such as "Reading main.ts…", for a provider that sends no label.
+  const label = completed ? null : stepLabel(item);
+  if (label) return label;
   if (/(search|browser|fetch|navigate|open_url|web)/u.test(descriptor)) {
     return completed ? sourceText("status.agent.sourcesReviewing") : sourceText("status.agent.sourcesSearching");
   }
@@ -458,7 +473,51 @@ export function toolProgressText(item: ThreadItem, completed: boolean): string |
   if (/(agent|delegate|message|send)/u.test(descriptor)) {
     return completed ? sourceText("status.agent.agentResponseReviewing") : sourceText("status.agent.agentCoordinating");
   }
+  // Last, so that a command with a title such as "Run the tests" keeps the text above. A command that
+  // never returns then reads as a command, not as an unknown step (#5485). Pi names its shell tool `bash`.
+  if (
+    !completed &&
+    (toolUsage(item)?.kind === "command" ||
+      (item.type === "dynamicToolCall" && !getString(item, "namespace") && getString(item, "tool") === "bash"))
+  ) {
+    return sourceText("status.agent.commandRunningUnnamed");
+  }
   return completed ? TOOL_RESULT_PROGRESS : sourceText("status.agent.toolStepWorking");
+}
+
+const TOOL_USAGE_ACTIVITIES: Readonly<Record<ToolUsageKind, AgentStepActivity>> = {
+  command: "running",
+  file_change: "editing",
+  file_read: "reading",
+  web_search: "searching",
+  web_fetch: "browsing",
+  mcp: "working",
+  image_generation: "editing",
+  subagent: "delegating",
+  other: "working",
+};
+
+/** OpenBot tools that only read: memories, skills and chat history. */
+const READING_OPENBOT_TOOLS = new Set([
+  "search_memories",
+  "list_memories",
+  "read_local_skill",
+  "history_search",
+  "history_read",
+]);
+
+/**
+ * What a tool step does, for the `activity` of its `turn-progress` event, or null for an item that is
+ * not a tool step. An ended step is `reviewing`: the model now reads its result.
+ */
+export function toolActivity(item: ThreadItem, completed: boolean): AgentStepActivity | null {
+  if (!isToolItem(item)) return null;
+  if (completed) return "reviewing";
+  if (browserTool(item) !== null) return "browsing";
+  const openBot = openBotTool(item);
+  if (openBot === "send_message") return "delegating";
+  if (READING_OPENBOT_TOOLS.has(openBot ?? "")) return "reading";
+  return TOOL_USAGE_ACTIVITIES[toolUsage(item)?.kind ?? "other"];
 }
 
 /** The provider account after the first that an agent runs on, or null for the provider's own sign-in. */

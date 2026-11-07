@@ -71,6 +71,13 @@ export const messages = {
     "У канала есть неподтверждённый запуск назначения. Проверьте его результат, прежде чем удалять канал.",
   "error.backend.channelNotFound": "Канал не найден.",
   "error.backend.channelMemberUnavailable": "Участник канала недоступен.",
+  "error.backend.channelWaitBeforeNewConversation":
+    "Дождитесь окончания работы в этом канале, затем начните новый разговор.",
+  "error.backend.channelWaitBeforeCompact": "Дождитесь окончания работы в этом канале, затем сожмите его.",
+  "error.backend.channelWaitBeforeDeleteHistory":
+    "Дождитесь окончания работы в этом канале, затем удалите его историю.",
+  "error.backend.channelCompactUnavailable":
+    "Сейчас ни один участник этого канала не может сжать контекст. Сначала участник должен ответить в канале, а его провайдер должен поддерживать сжатие.",
   "error.backend.channelArchived": "Восстановите этот канал, прежде чем отправлять сообщения или менять задачи.",
   "error.backend.channelReferenceUnavailable": "Сообщение канала, на которое сделана ссылка, недоступно.",
   "error.backend.channelTaskNotFound": "Задача канала не найдена.",
@@ -248,6 +255,10 @@ export const messages = {
   "error.backend.mcpServerExited":
     "Сервер остановился, не ответив. Запустите команду в терминале, чтобы увидеть ошибку.",
   "error.backend.mcpServerFailedToStart": "Сервер не запустился: {reason}",
+  "error.backend.mcpServerSignInForProvider":
+    "{provider} не может использовать MCP-сервер {name}: сервер требует входа. Откройте настройки MCP и выберите «Войти».",
+  "error.backend.mcpServerFailedForProvider":
+    "{provider} не может запустить MCP-сервер {name}. Откройте настройки MCP и выберите «Проверить подключение», чтобы увидеть причину.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot не смог запустить локальное подключение для входа на этот сервер. Перезапустите OpenBot и повторите попытку.",
   "error.backend.mcpOAuthSignInNeeded":

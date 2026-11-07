@@ -161,7 +161,7 @@ export const messages = {
   "provider.geminiKey.label": "Gemini API anahtarı",
   "provider.claudeKey.title": "Anthropic API anahtarı",
   "provider.claudeKey.description":
-    'Ana bilgisayara bir Anthropic API anahtarı kaydedin. Anthropic her isteği anahtara faturalar. Bir ajan için kullanmak üzere ajanın model menüsünde "API anahtarı" hesabını seçin. Claude\'da oturum açık değilse tüm ajanlar anahtarı kullanır.',
+    'Ana bilgisayara bir Anthropic API anahtarı kaydedin. Anthropic her isteği Claude planınıza değil, anahtarın API kredisine faturalar. Bir ajan için kullanmak üzere ajanın model menüsünde "API anahtarı" hesabını seçin. Claude\'da oturum açık değilse tüm ajanlar anahtarı kullanır.',
   "provider.claudeKey.label": "Anthropic API anahtarı",
   "provider.inceptionKey.title": "Inception API anahtarı",
   "provider.inceptionKey.description":
@@ -231,6 +231,11 @@ export const messages = {
   "provider.settings.promptCacheHour": "1 saat",
   "provider.settings.promptCacheDefault": "Claude Code varsayılanı",
   "provider.settings.promptCacheLoadFailed": "Bu sunucunun istem önbelleği süresi yüklenemedi.",
+  "provider.settings.claudeSetup": "Claude Code",
+  "provider.settings.claudeUserSetup": "Kendi Claude Code kurulumumu kullan",
+  "provider.settings.claudeUserSetupDescription":
+    "Ajanlar CLAUDE.md dosyanızı, becerilerinizi, ajanlarınızı, kancalarınızı ve eklentilerinizi ~/.claude klasöründen yükler. Kapalıyken her tur daha kısa bir istem gönderir. Çalışma alanı dosyaları yine yüklenir.",
+  "provider.settings.claudeUserSetupLoadFailed": "Claude Code ayarı yüklenemedi.",
   "provider.settings.models": "Modeller",
   "provider.settings.modelsDescription": {
     one: "{count} modelden {shown} tanesi model seçicide görünür.",

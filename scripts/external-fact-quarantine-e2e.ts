@@ -76,6 +76,7 @@ try {
     forgetThread: () => Effect.void,
     ownChat: () => false,
     contextSession: () => null,
+    progressUpdates: () => null,
   });
 
   const agent = await runCauseEffect(

@@ -26,6 +26,26 @@ export const messages = {
     many: "Сохранено: {count}",
     other: "Сохранено: {count}",
   },
+  "channel.settings.newConversation.title": "Новый разговор",
+  "channel.settings.newConversation.description": "Участники забывают прежние сообщения. Настройки канала сохраняются.",
+  "channel.settings.newConversation.button": "Начать",
+  "channel.settings.newConversation.confirmTitle": "Начать новый разговор в {name}?",
+  "channel.settings.newConversation.confirmDescription":
+    "Участники забывают прежние сообщения этого канала. Сообщения остаются видны над разделителем. Участники, инструкции, воспоминания и рутины не меняются.",
+  "channel.settings.newConversation.confirm": "Начать новый разговор",
+  "channel.settings.newConversation.failed": "Не удалось начать новый разговор.",
+  "channel.settings.compact.title": "Сжать контекст",
+  "channel.settings.compact.description": "Участники сохраняют краткую сводку сессии канала и тратят меньше токенов.",
+  "channel.settings.compact.failed": "Не удалось сжать контекст канала.",
+  "channel.settings.deleteHistory.title": "Удалить историю",
+  "channel.settings.deleteHistory.description":
+    "Сообщения удаляются, и участники их забывают. Настройки канала остаются.",
+  "channel.settings.deleteHistory.button": "Удалить",
+  "channel.settings.deleteHistory.confirmTitle": "Удалить историю канала {name}?",
+  "channel.settings.deleteHistory.confirmDescription":
+    "Все сообщения и файлы этого канала будут удалены из OpenBot, и участники их забудут. Это нельзя отменить. Участники, инструкции, воспоминания, рутины и задачи не изменятся.",
+  "channel.settings.deleteHistory.confirm": "Удалить историю",
+  "channel.settings.deleteHistory.failed": "Не удалось удалить историю.",
   "channel.settings.routines": "Регулярные задачи",
   "channel.settings.routineCount": {
     one: "Настроено: {count}",

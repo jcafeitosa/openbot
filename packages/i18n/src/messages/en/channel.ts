@@ -20,6 +20,27 @@ export const messages = defineMessages("channel", {
   "channel.settings.isolatedDescription":
     "Agents save what they learn here as channel memories. Their other chats do not see them.",
   "channel.settings.memoryCount": { one: "{count} saved", other: "{count} saved" },
+  "channel.settings.newConversation.title": "New conversation",
+  "channel.settings.newConversation.description": "The members forget the earlier messages. The channel setup stays.",
+  "channel.settings.newConversation.button": "Start",
+  "channel.settings.newConversation.confirmTitle": "Start a new conversation in {name}?",
+  "channel.settings.newConversation.confirmDescription":
+    "The members forget the earlier messages of this channel. The messages stay visible above a divider. The members, instructions, memories, and routines do not change.",
+  "channel.settings.newConversation.confirm": "Start new conversation",
+  "channel.settings.newConversation.failed": "Could not start a new conversation.",
+  "channel.settings.compact.title": "Compact context",
+  "channel.settings.compact.description":
+    "The members keep a short summary of their channel session and use fewer tokens.",
+  "channel.settings.compact.failed": "Could not compact the channel context.",
+  "channel.settings.deleteHistory.title": "Delete history",
+  "channel.settings.deleteHistory.description":
+    "The messages go, and the members forget them. The channel setup stays.",
+  "channel.settings.deleteHistory.button": "Delete",
+  "channel.settings.deleteHistory.confirmTitle": "Delete the history of {name}?",
+  "channel.settings.deleteHistory.confirmDescription":
+    "All messages and files of this channel go from OpenBot, and the members forget them. You cannot undo this. The members, instructions, memories, routines, and tasks do not change.",
+  "channel.settings.deleteHistory.confirm": "Delete history",
+  "channel.settings.deleteHistory.failed": "Could not delete the history.",
   "channel.settings.routines": "Routines",
   "channel.settings.routineCount": { one: "{count} configured", other: "{count} configured" },
   "channel.create.close": "Close new channel",
