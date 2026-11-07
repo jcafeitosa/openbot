@@ -35,6 +35,7 @@ export const messages = {
   "island.action.dismiss": "닫기",
   "island.action.answerInOpenBot": "OpenBot에서 답변",
   "island.action.stopAgent": "{name} 중지",
+  "island.mute.toggle": "Mute toggle",
   "island.action.failed": "작업이 실패했어요. 다시 시도해 주세요.",
   "island.action.expand": "{label} 펼치기",
   "island.action.collapse": "{label} 접기",

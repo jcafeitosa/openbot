@@ -1,7 +1,7 @@
-import type { PartialTranslation } from "../../message";
-import type { messages as source } from "../en/island";
+import { defineMessages } from "../../message";
 
-export const messages = {
+export const messages = defineMessages("island", {
+  // The Dynamic Island window over the MacBook notch or on an external display.
   "island.surface.label": "OpenBot no recorte da tela do MacBook",
   "island.surface.interactionArea": "Área de interação da Dynamic Island",
   "island.label.idle": "Abrir OpenBot",
@@ -36,6 +36,7 @@ export const messages = {
   "island.action.answerInOpenBot": "Responder no OpenBot",
   "island.action.stopAgent": "Parar {name}",
   "island.action.failed": "Não funcionou. Tente novamente.",
+  "island.mute.toggle": "Alternar som",
   "island.action.expand": "Expandir {label}",
   "island.action.collapse": "Recolher {label}",
   "island.failure.fallback": "A tarefa parou antes de terminar.",
@@ -70,4 +71,4 @@ export const messages = {
   "island.task.working": "Trabalhando na sua solicitação",
   "island.error.openRemoteTitle": "Não foi possível abrir este item remoto",
   "island.error.openRemote": "Não foi possível abrir este item. Tente novamente.",
-} as const satisfies PartialTranslation<typeof source>;
+});

@@ -41,6 +41,7 @@ export const messages = {
   "island.action.dismiss": "Descartar",
   "island.action.answerInOpenBot": "Responder en OpenBot",
   "island.action.stopAgent": "Detener a {name}",
+  "island.mute.toggle": "Mute toggle",
   "island.action.failed": "No funcionó. Vuelve a intentarlo.",
   "island.action.expand": "Expandir {label}",
   "island.action.collapse": "Contraer {label}",
