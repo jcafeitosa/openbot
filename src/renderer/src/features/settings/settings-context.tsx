@@ -365,6 +365,7 @@ const Settings = createSimpleContext({
       if (
         previous.macBookNotch !== value.macBookNotch ||
         previous.macBookNotchHaptics !== value.macBookNotchHaptics ||
+        previous.macBookNotchQuiet !== value.macBookNotchQuiet ||
         previous.macBookNotchIdle !== value.macBookNotchIdle ||
         previous.macBookNotchAdditionalDisplays !== value.macBookNotchAdditionalDisplays ||
         previous.macBookNotchWidthPercent !== value.macBookNotchWidthPercent ||
@@ -379,6 +380,7 @@ const Settings = createSimpleContext({
           .dynamicIsland.setPreference({
             enabled: value.macBookNotch,
             hapticsEnabled: value.macBookNotchHaptics,
+            muted: value.macBookNotchQuiet,
             idleVisible: value.macBookNotchIdle,
             additionalDisplaysEnabled: value.macBookNotchAdditionalDisplays,
             widthPercent: value.macBookNotchWidthPercent,
@@ -392,6 +394,7 @@ const Settings = createSimpleContext({
               ...current,
               macBookNotch: preference.enabled,
               macBookNotchHaptics: preference.hapticsEnabled,
+              macBookNotchQuiet: preference.muted === true,
               macBookNotchIdle: preference.idleVisible,
               macBookNotchAdditionalDisplays: preference.additionalDisplaysEnabled,
               macBookNotchWidthPercent: preference.widthPercent,
@@ -407,6 +410,7 @@ const Settings = createSimpleContext({
               ...current,
               macBookNotch: previous.macBookNotch,
               macBookNotchHaptics: previous.macBookNotchHaptics,
+              macBookNotchQuiet: previous.macBookNotchQuiet,
               macBookNotchIdle: previous.macBookNotchIdle,
               macBookNotchAdditionalDisplays: previous.macBookNotchAdditionalDisplays,
               macBookNotchWidthPercent: previous.macBookNotchWidthPercent,
@@ -608,6 +612,7 @@ const Settings = createSimpleContext({
                   ...current,
                   macBookNotch: preference.enabled,
                   macBookNotchHaptics: preference.hapticsEnabled,
+                  macBookNotchQuiet: preference.muted === true,
                   macBookNotchIdle: preference.idleVisible,
                   macBookNotchAdditionalDisplays: preference.additionalDisplaysEnabled,
                   macBookNotchWidthPercent: preference.widthPercent,

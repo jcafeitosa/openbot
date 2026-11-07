@@ -205,6 +205,9 @@ export const messages = defineMessages("settings", {
   "settings.notch.idle.description": "Show the OpenBot logo and greeting when no status is active.",
   "settings.notch.displays.title": "Show on additional displays",
   "settings.notch.displays.description": "Show Dynamic Island on connected external displays.",
+  "settings.notch.quiet.title": "Quiet mode",
+  "settings.notch.quiet.description":
+    "Show only what needs you: questions, approvals, and failures. No haptic feedback.",
   "settings.notch.haptics.title": "Haptic feedback",
   "settings.notch.haptics.description": "Use the Force Touch trackpad to confirm Dynamic Island interactions.",
   "settings.notch.servers.title": "Servers",

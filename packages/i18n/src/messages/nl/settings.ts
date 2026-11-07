@@ -201,6 +201,9 @@ export const messages = {
   "settings.notch.idle.description": "Toon het OpenBot-logo en een begroeting wanneer er geen status actief is.",
   "settings.notch.displays.title": "Toon op extra schermen",
   "settings.notch.displays.description": "Toon het Dynamic Island op aangesloten externe schermen.",
+  "settings.notch.quiet.title": "Stille modus",
+  "settings.notch.quiet.description":
+    "Toont alleen wat jou nodig heeft: vragen, goedkeuringen en fouten. Geen haptische feedback.",
   "settings.notch.haptics.title": "Haptische feedback",
   "settings.notch.haptics.description":
     "Gebruik het Force Touch-trackpad om interacties met het Dynamic Island te bevestigen.",

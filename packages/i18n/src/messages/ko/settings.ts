@@ -197,6 +197,8 @@ export const messages = {
   "settings.notch.idle.description": "활성 상태가 없을 때 OpenBot 로고와 인사말을 표시해요.",
   "settings.notch.displays.title": "추가 디스플레이에 표시",
   "settings.notch.displays.description": "연결된 외부 디스플레이에 Dynamic Island를 표시해요.",
+  "settings.notch.quiet.title": "조용한 모드",
+  "settings.notch.quiet.description": "질문, 승인, 실패처럼 사용자가 필요한 것만 보여 줘요. 햅틱 피드백도 없어요.",
   "settings.notch.haptics.title": "햅틱 피드백",
   "settings.notch.haptics.description": "Force Touch 트랙패드로 Dynamic Island 조작을 확인해 줘요.",
   "settings.notch.servers.title": "서버",

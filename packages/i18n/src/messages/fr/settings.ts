@@ -211,6 +211,9 @@ export const messages = {
   "settings.notch.idle.description": "Afficher le logo OpenBot et un message d’accueil lorsqu’aucun état n’est actif.",
   "settings.notch.displays.title": "Afficher sur les écrans supplémentaires",
   "settings.notch.displays.description": "Afficher l’îlot dynamique sur les écrans externes connectés.",
+  "settings.notch.quiet.title": "Mode silencieux",
+  "settings.notch.quiet.description":
+    "N’affiche que ce qui a besoin de vous : questions, approbations et échecs. Sans retour haptique.",
   "settings.notch.haptics.title": "Retour haptique",
   "settings.notch.haptics.description":
     "Utiliser le trackpad Force Touch pour confirmer les interactions avec l’îlot dynamique.",

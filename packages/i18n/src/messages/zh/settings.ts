@@ -194,6 +194,8 @@ export const messages = {
   "settings.notch.idle.description": "没有活跃状态时显示 OpenBot 标志和问候语。",
   "settings.notch.displays.title": "在其他显示器上显示",
   "settings.notch.displays.description": "在已连接的外接显示器上显示灵动岛。",
+  "settings.notch.quiet.title": "静音模式",
+  "settings.notch.quiet.description": "只显示需要你处理的内容：提问、批准和失败。没有触觉反馈。",
   "settings.notch.haptics.title": "触觉反馈",
   "settings.notch.haptics.description": "使用 Force Touch 触控板确认灵动岛交互。",
   "settings.notch.servers.title": "服务器",

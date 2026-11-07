@@ -202,6 +202,9 @@ export const messages = {
   "settings.notch.idle.description": "Mostre o logotipo do OpenBot e a saudação quando não houver status ativo.",
   "settings.notch.displays.title": "Mostrar em telas adicionais",
   "settings.notch.displays.description": "Mostre a Dynamic Island nas telas externas conectadas.",
+  "settings.notch.quiet.title": "Modo silencioso",
+  "settings.notch.quiet.description":
+    "Mostra só o que precisa de você: perguntas, aprovações e falhas. Sem resposta tátil.",
   "settings.notch.haptics.title": "Resposta tátil",
   "settings.notch.haptics.description": "Use o trackpad Force Touch para confirmar interações com a Dynamic Island.",
   "settings.notch.servers.title": "Servidores",
