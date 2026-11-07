@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name}: {value}",
   "status.agent.dryRunTextValue": { one: "نص، {count} حرف", other: "نص، {count} حرف" },
   "status.agent.dryRunListValue": { one: "قائمة، {count} عنصر", other: "قائمة، {count} عنصر" },
+  "status.agent.selfImproveInstructionsPreview":
+    "تغيير على {file}، لم يُطبَّق بعد. يجب أن يوافق شخص على هذا الفرق في OpenBot. يُطبَّق فقط إذا لم تُظهر الأدوار الأخيرة زيادة في الأدوار الفاشلة. الأسطر المتغيرة:",
+  "status.agent.selfImproveSkillPreview":
+    "مهارة جديدة {name} من مهمة منتهية، لم تُثبَّت بعد. يجب أن يوافق عليها شخص في OpenBot. تُثبَّت لهذا الوكيل بعد الموافقة فقط، وعندما لا تُظهر الأدوار الأخيرة زيادة في الأدوار الفاشلة. الملفات: {files}.",
   "status.agent.dryRunObjectValue": { one: "كائن، {count} حقل", other: "كائن، {count} حقل" },
   "status.agent.dryRunEmptyValue": "فارغ",
   "status.agent.dryRunOtherValue": "قيمة",

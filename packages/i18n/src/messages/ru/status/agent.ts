@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name} — {value}",
   "status.agent.dryRunTextValue": { one: "текст, {count} симв.", other: "текст, {count} симв." },
   "status.agent.dryRunListValue": { one: "список, {count} эл.", other: "список, {count} эл." },
+  "status.agent.selfImproveInstructionsPreview":
+    "Изменение {file}, ещё не применено. Человек должен одобрить этот diff в OpenBot. Оно применяется, только если в последних ходах не стало больше неудачных ходов. Изменённые строки:",
+  "status.agent.selfImproveSkillPreview":
+    "Новый навык {name} из завершённой задачи, ещё не установлен. Человек должен одобрить его в OpenBot. Он устанавливается для этого агента только после одобрения и если в последних ходах не стало больше неудачных ходов. Файлы: {files}.",
   "status.agent.dryRunObjectValue": { one: "объект, {count} пол.", other: "объект, {count} пол." },
   "status.agent.dryRunEmptyValue": "пусто",
   "status.agent.dryRunOtherValue": "значение",

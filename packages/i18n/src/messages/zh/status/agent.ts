@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name}是{value}",
   "status.agent.dryRunTextValue": { one: "文本，{count} 个字符", other: "文本，{count} 个字符" },
   "status.agent.dryRunListValue": { one: "列表，{count} 项", other: "列表，{count} 项" },
+  "status.agent.selfImproveInstructionsPreview":
+    "对 {file} 的修改，尚未应用。需要有人在 OpenBot 中批准这项差异。只有近期轮次中失败的轮次没有增加时才会应用。修改的行：",
+  "status.agent.selfImproveSkillPreview":
+    "来自已完成任务的新技能 {name}，尚未安装。需要有人在 OpenBot 中批准。只有在批准后，且近期轮次中失败的轮次没有增加时，才会为此代理安装。文件：{files}。",
   "status.agent.dryRunObjectValue": { one: "对象，{count} 个字段", other: "对象，{count} 个字段" },
   "status.agent.dryRunEmptyValue": "空",
   "status.agent.dryRunOtherValue": "值",

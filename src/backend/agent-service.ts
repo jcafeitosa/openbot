@@ -214,6 +214,7 @@ import { type RoutineMutationOptions, RoutineScheduler, toRoutineOperationFailed
 import { localTimezone } from "./agent/routine-tools";
 import { buildRuntimeSnapshot } from "./agent/runtime-snapshot";
 import type { ScreenCaptureHost } from "./agent/screen-capture";
+import { SelfImproveGate } from "./agent/self-improve-gate";
 import { SessionSettings } from "./agent/session-settings";
 import { SIDE_QUESTION_CHAT_MESSAGES, sideQuestionPrompt } from "./agent/side-question";
 import type { AgentSidebar } from "./agent/sidebar-tools";
@@ -1028,6 +1029,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       },
     });
     const turnLedger = new TurnLedger({ database: store.database });
+    const selfImprove = new SelfImproveGate({ database: store.database, ledger: turnLedger });
     this.#attention = new AttentionRegistry({
       memoryProposals: new MemoryProposalStore({
         database: store.database,
@@ -1701,6 +1703,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       mailboxSync: this.#mailboxSync,
       conversation: this.#conversation,
       attention: this.#attention,
+      selfImprove,
       browser,
       browserUploads: this.#browserUploads,
       attachments: this.#attachments,

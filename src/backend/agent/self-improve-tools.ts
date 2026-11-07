@@ -1,0 +1,92 @@
+// The tools by which an agent proposes a change to its own instruction file or a skill. The gate in
+// `self-improve-gate.ts` decides them; this file declares the tools and says how each result reads to
+// the agent. The messages are English because the agent reads them, not the user.
+
+import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
+import { z } from "zod";
+import { type OpenBotToolResponse, openBotToolFailure, openBotToolResult } from "./routine-tools";
+import type { SelfImproveRefusal, SelfImproveResult } from "./self-improve-gate";
+
+export const proposeInstructionsSchema = z
+  .object({
+    text: z
+      .string()
+      .max(INPUT_LIMITS.agentInstructionsFile)
+      .describe("The whole new text of your instruction file, not a patch."),
+  })
+  .strict();
+
+export const proposeSkillSchema = z
+  .object({
+    sourcePath: z
+      .string()
+      .min(1)
+      .max(INPUT_LIMITS.path)
+      .describe("A folder inside your workspace, relative to it, that holds SKILL.md."),
+  })
+  .strict();
+
+export const SELF_IMPROVE_TOOL_DEFINITIONS = [
+  {
+    name: "propose_instructions_change",
+    description:
+      "Propose a new full text of your instruction file (AGENTS.md, or CLAUDE.md in an older workspace) when the user asks for a standing rule change, or when a rule you follow keeps failing. A person must approve the diff in OpenBot, and the change applies only when recent turns show no rise in failed turns. Returns status applied, or an error that says why nothing changed.",
+    shape: proposeInstructionsSchema.shape,
+  },
+  {
+    name: "propose_skill",
+    description:
+      "Propose a skill from a folder inside your workspace that holds SKILL.md, after a task whose plan has at least two steps and all of them completed in this turn. A person must approve it in OpenBot, and it installs for you only after approval. Never run the folder's scripts.",
+    shape: proposeSkillSchema.shape,
+  },
+];
+
+export const SELF_IMPROVE_TOOL_NAMES: ReadonlySet<string> = new Set(
+  SELF_IMPROVE_TOOL_DEFINITIONS.map((tool) => tool.name),
+);
+
+const DECLINED_MESSAGE = "The person did not approve this change, so nothing was applied.";
+
+const REFUSAL_MESSAGES: Record<SelfImproveRefusal, string> = {
+  secret:
+    "The change holds a secret, so OpenBot did not show it to the person or keep it. Remove the secret and propose the change again.",
+  "too-large": "The change is too long for the person to review in one card. Propose a smaller change.",
+  unchanged: "The instruction file already has this text, so there is nothing to change.",
+  changed: "The instruction file changed while the change waited for approval. Read it, then propose the change again.",
+  outside: "The instruction file is a link to a file outside the workspace, so OpenBot does not change it.",
+  replay:
+    "Recent turns show more failed turns than before, so OpenBot did not apply the change. Tell the user what you wanted to change.",
+  plan: "A skill draft needs a finished task: a plan of at least two steps, all completed in this turn.",
+  folder: "The skill folder must be a folder inside your workspace with a SKILL.md file, and it must hold no links.",
+};
+
+/** The tool answer for one gate result. A declined or refused change is a failed call, not a crash. */
+export function selfImproveToolResponse(result: SelfImproveResult): OpenBotToolResponse {
+  switch (result.status) {
+    case "applied":
+      return openBotToolResult({
+        status: "applied",
+        fileName: result.fileName,
+        sha256: result.sha256,
+        previousSha256: result.previousSha256,
+      });
+    case "installed":
+      return openBotToolResult({
+        status: "installed",
+        skillId: result.skill.id,
+        revision: result.skill.version,
+        name: result.skill.name,
+      });
+    case "declined":
+      return openBotToolFailure(DECLINED_MESSAGE, {
+        code: "approval_required",
+        retryable: false,
+        hint: "Tell the user that this change needs their approval in OpenBot. Do not call it again unless they ask.",
+      });
+    case "refused":
+      return openBotToolFailure(REFUSAL_MESSAGES[result.reason], {
+        code: "denied",
+        retryable: result.reason === "changed",
+      });
+  }
+}

@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name}: {value}",
   "status.agent.dryRunTextValue": { one: "metin, {count} karakter", other: "metin, {count} karakter" },
   "status.agent.dryRunListValue": { one: "liste, {count} öğe", other: "liste, {count} öğe" },
+  "status.agent.selfImproveInstructionsPreview":
+    "{file} dosyasında değişiklik, henüz uygulanmadı. Bu farkı OpenBot'ta bir kişinin onaylaması gerekir. Yalnızca son turlarda başarısız tur artışı görünmezse uygulanır. Değişen satırlar:",
+  "status.agent.selfImproveSkillPreview":
+    "Tamamlanmış bir görevden yeni beceri {name}, henüz yüklenmedi. OpenBot'ta bir kişinin onaylaması gerekir. Yalnızca onaydan sonra ve son turlarda başarısız tur artışı görünmezse bu temsilci için yüklenir. Dosyalar: {files}.",
   "status.agent.dryRunObjectValue": { one: "nesne, {count} alan", other: "nesne, {count} alan" },
   "status.agent.dryRunEmptyValue": "boş",
   "status.agent.dryRunOtherValue": "değer",
