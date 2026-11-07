@@ -105,22 +105,24 @@ export class BrowserRecorder {
           Effect.gen({ self: this }, function* () {
             const recorderPartition = `openbot-recorder-${randomUUID()}`;
             const recorderWindow = yield* Effect.gen({ self: this }, function* () {
-              return yield* browserSync(
-                () =>
-                  new BrowserWindow({
-                    show: false,
-                    width: 1,
-                    height: 1,
-                    webPreferences: {
-                      sandbox: true,
-                      contextIsolation: true,
-                      nodeIntegration: false,
-                      backgroundThrottling: false,
-                      webSecurity: true,
-                      partition: recorderPartition,
-                    },
-                  }),
-              );
+              return yield* browserSync(() => {
+                const window = new BrowserWindow({
+                  show: false,
+                  width: 1,
+                  height: 1,
+                  webPreferences: {
+                    sandbox: true,
+                    contextIsolation: true,
+                    nodeIntegration: false,
+                    backgroundThrottling: false,
+                    webSecurity: true,
+                    partition: recorderPartition,
+                  },
+                });
+                window.webContents.on("will-navigate", (event) => event.preventDefault());
+                window.webContents.on("will-redirect", (event) => event.preventDefault());
+                return window;
+              });
             }).pipe(
               Effect.catch((operationFailure) =>
                 Effect.gen({ self: this }, function* () {
