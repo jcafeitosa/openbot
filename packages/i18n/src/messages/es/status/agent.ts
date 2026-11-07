@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name} es {value}",
   "status.agent.dryRunTextValue": { one: "texto, {count} carácter", other: "texto, {count} caracteres" },
   "status.agent.dryRunListValue": { one: "lista, {count} elemento", other: "lista, {count} elementos" },
+  "status.agent.instructionsRollbackPreview":
+    "Restaurar {file} al texto guardado {sha256}, todavía no aplicado. Una persona debe aprobarlo en OpenBot. Líneas añadidas: {added}. Líneas quitadas: {removed}. Líneas cambiadas:",
+  "status.agent.instructionsRollbackRemove":
+    "Quitar {file} para que vuelva a no existir, como antes de crearse. Todavía no aplicado. Una persona debe aprobarlo en OpenBot.",
   "status.agent.selfImproveInstructionsPreview":
     "Cambio en {file}, todavía no aplicado. Una persona debe aprobar este diff en OpenBot. Solo se aplica si los turnos recientes no muestran más turnos fallidos. Líneas cambiadas:",
   "status.agent.selfImproveSkillPreview":

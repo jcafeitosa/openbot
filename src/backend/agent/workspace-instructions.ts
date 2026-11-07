@@ -1,7 +1,7 @@
 // The instruction file at the root of an agent's workspace: `AGENTS.md`, or `CLAUDE.md` in an older
 // workspace. The user edits it in the agent's settings, and the agent keeps its standing rules in it.
 
-import { chmod, lstat, open, realpath } from "node:fs/promises";
+import { chmod, lstat, open, realpath, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
@@ -13,7 +13,12 @@ import {
 } from "@openbot/contracts/ipc";
 import { Effect, Option, Schema } from "effect";
 import { writeFileAtomically } from "../atomic-json-file";
-import { findInstructionsSnapshot, recordInstructionsSnapshot } from "../instructions-history-store";
+import {
+  ABSENT_INSTRUCTIONS_SHA256,
+  ABSENT_INSTRUCTIONS_TEXT,
+  findInstructionsSnapshot,
+  recordInstructionsSnapshot,
+} from "../instructions-history-store";
 import { isPathInside } from "../path-containment";
 
 /**
@@ -138,7 +143,8 @@ const snapshotBeforeWrite = (history: InstructionsHistory, fileName: string, rep
  * save never deletes the file. The save is refused when the text is not `expected` now, because the
  * agent changed the file after the editor read it. A change between this check and the write is
  * still possible, but the window is short. With `history`, the text that the write replaces is kept
- * first, unless the write replaces nothing.
+ * first, unless the write replaces nothing. A new file keeps the absent state first, so creating it can be
+ * reversed by its hash.
  */
 export const saveAgentInstructionsFile = Effect.fn("WorkspaceInstructions.save")(function* (
   workspace: string,
@@ -152,7 +158,8 @@ export const saveAgentInstructionsFile = Effect.fn("WorkspaceInstructions.save")
   const path = Option.isSome(found)
     ? found.value.path
     : join(yield* fileIo("write", () => realpath(workspace)), fileName);
-  if (history && Option.isSome(found) && text !== expected) yield* snapshotBeforeWrite(history, fileName, expected);
+  if (history && (Option.isNone(found) || text !== expected))
+    yield* snapshotBeforeWrite(history, fileName, Option.isSome(found) ? expected : ABSENT_INSTRUCTIONS_TEXT);
   yield* writeFileAtomically(path, text).pipe(
     Effect.mapError((error) => new AgentInstructionsFileFailed({ operation: "write", cause: error.cause })),
   );
@@ -164,11 +171,10 @@ export const saveAgentInstructionsFile = Effect.fn("WorkspaceInstructions.save")
 });
 
 /**
- * Restores the instruction file to the text that has this hash, from the newest snapshot of the file
- * that holds it. The text that the restore replaces is kept first, as any write keeps it, so a restore
- * can itself be undone.
+ * The kept state of the instruction file that has this hash, from the newest snapshot of the file that holds
+ * it: its text, or null for the absent state. Fails with `InstructionsSnapshotMissing` when none is kept.
  */
-export const restoreAgentInstructionsSnapshot = Effect.fn("WorkspaceInstructions.restore")(function* (
+export const findAgentInstructionsSnapshot = Effect.fn("WorkspaceInstructions.findSnapshot")(function* (
   workspace: string,
   sha256: string,
   history: InstructionsHistory,
@@ -180,7 +186,41 @@ export const restoreAgentInstructionsSnapshot = Effect.fn("WorkspaceInstructions
     catch: (cause) => new AgentInstructionsFileFailed({ operation: "read", cause }),
   });
   if (!snapshot) return yield* new InstructionsSnapshotMissing({ sha256 });
-  return yield* saveAgentInstructionsFile(workspace, snapshot.text, yield* editorText(found), history);
+  const text = snapshot.sha256 === ABSENT_INSTRUCTIONS_SHA256 ? null : snapshot.text;
+  return { fileName, text, sha256: snapshot.sha256 };
+});
+
+/**
+ * Removes the instruction file, which restores the absent state. The text it replaces is kept first. A
+ * workspace with no file is left as it is. The entry is removed, not the file it links to.
+ */
+const removeAgentInstructionsFile = Effect.fn("WorkspaceInstructions.remove")(function* (
+  workspace: string,
+  history: InstructionsHistory,
+) {
+  const found = yield* findFile(workspace);
+  if (Option.isNone(found)) return { fileName: "AGENTS.md", exists: false, text: "" } satisfies AgentInstructionsFile;
+  const { fileName } = found.value;
+  yield* snapshotBeforeWrite(history, fileName, yield* editorText(found));
+  const entry = join(yield* fileIo("write", () => realpath(workspace)), fileName);
+  yield* fileIo("write", () => unlink(entry));
+  return { fileName, exists: false, text: "" } satisfies AgentInstructionsFile;
+});
+
+/**
+ * Restores the instruction file to the kept state that has this hash: its text, or the absent state, which
+ * removes the file. The state that the restore replaces is kept first, as any write keeps it, so a restore
+ * can itself be undone.
+ */
+export const restoreAgentInstructionsSnapshot = Effect.fn("WorkspaceInstructions.restore")(function* (
+  workspace: string,
+  sha256: string,
+  history: InstructionsHistory,
+) {
+  const target = yield* findAgentInstructionsSnapshot(workspace, sha256, history);
+  if (target.text === null) return yield* removeAgentInstructionsFile(workspace, history);
+  const found = yield* findFile(workspace);
+  return yield* saveAgentInstructionsFile(workspace, target.text, yield* editorText(found), history);
 });
 
 /** The instruction file as the prompt carries it. */

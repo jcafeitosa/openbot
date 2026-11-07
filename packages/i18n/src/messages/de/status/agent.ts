@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name} ist {value}",
   "status.agent.dryRunTextValue": { one: "Text, {count} Zeichen", other: "Text, {count} Zeichen" },
   "status.agent.dryRunListValue": { one: "Liste, {count} Element", other: "Liste, {count} Elemente" },
+  "status.agent.instructionsRollbackPreview":
+    "{file} auf den gespeicherten Text {sha256} zurücksetzen, noch nicht angewendet. Eine Person muss das in OpenBot genehmigen. Hinzugefügte Zeilen: {added}. Entfernte Zeilen: {removed}. Geänderte Zeilen:",
+  "status.agent.instructionsRollbackRemove":
+    "{file} entfernen, sodass die Datei wieder fehlt wie vor ihrer Erstellung. Noch nicht angewendet. Eine Person muss das in OpenBot genehmigen.",
   "status.agent.selfImproveInstructionsPreview":
     "Änderung an {file}, noch nicht angewendet. Eine Person muss diesen Unterschied in OpenBot genehmigen. Sie wird nur angewendet, wenn die letzten Turns keinen Anstieg fehlgeschlagener Turns zeigen. Geänderte Zeilen:",
   "status.agent.selfImproveSkillPreview":

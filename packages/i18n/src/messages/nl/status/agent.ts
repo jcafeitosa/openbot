@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name} is {value}",
   "status.agent.dryRunTextValue": { one: "tekst, {count} teken", other: "tekst, {count} tekens" },
   "status.agent.dryRunListValue": { one: "lijst, {count} item", other: "lijst, {count} items" },
+  "status.agent.instructionsRollbackPreview":
+    "{file} terugzetten naar de bewaarde tekst {sha256}, nog niet toegepast. Een persoon moet dit goedkeuren in OpenBot. Toegevoegde regels: {added}. Verwijderde regels: {removed}. Gewijzigde regels:",
+  "status.agent.instructionsRollbackRemove":
+    "{file} verwijderen, zodat het bestand weer ontbreekt zoals vóór het werd aangemaakt. Nog niet toegepast. Een persoon moet dit goedkeuren in OpenBot.",
   "status.agent.selfImproveInstructionsPreview":
     "Wijziging aan {file}, nog niet toegepast. Een persoon moet dit verschil in OpenBot goedkeuren. Het wordt alleen toegepast als de recente beurten geen toename van mislukte beurten laten zien. Gewijzigde regels:",
   "status.agent.selfImproveSkillPreview":

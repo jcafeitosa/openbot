@@ -11,12 +11,17 @@ import type { ConversationPlan, MarketplaceSkillDetail } from "@openbot/contract
 import { sourceText } from "@openbot/i18n/source";
 import { redactText } from "@openbot/logging";
 import { Effect } from "effect";
-import { instructionsTextSha256 } from "../instructions-history-store";
+import { ABSENT_INSTRUCTIONS_SHA256, instructionsTextSha256 } from "../instructions-history-store";
 import type { OpenBotDatabase } from "../openbot-database";
 import type { LocalSkillTools } from "./skill-tools";
 import { ToolOperationFailed } from "./tool-operation";
 import type { TurnLedger } from "./turn-ledger";
-import { readAgentInstructionsFile, saveAgentInstructionsFile } from "./workspace-instructions";
+import {
+  findAgentInstructionsSnapshot,
+  readAgentInstructionsFile,
+  restoreAgentInstructionsSnapshot,
+  saveAgentInstructionsFile,
+} from "./workspace-instructions";
 
 /** The newest recorded turns that a replay counts, and the window of turns before them. */
 const REPLAY_WINDOW = 10;
@@ -43,7 +48,8 @@ export type SelfImproveRefusal =
   | "outside"
   | "replay"
   | "plan"
-  | "folder";
+  | "folder"
+  | "missing";
 
 export type SelfImproveResult =
   | { status: "applied"; fileName: string; sha256: string; previousSha256: string }
@@ -56,6 +62,14 @@ interface InstructionsProposal {
   workspace: string;
   /** The whole new text of the instruction file. */
   text: string;
+  approve: SelfImproveApproval;
+}
+
+interface InstructionsRollbackProposal {
+  agentId: string;
+  workspace: string;
+  /** The hash of the kept state to restore: an earlier text of the file, or the absent state. */
+  sha256: string;
   approve: SelfImproveApproval;
 }
 
@@ -234,6 +248,21 @@ export class SelfImproveGate {
     );
 
   /**
+   * Proposes restoring the instruction file to a kept state, by its hash. The card shows what the restore
+   * changes. Only the person's accept runs it, and only while the file still holds the text the card showed.
+   */
+  readonly proposeInstructionsRollback = (input: InstructionsRollbackProposal) =>
+    this.#rollback(input).pipe(
+      Effect.catchTag("AgentInstructionsFileRefused", (failure) =>
+        Effect.succeed({ status: "refused" as const, reason: failure.reason }),
+      ),
+      Effect.catchTag("InstructionsSnapshotMissing", () => Effect.succeed(refused("missing"))),
+      Effect.catchTag("AgentInstructionsFileFailed", (failure) =>
+        Effect.fail(new ToolOperationFailed({ cause: failure.cause })),
+      ),
+    );
+
+  /**
    * Proposes a skill draft from a folder of the workspace. Installs it for the agent only when the turn
    * has a finished plan, the person accepts the card, and the replay shows no regression.
    */
@@ -266,6 +295,51 @@ export class SelfImproveGate {
       fileName: current.fileName,
       sha256: instructionsTextSha256(input.text),
       previousSha256: instructionsTextSha256(current.text),
+    };
+  }).bind(this);
+
+  readonly #rollback = Effect.fn("SelfImproveGate.rollback")(function* (
+    this: SelfImproveGate,
+    input: InstructionsRollbackProposal,
+  ) {
+    const history = { agentId: input.agentId, database: this.#database.connection };
+    const target = yield* findAgentInstructionsSnapshot(input.workspace, input.sha256, history);
+    const current = yield* readAgentInstructionsFile(input.workspace);
+    // The replaced text is kept in the instruction history, so it must not hold a secret either.
+    if (holdsSecret(current.text)) return refused("secret");
+    if (target.text === null ? !current.exists : current.exists && current.text === target.text)
+      return refused("unchanged");
+    let reason: string;
+    if (target.text === null) {
+      reason = sourceText("status.agent.instructionsRollbackRemove", { file: current.fileName });
+    } else {
+      const changes = current.exists
+        ? changedLines(current.text, target.text)
+        : target.text.split("\n").map((line) => `+ ${line}`);
+      if (changes === null || changes.length > DIFF_LINE_LIMIT) return refused("too-large");
+      const added = changes.filter((line) => line.startsWith("+ ")).length;
+      const removed = changes.filter((line) => line.startsWith("- ")).length;
+      const header = sourceText("status.agent.instructionsRollbackPreview", {
+        file: current.fileName,
+        sha256: input.sha256,
+        added,
+        removed,
+      });
+      reason = `${header}\n\n${changes.join("\n")}`;
+    }
+    if (holdsSecret(reason)) return refused("secret");
+    if (reason.length > INPUT_LIMITS.messageText) return refused("too-large");
+    const decision = yield* input.approve(reason);
+    if (decision !== "accept") return { status: "declined" as const };
+    // The card showed the file as it is now: a change made since then is not restored over.
+    const now = yield* readAgentInstructionsFile(input.workspace);
+    if (now.exists !== current.exists || now.text !== current.text) return refused("changed");
+    yield* restoreAgentInstructionsSnapshot(input.workspace, input.sha256, history);
+    return {
+      status: "applied" as const,
+      fileName: current.fileName,
+      sha256: input.sha256,
+      previousSha256: current.exists ? instructionsTextSha256(current.text) : ABSENT_INSTRUCTIONS_SHA256,
     };
   }).bind(this);
 

@@ -13,6 +13,10 @@ export const messages = {
   "status.agent.dryRunArgument": "{name}: {value}",
   "status.agent.dryRunTextValue": { one: "نص، {count} حرف", other: "نص، {count} حرف" },
   "status.agent.dryRunListValue": { one: "قائمة، {count} عنصر", other: "قائمة، {count} عنصر" },
+  "status.agent.instructionsRollbackPreview":
+    "استعادة {file} إلى النص المحفوظ {sha256}، لم تُطبَّق بعد. يجب أن يوافق شخص على ذلك في OpenBot. أسطر مضافة: {added}. أسطر محذوفة: {removed}. الأسطر المتغيرة:",
+  "status.agent.instructionsRollbackRemove":
+    "حذف {file} لإعادته إلى حالة عدم الوجود قبل إنشائه، لم يُطبَّق بعد. يجب أن يوافق شخص على ذلك في OpenBot.",
   "status.agent.selfImproveInstructionsPreview":
     "تغيير على {file}، لم يُطبَّق بعد. يجب أن يوافق شخص على هذا الفرق في OpenBot. يُطبَّق فقط إذا لم تُظهر الأدوار الأخيرة زيادة في الأدوار الفاشلة. الأسطر المتغيرة:",
   "status.agent.selfImproveSkillPreview":
