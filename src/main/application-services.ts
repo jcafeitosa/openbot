@@ -141,6 +141,7 @@ import { SidebarLayoutStore } from "../backend/sidebar-layout-store";
 import { StorageUsageScanner, StorageUsageService } from "../backend/storage-usage";
 import { TeamChatStore } from "../backend/team-chat-store";
 import { AGENT_ACCESS_FILE, AgentAccessStore } from "./agent-access-store";
+import { createAgentCapabilitySwitchesStore } from "./agent-capability-switches-store";
 import {
   type AgentDefaultsPreferenceStore,
   createAgentDefaultsPreferenceStore,
@@ -414,6 +415,7 @@ const PROVIDER_CLI_APP_VERSION_FILE = "openbot-provider-cli-app-version-v1.json"
 const AGENT_DEFAULTS_PREFERENCE_FILE = "openbot-agent-defaults-v1.json";
 const AGENT_MEMORY_LIMIT_PREFERENCE_FILE = "openbot-agent-memory-limit-v1.json";
 const MEMORY_REVIEW_PREFERENCE_FILE = "openbot-memory-review-v1.json";
+const AGENT_CAPABILITY_SWITCHES_FILE = "openbot-agent-capability-switches-v1.json";
 const AGENT_NOTIFICATION_LEVELS_FILE = "openbot-agent-notification-levels-v1.json";
 const SIDEBAR_PINS_FILE = "openbot-sidebar-pins-v1.json";
 const SERVER_TIMEZONE_PREFERENCE_FILE = "openbot-server-timezone-v1.json";
@@ -1326,6 +1328,10 @@ export async function createApplicationServices({
   await runCauseEffect(memoryReview.load());
   const serverAudit = new ServerAuditStore(join(app.getPath("userData"), SERVER_AUDIT_FILE));
   await runCauseEffect(serverAudit.load());
+  const agentCapabilitySwitches = createAgentCapabilitySwitchesStore(
+    join(app.getPath("userData"), AGENT_CAPABILITY_SWITCHES_FILE),
+  );
+  await runCauseEffect(agentCapabilitySwitches.load());
   const agentAccess = new AgentAccessStore(join(app.getPath("userData"), AGENT_ACCESS_FILE), {
     // Called only on a save, after `service` and `teamStore` exist.
     audit: (serverId, before, after, actor) =>
@@ -1975,6 +1981,7 @@ export async function createApplicationServices({
     busyMessageMode: () => busyMessageMode.get().mode,
     agentMemoryLimit: () => agentMemoryLimit.get().limit,
     memoryReviewInterval: () => memoryReview.get().interval,
+    capabilitySwitches: () => agentCapabilitySwitches.get(),
     timezone: () => serverTimezone.effective(),
     // `workflowTriggers` is built later, after the workflows.
     extraRoutineSources: () => (workflowTriggers ? [workflowTriggers] : []),

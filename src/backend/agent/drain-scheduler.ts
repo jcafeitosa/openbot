@@ -96,6 +96,8 @@ export interface DrainHooks {
   startRequestedNewChat(agentId: string): Effect.Effect<void>;
   /** Drops that request: a turn in the agent's own chat starts first, so the agent's notes do not cover it. */
   dropRequestedNewChat(agentId: string): void;
+  /** Whether the recurrence note is on. Off, a recurring failure is neither read nor noted. */
+  recurrenceNote(): boolean;
 }
 
 /** The tasks of the agents, as the drain reads them. */
@@ -806,7 +808,8 @@ export class DrainScheduler {
         ),
       );
       // A recurring failure gives its note to the next delivery only: a plan continuation sends no delivery.
-      const recurring = planNote === undefined ? this.#turnLedger.takeRecurringFailure(agent.id) : null;
+      const recurring =
+        planNote === undefined && this.#hooks.recurrenceNote() ? this.#turnLedger.takeRecurringFailure(agent.id) : null;
       const promptInput = (executionText: string | undefined) => {
         // The deliveries of one interrupted turn share its continuation, so the prompt states it once.
         const continued = new Set<string>();

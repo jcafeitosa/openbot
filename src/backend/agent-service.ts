@@ -117,6 +117,7 @@ import type {
 } from "@openbot/contracts/ipc";
 import {
   AGENT_PROVIDERS,
+  type AgentCapabilitySwitches,
   type AgentDefaults,
   type AgentModelChoice,
   agentAutomationAllowed,
@@ -125,6 +126,7 @@ import {
   agentTaskLimit,
   type BusyMessageMode,
   CONTEXT_RESET_ITEM_TYPE,
+  DEFAULT_AGENT_CAPABILITY_SWITCHES,
   DEFAULT_BUSY_MESSAGE_MODE,
   DEFAULT_CUSTOM_PROVIDER_HARNESS,
   DEFAULT_PROVIDER_ACCOUNT_ID,
@@ -166,7 +168,7 @@ import type { ChatVisualPreviewHost } from "./agent/chat-visual-preview";
 import { ContextCompaction } from "./agent/context-compaction";
 import { ConversationReader } from "./agent/conversation-reader";
 import { ConversationRuntime } from "./agent/conversation-runtime";
-import { runCrossProviderCheck } from "./agent/cross-provider-check";
+import { type CrossProviderResult, runCrossProviderCheck } from "./agent/cross-provider-check";
 import { CustomEndpoints, toEndpointChangeFailed } from "./agent/custom-endpoints";
 import { agentNamesById, displayMessageReferences, type TagReferenceSource } from "./agent/delivery-content";
 import { DeltaBuffer } from "./agent/delta-buffer";
@@ -385,6 +387,11 @@ export interface AgentServiceOptions {
    */
   memoryReviewInterval?: () => number;
   /**
+   * The switches of the cross-provider check, the recurrence note and the plan verifier, read at each
+   * use. The main process owns the preference. Omitted, all three are on, as before the switches.
+   */
+  capabilitySwitches?: () => AgentCapabilitySwitches;
+  /**
    * The server timezone, for a routine an agent creates without a zone from the tool call or the
    * sender. The main process owns the preference. Omitted, the host system zone.
    */
@@ -527,6 +534,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #workflowTools: (() => WorkflowTools) | undefined;
   readonly #developmentDefaults: boolean;
   readonly #busyMessageMode: () => BusyMessageMode;
+  readonly #capabilitySwitches: () => AgentCapabilitySwitches;
   /** The last turn of each agent's chat that the user stopped. One per agent, so it needs no clean-up. */
   readonly #stoppedTurns = new Map<string, string>();
 
@@ -560,9 +568,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       githubConnector = null,
       hostMemory = null,
       busyMessageMode = () => DEFAULT_BUSY_MESSAGE_MODE,
+      capabilitySwitches = () => DEFAULT_AGENT_CAPABILITY_SWITCHES,
     } = options;
     this.#developmentDefaults = developmentDefaults;
     this.#busyMessageMode = busyMessageMode;
+    this.#capabilitySwitches = capabilitySwitches;
     this.#localSkillTools = localSkillTools;
     this.#routineFlowTools = routineFlowTools;
     this.#workflowTools = workflowTools;
@@ -1477,6 +1487,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         redactMcp: (text) => this.#mcp.redact(text),
         tagReferences: (agentId, threadId) => this.#tagReferences(agentId, threadId),
         isStopping: () => this.#stopping,
+        recurrenceNote: () => this.#capabilitySwitches().recurrenceNote,
         isDeleting: (agentId) => this.#removal.deleting().has(agentId),
         servesModel: (model, provider) => this.#endpoints.serves(model, provider),
         requeueChannelDelivery: (deliveryId, continueWork) => this.#requeueChannelDelivery(deliveryId, continueWork),
@@ -1624,9 +1635,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         closeRoutineSession: (externalThreadId) => this.#threads.closeRoutineThread(externalThreadId),
         conversationTurnEnded: (agentId, sideThreadId, counts, memoryCommitted) =>
           this.#memoryReview.turnEnded(agentId, sideThreadId, counts, memoryCommitted),
-        verifyPlan: (agentId, input) => this.#verifyPlan(agentId, input),
+        // A switched-off check approves, as a check that cannot run does.
+        verifyPlan: (agentId, input) =>
+          this.#capabilitySwitches().planVerifier ? this.#verifyPlan(agentId, input) : Effect.succeed([]),
         crossProviderCheck: (agentId, input) =>
-          runCrossProviderCheck({ ...input, generate: (prompt) => this.#crossProviderGenerate(agentId, prompt) }),
+          this.#capabilitySwitches().crossProviderCheck
+            ? runCrossProviderCheck({ ...input, generate: (prompt) => this.#crossProviderGenerate(agentId, prompt) })
+            : Effect.succeed<CrossProviderResult>({ ran: false, reason: "The cross-provider check is off." }),
         turnStopped: (agentId, taskId, turnId) =>
           this.#stoppedTurn(agentId, taskId) === turnId || (taskId === null && this.#requestedNewChats.has(agentId)),
         hasOpenWait: (agentId, deliveryIds) =>

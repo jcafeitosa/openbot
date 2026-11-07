@@ -3,10 +3,11 @@
 // ("disabled"). The runs use a temporary profile, a fake Codex app-server and, for the cross-provider
 // check only, a fake Claude CLI. No provider, account or network is used.
 //
-// Five capabilities have no on/off setting. Each is an unconditional hook in the tool router, the turn lifecycle
-// or the memory review, so their comparison is trigger versus no trigger. Memory reflection has a real switch,
-// memoryReviewInterval (0 turns reflections off), so it also gets an ablation that flips that setting on the same
-// failed turn. Each assertion reads an observable artifact (a card, a prompt, a note, a second call, a turn, a memory).
+// Two capabilities have no setting: the dry-run gate and exact-tool guidance are unconditional hooks, so their
+// comparison is trigger versus no trigger. Three have a real switch, read at each use: the cross-provider check,
+// the recurrence note and the plan verifier. Each of them also gets an ablation that flips its switch on the same
+// input. Memory reflection flips memoryReviewInterval (0 = off) on the same failed turn. Each assertion reads an
+// observable artifact (a card, a prompt, a note, a second call, a turn, a memory).
 //
 // Each capability runs in its own child process with its own profile. Run once:
 //   bun scripts/capability-comparison-e2e.ts
@@ -18,12 +19,13 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentEvent } from "@openbot/contracts/ipc";
+import type { AgentCapabilitySwitches, AgentEvent } from "@openbot/contracts/ipc";
 import type { AgentBrowserHost } from "../src/backend/agent/turn-lifecycle";
 import type { AgentClient, DiagnosticOrigin } from "../src/backend/agent-client";
 import type { ClaudeCliInfo } from "../src/backend/cli";
 import type { AppServerNotification, AppServerRequest, RequestId, ResponseDecoder } from "../src/backend/protocol";
 import type { ReadProviderHistory } from "../src/backend/provider-history";
+import type { AgentCapabilitySwitchesStore } from "../src/main/agent-capability-switches-store";
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const OUT = resolve(import.meta.dirname, "../.openbot-build/capability-comparison-e2e");
@@ -56,19 +58,19 @@ const CAPABILITIES = [
   {
     id: "recurrence",
     name: "Recurrence note",
-    control: "none: unconditional delivery hook (turn-ledger)",
+    control: "real switch: recurrenceNote, flipped by the ablation; the trigger is the failure count",
     compared: "3 failed turns vs 2 failed turns, then the next prompt",
   },
   {
     id: "cross-provider",
     name: "Cross-provider check",
-    control: "none: unconditional turn hook (turn-lifecycle)",
+    control: "real switch: crossProviderCheck, flipped by the ablation; the trigger is the request",
     compared: "flagged request with a disagreeing check vs unflagged request",
   },
   {
     id: "plan-verifier",
     name: "Plan verifier",
-    control: "none: unconditional turn hook (verifyPlan); the verdict is the only variable",
+    control: "real switch: planVerifier, flipped by the ablation; the verdict is the only variable",
     compared: "gap verdict vs approved verdict, the turns that follow each",
   },
   {
@@ -592,6 +594,7 @@ async function loadBackend() {
   const { EXACT_TOOL_GUIDANCE } = await import("../src/backend/agent/exact-tool-policy");
   const { AGENT_PROVIDERS, CONVERSATION_MEMORY_CHANGES_ITEM_TYPE, defaultProviderModel, latestTurnAnswer } =
     await import("@openbot/contracts/ipc");
+  const { createAgentCapabilitySwitchesStore } = await import("../src/main/agent-capability-switches-store");
   const { Effect } = await import("effect");
   return {
     AgentService,
@@ -608,6 +611,7 @@ async function loadBackend() {
     defaultProviderModel,
     latestTurnAnswer,
     Effect,
+    createAgentCapabilitySwitchesStore,
   };
 }
 
@@ -635,6 +639,7 @@ interface Session {
   events: AgentEvent[];
   approvals: Approval[];
   reviewInterval: ReviewInterval;
+  switches: AgentCapabilitySwitchesStore;
 }
 
 function browserHost(b: Backend): AgentBrowserHost {
@@ -765,6 +770,7 @@ function openSession(
   paths: { dir: string; userData: string; home: string },
   extras: Partial<ServiceOptions>,
   reviewInterval: ReviewInterval,
+  switches: AgentCapabilitySwitchesStore,
 ): Session {
   const database = new b.OpenBotDatabase(paths.userData);
   const store = new b.AgentStore(paths.userData, paths.home, database);
@@ -786,6 +792,7 @@ function openSession(
     events: [],
     approvals: [],
     reviewInterval,
+    switches,
   };
   service.on("event", (event) => {
     session.events.push(event);
@@ -1203,6 +1210,110 @@ async function memoryReflectionAblation(s: Session): Promise<Pair> {
   };
 }
 
+/** Writes one of the capability switches through the production store, which the service reads at each use. */
+async function setSwitch(s: Session, key: keyof AgentCapabilitySwitches, on: boolean): Promise<void> {
+  await s.b.runCauseEffect(s.switches.set({ ...s.switches.get(), [key]: on }));
+}
+
+/** Cross-provider switch: the same flagged request gets the second opinion with the switch on, and none with it off. */
+async function crossProviderSwitch(s: Session): Promise<Pair> {
+  const disagreeAnswer = "There are 12 files in the project.";
+  const checker = await createAgent(s, "SwitchChecker");
+  const checkLog = join(s.dir, "claude-checks.jsonl");
+  const checkCount = () => readLines<unknown>(checkLog).length;
+  const request = "Verify the file count in the project. case:disagree";
+  await setSwitch(s, "crossProviderCheck", false);
+  const offBefore = checkCount();
+  const off = await askCase(s, checker, request);
+  const offCalls = checkCount() - offBefore;
+  await setSwitch(s, "crossProviderCheck", true);
+  const onBefore = checkCount();
+  const on = await askCase(s, checker, request);
+  const onCalls = checkCount() - onBefore;
+
+  const onNote = on.includes(ABSTENTION_NOTE);
+  const offNote = off.includes(ABSTENTION_NOTE);
+  return {
+    enabled: variant(
+      "switch on, flagged request",
+      `second_provider_calls=${onCalls}; abstention_note=${onNote}`,
+      onCalls === 1 && onNote && on.startsWith(disagreeAnswer),
+      { calls: onCalls, abstentionNote: onNote, answer: on },
+    ),
+    disabled: variant(
+      "switch off, same flagged request",
+      `second_provider_calls=${offCalls}; abstention_note=${offNote}`,
+      offCalls === 0 && !offNote && off === disagreeAnswer,
+      { calls: offCalls, abstentionNote: offNote, answer: off },
+    ),
+  };
+}
+
+/** Recurrence switch: the same three failed turns give the note with the switch on, and none with it off. */
+async function recurrenceSwitch(s: Session): Promise<Pair> {
+  await setSwitch(s, "recurrenceNote", false);
+  const off = await recurrenceRun(s, "NoteOff", 3);
+  await setSwitch(s, "recurrenceNote", true);
+  const on = await recurrenceRun(s, "NoteOn", 3);
+  return {
+    enabled: variant(
+      "switch on, three failed turns",
+      `note_in_next_prompt=${on.note}`,
+      on.promptFound && on.note && on.status === "completed",
+      { ...on },
+    ),
+    disabled: variant(
+      "switch off, three failed turns",
+      `note_in_next_prompt=${off.note}`,
+      off.promptFound && !off.note && off.status === "completed",
+      { ...off },
+    ),
+  };
+}
+
+/** Plan-verifier switch: the same gap verdict sends the plan back with the switch on, and no verifier turn runs off. */
+async function planVerifierSwitch(s: Session): Promise<Pair> {
+  const gap = "The report step is marked done, but no report file was written.";
+  const turns: PlanTurn[] = [
+    { steps: PLAN_STEPS, answer: "Draft report is done.", verdict: { approved: false, gaps: [gap] } },
+    { steps: PLAN_STEPS, answer: "Final report is written to report.md.", verdict: { approved: true, gaps: [] } },
+  ];
+  const run = async (name: string) => {
+    const agent = await createAgent(s, name);
+    const mark = fakeEntries(s.dir).length;
+    const status = await settleDelivery(
+      s,
+      await send(s, agent, `Write the report. <<PLAN${JSON.stringify(turns)}PLAN>>`),
+    );
+    const entries = fakeEntries(s.dir).slice(mark);
+    const continuations = entries.filter((entry) => entry.method === "turn" && entry.note === true);
+    return {
+      status,
+      extraTurns: continuations.length,
+      gapNamed: continuations[0]?.text?.includes(gap) ?? false,
+      checks: entries.filter((entry) => entry.method === "verifier").length,
+    };
+  };
+  await setSwitch(s, "planVerifier", false);
+  const off = await run("VerifierOff");
+  await setSwitch(s, "planVerifier", true);
+  const on = await run("VerifierOn");
+  return {
+    enabled: variant(
+      "switch on, gap verdict",
+      `extra_turns=${on.extraTurns}; gap_named_in_next_turn=${on.gapNamed}; checks=${on.checks}`,
+      on.status === "completed" && on.extraTurns === 1 && on.gapNamed && on.checks >= 1,
+      { ...on },
+    ),
+    disabled: variant(
+      "switch off, same gap verdict",
+      `extra_turns=${off.extraTurns}; checks=${off.checks}`,
+      off.status === "completed" && off.extraTurns === 0 && off.checks === 0,
+      { ...off },
+    ),
+  };
+}
+
 const SCENARIOS: Record<CapabilityId, (s: Session) => Promise<Pair>> = {
   "dry-run-gate": dryRunGate,
   "exact-tool": exactToolGuidance,
@@ -1217,6 +1328,18 @@ const ABLATIONS: Partial<Record<CapabilityId, { compared: string; run: (s: Sessi
   "memory-reflection": {
     compared: "memoryReviewInterval 20 (default) vs 0 (off), same failed turn: one lesson vs none",
     run: memoryReflectionAblation,
+  },
+  recurrence: {
+    compared: "recurrenceNote on vs off, same three failed turns: the note in the next prompt vs none",
+    run: recurrenceSwitch,
+  },
+  "cross-provider": {
+    compared: "crossProviderCheck on vs off, same flagged request: one second-provider call and the note vs none",
+    run: crossProviderSwitch,
+  },
+  "plan-verifier": {
+    compared: "planVerifier on vs off, same gap verdict: one more turn that names the gap vs none",
+    run: planVerifierSwitch,
   },
 };
 
@@ -1258,7 +1381,10 @@ async function runChild(capability: (typeof CAPABILITIES)[number], resultPath: s
   let session: Session | null = null;
   try {
     const b = await loadBackend();
-    session = openSession(b, { dir, userData, home }, serviceExtras(capability.id, b, reviewInterval), reviewInterval);
+    const switches = b.createAgentCapabilitySwitchesStore(join(userData, "capability-switches.json"));
+    await b.runCauseEffect(switches.load());
+    const extras = { ...serviceExtras(capability.id, b, reviewInterval), capabilitySwitches: () => switches.get() };
+    session = openSession(b, { dir, userData, home }, extras, reviewInterval, switches);
     await b.runCauseEffect(session.service.initialize());
     const pair = await SCENARIOS[capability.id](session);
     result.comparisons.push(comparisonOf("trigger vs none", capability.compared, pair));
