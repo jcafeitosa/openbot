@@ -3,9 +3,10 @@
 // ("disabled"). The runs use a temporary profile, a fake Codex app-server and, for the cross-provider
 // check only, a fake Claude CLI. No provider, account or network is used.
 //
-// None of the six capabilities has an on/off setting. Each is an unconditional hook in the tool router,
-// the turn lifecycle or the memory review, so the comparison is trigger versus no trigger, and each
-// assertion reads an observable artifact (a card, a prompt, a note, a second call, a turn, a memory).
+// Five capabilities have no on/off setting. Each is an unconditional hook in the tool router, the turn lifecycle
+// or the memory review, so their comparison is trigger versus no trigger. Memory reflection has a real switch,
+// memoryReviewInterval (0 turns reflections off), so it also gets an ablation that flips that setting on the same
+// failed turn. Each assertion reads an observable artifact (a card, a prompt, a note, a second call, a turn, a memory).
 //
 // Each capability runs in its own child process with its own profile. Run once:
 //   bun scripts/capability-comparison-e2e.ts
@@ -35,6 +36,9 @@ const ABSTENTION_NOTE = "OpenBot cross-check: I am not sure of this answer.";
 const RECURRENCE_NOTE = "OpenBot note, not a message from the user.";
 const TERMINAL_STATUSES = ["completed", "failed", "interrupted", "cancelled"];
 const PLAN_STEPS: [string, string][] = [["Write the report", "completed"]];
+/** The production default of `memoryReviewInterval` (`MEMORY_REVIEW_INTERVAL` in memory-review.ts). */
+const DEFAULT_REVIEW_INTERVAL = 20;
+const FAILED_TURN = "FAIL_NOW deploy the app.";
 
 const CAPABILITIES = [
   {
@@ -70,7 +74,8 @@ const CAPABILITIES = [
   {
     id: "memory-reflection",
     name: "Memory reflection",
-    control: "none: unconditional turn-end hook (memory review); the turn outcome is the only variable",
+    control:
+      "real switch: memoryReviewInterval (0 = off), used by the ablation; the trigger varies only the turn outcome",
     compared: "failed turn vs completed turn, the reflections and saved lessons of each",
   },
 ] as const;
@@ -93,14 +98,24 @@ interface Pair {
   disabled: Variant;
 }
 
-interface CapabilityResult {
-  id: CapabilityId;
-  name: string;
-  control: string;
+/** The kind of a comparison: a trigger against no trigger, or a run that flips a real production setting. */
+type ComparisonKind = "trigger vs none" | "ablation (real switch)";
+
+/** One comparison of a capability: its two variants, and whether the two observe different things. */
+interface Comparison {
+  kind: ComparisonKind;
   compared: string;
   enabled: Variant | null;
   disabled: Variant | null;
   differs: boolean;
+  passed: boolean;
+}
+
+interface CapabilityResult {
+  id: CapabilityId;
+  name: string;
+  control: string;
+  comparisons: Comparison[];
   passed: boolean;
   error?: string;
 }
@@ -445,6 +460,13 @@ interface ClaudeInput {
   request?: { subtype?: string; model?: string };
 }
 
+/** One line that the fake Claude CLI writes to its output: its type, and the uuid that its transcript keeps. */
+interface ClaudeOutput {
+  type: string;
+  uuid?: string;
+  [field: string]: unknown;
+}
+
 /** The fake Claude CLI. It answers a cross-provider check with the verdict of the answer that the check quotes. */
 async function fakeClaudeMain(dir: string): Promise<void> {
   if (process.argv.includes("--version")) {
@@ -466,16 +488,16 @@ async function fakeClaudeMain(dir: string): Promise<void> {
   const previous = readLines<{ uuid: string }>(transcript);
   const recorded = new Set(previous.map((row) => row.uuid));
   let parentUuid: string | null = previous.at(-1)?.uuid ?? null;
-  const record = (message: object) => {
-    const uuid = "uuid" in message && typeof message.uuid === "string" ? message.uuid : randomUUID();
+  const record = (message: { uuid?: string }) => {
+    const uuid = typeof message.uuid === "string" ? message.uuid : randomUUID();
     if (recorded.has(uuid)) return;
     const row = { ...message, uuid, parentUuid, sessionId, timestamp: new Date().toISOString(), isSidechain: false };
     appendFileSync(transcript, `${JSON.stringify(row)}\n`);
     recorded.add(uuid);
     parentUuid = uuid;
   };
-  const emit = (message: object): void => {
-    if ("type" in message && message.type === "assistant") record(message);
+  const emit = (message: ClaudeOutput): void => {
+    if (message.type === "assistant") record(message);
     process.stdout.write(`${JSON.stringify(message)}\n`);
   };
   const result = (text: string): void => {
@@ -568,7 +590,8 @@ async function loadBackend() {
   const { OpenBotDatabase } = await import("../src/backend/openbot-database");
   const { providerSync } = await import("../src/backend/provider-client-effects");
   const { EXACT_TOOL_GUIDANCE } = await import("../src/backend/agent/exact-tool-policy");
-  const { AGENT_PROVIDERS, defaultProviderModel, latestTurnAnswer } = await import("@openbot/contracts/ipc");
+  const { AGENT_PROVIDERS, CONVERSATION_MEMORY_CHANGES_ITEM_TYPE, defaultProviderModel, latestTurnAnswer } =
+    await import("@openbot/contracts/ipc");
   const { Effect } = await import("effect");
   return {
     AgentService,
@@ -581,6 +604,7 @@ async function loadBackend() {
     providerSync,
     EXACT_TOOL_GUIDANCE,
     AGENT_PROVIDERS,
+    CONVERSATION_MEMORY_CHANGES_ITEM_TYPE,
     defaultProviderModel,
     latestTurnAnswer,
     Effect,
@@ -596,6 +620,11 @@ interface Approval {
   reason: string | null;
 }
 
+/** The memory review interval that the memory-reflection service reads at each use. The ablation changes it. */
+interface ReviewInterval {
+  current: number;
+}
+
 interface Session {
   b: Backend;
   dir: string;
@@ -605,6 +634,7 @@ interface Session {
   database: InstanceType<Backend["OpenBotDatabase"]>;
   events: AgentEvent[];
   approvals: Approval[];
+  reviewInterval: ReviewInterval;
 }
 
 function browserHost(b: Backend): AgentBrowserHost {
@@ -706,14 +736,15 @@ function defineClaudeStandIn(b: Backend, models: { primary: string; backup: stri
   };
 }
 
-function serviceExtras(id: CapabilityId, b: Backend): Partial<ServiceOptions> {
+function serviceExtras(id: CapabilityId, b: Backend, reviewInterval: ReviewInterval): Partial<ServiceOptions> {
   const notCodex = b.AGENT_PROVIDERS.filter((provider) => provider !== "codex");
   switch (id) {
     case "dry-run-gate":
       // Full access: an irreversible call still waits for the person's answer.
       return { offProviders: notCodex, approvalAutomation: { autoApproves: () => true } };
     case "memory-reflection":
-      return { offProviders: notCodex, memoryReviewIdleMs: 60_000, memoryReviewInterval: () => 20 };
+      // The production setting, read at each use: the ablation changes it on the same running service.
+      return { offProviders: notCodex, memoryReviewIdleMs: 60_000, memoryReviewInterval: () => reviewInterval.current };
     case "cross-provider": {
       const primary = b.defaultProviderModel("claude");
       const backup = primary === "claude-sonnet-5-5" ? "claude-opus-5-5" : "claude-sonnet-5-5";
@@ -733,6 +764,7 @@ function openSession(
   b: Backend,
   paths: { dir: string; userData: string; home: string },
   extras: Partial<ServiceOptions>,
+  reviewInterval: ReviewInterval,
 ): Session {
   const database = new b.OpenBotDatabase(paths.userData);
   const store = new b.AgentStore(paths.userData, paths.home, database);
@@ -744,7 +776,17 @@ function openSession(
     preferredProvider: "codex",
     ...extras,
   });
-  const session: Session = { b, dir: paths.dir, service, store, mailbox, database, events: [], approvals: [] };
+  const session: Session = {
+    b,
+    dir: paths.dir,
+    service,
+    store,
+    mailbox,
+    database,
+    events: [],
+    approvals: [],
+    reviewInterval,
+  };
   service.on("event", (event) => {
     session.events.push(event);
     if (event.type === "approval") {
@@ -1054,8 +1096,8 @@ async function planVerifier(s: Session): Promise<Pair> {
   };
 }
 
-/** Memory reflection: a failed turn saves one lesson; a completed turn starts no reflection and saves none. */
-async function memoryReflection(s: Session): Promise<Pair> {
+/** The reply of the fake Codex to a reflection: one lesson, and a second one that the reflection must not save. */
+function writeLessonAnswer(s: Session): void {
   const control: ControlFile = {
     answer: JSON.stringify({
       operations: [
@@ -1066,34 +1108,97 @@ async function memoryReflection(s: Session): Promise<Pair> {
     delayMs: 5,
   };
   writeFileSync(join(s.dir, "control.json"), JSON.stringify(control));
-  const learner = await createAgent(s, "Learner");
-  const failedMark = fakeEntries(s.dir).length;
-  const failedStatus = await settleDelivery(s, await send(s, learner, "FAIL_NOW deploy the app."));
-  await pollFor(() => reflectionsSince(s, failedMark) >= 1, 20_000);
-  await pollFor(() => s.service.listMemories(learner).length >= 1, 10_000);
-  await sleep(300);
-  const enabledReflections = reflectionsSince(s, failedMark);
-  const enabledSaved = s.service.listMemories(learner).length;
+}
 
-  const quiet = await createAgent(s, "Quiet");
-  const completedMark = fakeEntries(s.dir).length;
-  const completedStatus = await settleDelivery(s, await send(s, quiet, "Plain message."));
-  await sleep(1500);
-  const disabledReflections = reflectionsSince(s, completedMark);
-  const disabledSaved = s.service.listMemories(quiet).length;
+/** Whether the agent's chat shows the memory-changes line, which a review or a reflection appends after it saves. */
+function memoryNoticeShown(s: Session, agentId: string): boolean {
+  const threadId = s.store.list().find((agent) => agent.id === agentId)?.threadId ?? null;
+  return s.database
+    .readConversation(agentId, threadId)
+    .messages.some((message) => message.itemType === s.b.CONVERSATION_MEMORY_CHANGES_ITEM_TYPE);
+}
 
+/** What one turn of a new agent leaves in the memory review, read once that review is idle. */
+interface ReviewedTurn {
+  status: string;
+  reflections: number;
+  savedLessons: number;
+  idle: boolean;
+}
+
+/**
+ * Runs one turn of a new agent and reads what the memory review left behind. The turn-end hook records the
+ * turn's outcome before it decides whether a review or a reflection starts, so the outcome row marks that
+ * decision. With `awaitLesson`, the reflection's notice is its last step, so the wait ends there. Each wait is
+ * bounded: a timeout leaves `idle` false, and that fails the check.
+ */
+async function reviewedTurn(s: Session, name: string, text: string, awaitLesson: boolean): Promise<ReviewedTurn> {
+  const agentId = await createAgent(s, name);
+  const outcomesBefore = ledgerRows(s, agentId);
+  const mark = fakeEntries(s.dir).length;
+  const status = await settleDelivery(s, await send(s, agentId, text));
+  const hookRan = await pollFor(() => ledgerRows(s, agentId) > outcomesBefore, 10_000);
+  const lessonDone = awaitLesson
+    ? await pollFor(() => reflectionsSince(s, mark) >= 1 && memoryNoticeShown(s, agentId), 20_000)
+    : hookRan;
+  return {
+    status,
+    reflections: reflectionsSince(s, mark),
+    savedLessons: s.service.listMemories(agentId).length,
+    idle: hookRan && lessonDone,
+  };
+}
+
+/** Memory reflection: a failed turn saves one lesson; a completed turn starts no reflection and saves none. */
+async function memoryReflection(s: Session): Promise<Pair> {
+  writeLessonAnswer(s);
+  const failed = await reviewedTurn(s, "Learner", FAILED_TURN, true);
+  const completed = await reviewedTurn(s, "Quiet", "Plain message.", false);
   return {
     enabled: variant(
       "failed turn",
-      `status=${failedStatus}; reflections=${enabledReflections}; saved_lessons=${enabledSaved}`,
-      failedStatus === "failed" && enabledReflections === 1 && enabledSaved === 1,
-      { status: failedStatus, reflections: enabledReflections, savedLessons: enabledSaved },
+      `status=${failed.status}; reflections=${failed.reflections}; saved_lessons=${failed.savedLessons}`,
+      failed.status === "failed" && failed.reflections === 1 && failed.savedLessons === 1 && failed.idle,
+      { status: failed.status, reflections: failed.reflections, savedLessons: failed.savedLessons, idle: failed.idle },
     ),
     disabled: variant(
       "completed turn",
-      `status=${completedStatus}; reflections=${disabledReflections}; saved_lessons=${disabledSaved}`,
-      completedStatus === "completed" && disabledReflections === 0 && disabledSaved === 0,
-      { status: completedStatus, reflections: disabledReflections, savedLessons: disabledSaved },
+      `status=${completed.status}; reflections=${completed.reflections}; saved_lessons=${completed.savedLessons}`,
+      completed.status === "completed" && completed.reflections === 0 && completed.savedLessons === 0 && completed.idle,
+      {
+        status: completed.status,
+        reflections: completed.reflections,
+        savedLessons: completed.savedLessons,
+        idle: completed.idle,
+      },
+    ),
+  };
+}
+
+/**
+ * Memory reflection ablation: the production setting `memoryReviewInterval` at its default (reflections on) and at
+ * 0 (reflections off), on the same failed turn. With reflections on, the failed turn saves one lesson; off, none.
+ */
+async function memoryReflectionAblation(s: Session): Promise<Pair> {
+  writeLessonAnswer(s);
+  s.reviewInterval.current = DEFAULT_REVIEW_INTERVAL;
+  const on = await reviewedTurn(s, "AblationOn", FAILED_TURN, true);
+  s.reviewInterval.current = 0;
+  const off = await reviewedTurn(s, "AblationOff", FAILED_TURN, false).finally(() => {
+    s.reviewInterval.current = DEFAULT_REVIEW_INTERVAL;
+  });
+  return {
+    enabled: variant(
+      "interval 20 (default), failed turn",
+      `reflections=${on.reflections}; saved_lessons=${on.savedLessons}`,
+      on.status === "failed" && on.reflections === 1 && on.savedLessons === 1 && on.idle,
+      { status: on.status, reflections: on.reflections, savedLessons: on.savedLessons, idle: on.idle },
+    ),
+    disabled: variant(
+      "interval 0 (off), failed turn",
+      `reflections=${off.reflections}; saved_lessons=${off.savedLessons}`,
+      off.status === "failed" && off.reflections === 0 && off.savedLessons === 0 && off.idle,
+      { status: off.status, reflections: off.reflections, savedLessons: off.savedLessons, idle: off.idle },
     ),
   };
 }
@@ -1105,6 +1210,14 @@ const SCENARIOS: Record<CapabilityId, (s: Session) => Promise<Pair>> = {
   "cross-provider": crossProvider,
   "plan-verifier": planVerifier,
   "memory-reflection": memoryReflection,
+};
+
+/** The comparisons that flip a real production setting, run after the trigger comparison of the same capability. */
+const ABLATIONS: Partial<Record<CapabilityId, { compared: string; run: (s: Session) => Promise<Pair> }>> = {
+  "memory-reflection": {
+    compared: "memoryReviewInterval 20 (default) vs 0 (off), same failed turn: one lesson vs none",
+    run: memoryReflectionAblation,
+  },
 };
 
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -1134,26 +1247,27 @@ async function runChild(capability: (typeof CAPABILITIES)[number], resultPath: s
   process.env.OPENBOT_CODEX_PATH = join(dir, "codex");
   process.env.OPENBOT_CLAUDE_PATH = join(dir, "claude");
 
+  const reviewInterval = { current: DEFAULT_REVIEW_INTERVAL };
   const result: CapabilityResult = {
     id: capability.id,
     name: capability.name,
     control: capability.control,
-    compared: capability.compared,
-    enabled: null,
-    disabled: null,
-    differs: false,
+    comparisons: [],
     passed: false,
   };
   let session: Session | null = null;
   try {
     const b = await loadBackend();
-    session = openSession(b, { dir, userData, home }, serviceExtras(capability.id, b));
+    session = openSession(b, { dir, userData, home }, serviceExtras(capability.id, b, reviewInterval), reviewInterval);
     await b.runCauseEffect(session.service.initialize());
     const pair = await SCENARIOS[capability.id](session);
-    result.enabled = pair.enabled;
-    result.disabled = pair.disabled;
-    result.differs = pair.enabled.signature !== pair.disabled.signature;
-    result.passed = pair.enabled.passed && pair.disabled.passed && result.differs;
+    result.comparisons.push(comparisonOf("trigger vs none", capability.compared, pair));
+    const ablation = ABLATIONS[capability.id];
+    if (ablation) {
+      const ablated = await ablation.run(session);
+      result.comparisons.push(comparisonOf("ablation (real switch)", ablation.compared, ablated));
+    }
+    result.passed = result.comparisons.every((comparison) => comparison.passed);
   } catch (error) {
     result.error = error instanceof Error ? (error.stack ?? error.message) : String(error);
   } finally {
@@ -1165,6 +1279,19 @@ async function runChild(capability: (typeof CAPABILITIES)[number], resultPath: s
     rmSync(root, { recursive: true, force: true });
   }
   process.exit(result.passed ? 0 : 1);
+}
+
+/** The comparison of one pair of runs: both variants, and whether they observe different things. */
+function comparisonOf(kind: ComparisonKind, compared: string, pair: Pair): Comparison {
+  const differs = pair.enabled.signature !== pair.disabled.signature;
+  return {
+    kind,
+    compared,
+    enabled: pair.enabled,
+    disabled: pair.disabled,
+    differs,
+    passed: pair.enabled.passed && pair.disabled.passed && differs,
+  };
 }
 
 const cell = (variantResult: Variant | null) =>
@@ -1187,10 +1314,7 @@ function runParent(): void {
       id: capability.id,
       name: capability.name,
       control: capability.control,
-      compared: capability.compared,
-      enabled: null,
-      disabled: null,
-      differs: false,
+      comparisons: [],
       passed: false,
       error: `child process ended with status ${run.status ?? "none"} and signal ${run.signal ?? "none"}`,
     };
@@ -1200,12 +1324,19 @@ function runParent(): void {
   const reportPath = join(OUT, "report.json");
   const report = { passed, checkedAt: new Date().toISOString(), capabilities: results };
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-  process.stdout.write("| Capability | Enabled | Disabled | Comparison |\n|---|---|---|---|\n");
+  process.stdout.write("| Capability | Kind | Enabled | Disabled | Result |\n|---|---|---|---|---|\n");
   for (const result of results) {
     const note = result.error ? ` (${result.error.split("\n")[0]})` : "";
-    process.stdout.write(
-      `| ${result.name} | ${cell(result.enabled)} | ${cell(result.disabled)} | ${result.passed ? "PASS" : "FAIL"}${note} |\n`,
-    );
+    if (result.comparisons.length === 0) {
+      process.stdout.write(`| ${result.name} | - | - | - | FAIL${note} |\n`);
+    }
+    const last = result.comparisons.length - 1;
+    for (const [index, comparison] of result.comparisons.entries()) {
+      const suffix = index === last ? note : "";
+      process.stdout.write(
+        `| ${result.name} | ${comparison.kind} | ${cell(comparison.enabled)} | ${cell(comparison.disabled)} | ${comparison.passed ? "PASS" : "FAIL"}${suffix} |\n`,
+      );
+    }
   }
   process.stdout.write(`${passed ? "PASS" : "FAIL"} ${reportPath}\n`);
   process.exitCode = passed ? 0 : 1;
