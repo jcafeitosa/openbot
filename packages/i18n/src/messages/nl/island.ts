@@ -35,7 +35,6 @@ export const messages = {
   "island.action.dismiss": "Sluiten",
   "island.action.answerInOpenBot": "Antwoord in OpenBot",
   "island.action.stopAgent": "{name} stoppen",
-  "island.mute.toggle": "Mute toggle",
   "island.action.failed": "Dat is niet gelukt. Probeer het opnieuw.",
   "island.action.expand": "{label} uitvouwen",
   "island.action.collapse": "{label} samenvouwen",

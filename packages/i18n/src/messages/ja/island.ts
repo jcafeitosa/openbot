@@ -71,5 +71,4 @@ export const messages = {
   "island.task.working": "リクエストを処理しています",
   "island.error.openRemoteTitle": "このリモート項目を開けませんでした",
   "island.error.openRemote": "この項目を開けませんでした。もう一度お試しください。",
-  "island.mute.toggle": "ミュート切替え",
 } as const satisfies PartialTranslation<typeof source>;

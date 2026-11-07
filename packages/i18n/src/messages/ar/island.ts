@@ -49,7 +49,6 @@ export const messages = {
   "island.action.dismiss": "تجاهل",
   "island.action.answerInOpenBot": "الإجابة في OpenBot",
   "island.action.stopAgent": "إيقاف {name}",
-  "island.mute.toggle": "Mute toggle",
   "island.action.failed": "لم ينجح ذلك. أعد المحاولة.",
   "island.action.expand": "توسيع {label}",
   "island.action.collapse": "طي {label}",

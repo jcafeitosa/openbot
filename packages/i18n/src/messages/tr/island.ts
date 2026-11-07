@@ -35,7 +35,6 @@ export const messages = {
   "island.action.dismiss": "Kapat",
   "island.action.answerInOpenBot": "OpenBot'ta yanıtla",
   "island.action.stopAgent": "Durdur: {name}",
-  "island.mute.toggle": "Mute toggle",
   "island.action.failed": "Bu işlem başarısız oldu. Tekrar deneyin.",
   "island.action.expand": "{label} öğesini genişlet",
   "island.action.collapse": "{label} öğesini daralt",

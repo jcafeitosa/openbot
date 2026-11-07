@@ -36,7 +36,6 @@ export const messages = {
   "island.action.dismiss": "关闭",
   "island.action.answerInOpenBot": "在 OpenBot 中回答",
   "island.action.stopAgent": "停止 {name}",
-  "island.mute.toggle": "Mute toggle",
   "island.action.failed": "操作未成功，请重试。",
   "island.action.expand": "展开{label}",
   "island.action.collapse": "收起{label}",

@@ -35,7 +35,6 @@ export const messages = {
   "island.action.dismiss": "Ignora",
   "island.action.answerInOpenBot": "Rispondi in OpenBot",
   "island.action.stopAgent": "Ferma {name}",
-  "island.mute.toggle": "Mute toggle",
   "island.action.failed": "Non ha funzionato. Riprova.",
   "island.action.expand": "Espandi {label}",
   "island.action.collapse": "Comprimi {label}",

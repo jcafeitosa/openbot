@@ -36,7 +36,6 @@ export const messages = defineMessages("island", {
   "island.action.answerInOpenBot": "Responder no OpenBot",
   "island.action.stopAgent": "Parar {name}",
   "island.action.failed": "Não funcionou. Tente novamente.",
-  "island.mute.toggle": "Alternar som",
   "island.action.expand": "Expandir {label}",
   "island.action.collapse": "Recolher {label}",
   "island.failure.fallback": "A tarefa parou antes de terminar.",
