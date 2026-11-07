@@ -108,6 +108,19 @@ export const messages = defineMessages("settings", {
   "settings.agentDefaults.setAllLabel": "Set {setting} for all agents",
   "settings.agentDefaults.agentLabel": "{setting} for {agent}",
   "settings.agentDefaults.loadFailed": "The agents could not be read.",
+  "settings.agentCapabilities.title": "Capabilities",
+  "settings.agentCapabilities.description":
+    "Turn a capability off to stop it on this computer. A change applies from the next turn.",
+  "settings.agentCapabilities.crossProviderCheck.title": "Second opinion",
+  "settings.agentCapabilities.crossProviderCheck.description":
+    "Ask another provider to check a final answer that the request flags.",
+  "settings.agentCapabilities.recurrenceNote.title": "Repeated failure note",
+  "settings.agentCapabilities.recurrenceNote.description":
+    "Add a note to the next prompt when the same failure keeps happening.",
+  "settings.agentCapabilities.planVerifier.title": "Plan check",
+  "settings.agentCapabilities.planVerifier.description":
+    "Check that the done steps of a plan are really done before the request ends.",
+  "settings.agentCapabilities.loadFailed": "The capabilities could not be read.",
   // "Start the work", under the default of "Show the plan before long tasks".
   "settings.planStart.title": "Start the work",
   "settings.planStart.wait": "When I press Start",

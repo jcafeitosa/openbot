@@ -102,6 +102,17 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "تعيين {setting} لكل الوكلاء",
   "settings.agentDefaults.agentLabel": "{setting} لـ {agent}",
   "settings.agentDefaults.loadFailed": "تعذّرت قراءة الوكلاء.",
+  "settings.agentCapabilities.title": "القدرات",
+  "settings.agentCapabilities.description": "أوقف قدرة لإيقافها على هذا الجهاز. يسري التغيير من الدورة التالية.",
+  "settings.agentCapabilities.crossProviderCheck.title": "رأي ثانٍ",
+  "settings.agentCapabilities.crossProviderCheck.description":
+    "اطلب من مزوّد آخر مراجعة الإجابة النهائية التي يحددها الطلب.",
+  "settings.agentCapabilities.recurrenceNote.title": "ملاحظة الفشل المتكرر",
+  "settings.agentCapabilities.recurrenceNote.description": "تضيف ملاحظة إلى الطلب التالي عندما يتكرر الفشل نفسه.",
+  "settings.agentCapabilities.planVerifier.title": "فحص الخطة",
+  "settings.agentCapabilities.planVerifier.description":
+    "يتحقق من أن الخطوات المنجزة في الخطة مكتملة فعلاً قبل انتهاء الطلب.",
+  "settings.agentCapabilities.loadFailed": "تعذّرت قراءة القدرات.",
   "settings.planStart.title": "بدء العمل",
   "settings.planStart.wait": "عند الضغط على «بدء»",
   "settings.planStart.after": "بعد {time}",

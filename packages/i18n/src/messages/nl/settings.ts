@@ -103,6 +103,19 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "Stel {setting} in voor alle agents",
   "settings.agentDefaults.agentLabel": "{setting} voor {agent}",
   "settings.agentDefaults.loadFailed": "De agents konden niet worden gelezen.",
+  "settings.agentCapabilities.title": "Mogelijkheden",
+  "settings.agentCapabilities.description":
+    "Zet een mogelijkheid uit om haar op deze computer te stoppen. Een wijziging geldt vanaf de volgende beurt.",
+  "settings.agentCapabilities.crossProviderCheck.title": "Tweede mening",
+  "settings.agentCapabilities.crossProviderCheck.description":
+    "Laat een andere aanbieder een eindantwoord controleren dat het verzoek markeert.",
+  "settings.agentCapabilities.recurrenceNote.title": "Notitie bij herhaalde fout",
+  "settings.agentCapabilities.recurrenceNote.description":
+    "Voegt een notitie toe aan de volgende prompt als dezelfde fout zich blijft herhalen.",
+  "settings.agentCapabilities.planVerifier.title": "Controle van het plan",
+  "settings.agentCapabilities.planVerifier.description":
+    "Controleert of de voltooide stappen van een plan echt klaar zijn voordat het verzoek eindigt.",
+  "settings.agentCapabilities.loadFailed": "De mogelijkheden konden niet worden gelezen.",
   "settings.planStart.title": "Het werk starten",
   "settings.planStart.wait": "Als ik op Starten druk",
   "settings.planStart.after": "Na {time}",

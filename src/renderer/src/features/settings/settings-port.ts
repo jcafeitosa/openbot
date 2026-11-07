@@ -7,6 +7,7 @@ import type { OpenBotDesktopApi } from "@openbot/contracts/ipc";
  * Notifications tab.
  */
 export interface SettingsPort {
+  getAgentCapabilitySwitches: OpenBotDesktopApi["getAgentCapabilitySwitches"];
   getAgentDefaults: OpenBotDesktopApi["getAgentDefaults"];
   getAgentMemoryLimitPreference: OpenBotDesktopApi["getAgentMemoryLimitPreference"];
   getAnalyticsPreference: OpenBotDesktopApi["getAnalyticsPreference"];
@@ -24,6 +25,7 @@ export interface SettingsPort {
   onApprovalAutomation: OpenBotDesktopApi["onApprovalAutomation"];
   onOpenSettings: OpenBotDesktopApi["onOpenSettings"];
   onOpenUpdateSettings: OpenBotDesktopApi["onOpenUpdateSettings"];
+  setAgentCapabilitySwitches: OpenBotDesktopApi["setAgentCapabilitySwitches"];
   setAgentDefaults: OpenBotDesktopApi["setAgentDefaults"];
   setAnalyticsPreference: OpenBotDesktopApi["setAnalyticsPreference"];
   setAppBehaviorPreference: OpenBotDesktopApi["setAppBehaviorPreference"];

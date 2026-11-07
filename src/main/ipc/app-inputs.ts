@@ -1,5 +1,6 @@
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type {
+  AgentCapabilitySwitches,
   AgentDefaults,
   AgentMemoryLimitPreference,
   AgentProviderId,
@@ -49,6 +50,7 @@ import type {
 import {
   decodeExternalLinkTarget,
   IDLE_RESTART_TARGETS,
+  isAgentCapabilitySwitches,
   isAgentDefaults,
   isAgentMemoryLimit,
   isAgentModel,
@@ -141,6 +143,15 @@ export function parseAgentDefaults(input: unknown): AgentDefaults {
     quickAcknowledgement: input.quickAcknowledgement,
     planStartAfterMs: input.planStartAfterMs,
     automationRunsPerHour: input.automationRunsPerHour,
+  };
+}
+
+export function parseAgentCapabilitySwitches(input: unknown): AgentCapabilitySwitches {
+  if (!isAgentCapabilitySwitches(input)) throw new Error("Agent capability switches are required.");
+  return {
+    crossProviderCheck: input.crossProviderCheck,
+    recurrenceNote: input.recurrenceNote,
+    planVerifier: input.planVerifier,
   };
 }
 

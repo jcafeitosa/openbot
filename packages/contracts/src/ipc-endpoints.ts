@@ -59,6 +59,7 @@ import type {
   UpdateAgentTaskLimitInput,
 } from "./ipc-agent-admin";
 import type { AgentAnalytics, AgentAnalyticsInput } from "./ipc-agent-analytics";
+import type { AgentCapabilitySwitches } from "./ipc-agent-capabilities";
 import type { AgentIpcRequest, ScopedAgentEvent } from "./ipc-agent-events";
 import type {
   AddAgentFolderInput,
@@ -720,6 +721,12 @@ export const IPC_ENDPOINTS = {
     ),
     getAgentDefaults: request<undefined, AgentDefaults>()("app:get-agent-defaults"),
     setAgentDefaults: request<AgentDefaults, AgentDefaults>()("app:set-agent-defaults"),
+    // The three agent capabilities of this computer. The agent service reads them at each use, so a
+    // change applies from the next turn.
+    getAgentCapabilitySwitches: request<undefined, AgentCapabilitySwitches>()("app:get-agent-capability-switches"),
+    setAgentCapabilitySwitches: request<AgentCapabilitySwitches, AgentCapabilitySwitches>()(
+      "app:set-agent-capability-switches",
+    ),
     getAgentMemoryLimitPreference: request<undefined, AgentMemoryLimitPreference>()("app:get-agent-memory-limit"),
     // Server settings set the limit of this computer (`hostAdmin.setAgentMemoryLimit`), here or from a
     // joined admin, so main tells the window.

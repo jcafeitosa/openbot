@@ -103,6 +103,18 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "{setting}: tüm ajanlar için ayarla",
   "settings.agentDefaults.agentLabel": "{setting}: {agent}",
   "settings.agentDefaults.loadFailed": "Ajanlar okunamadı.",
+  "settings.agentCapabilities.title": "Yetenekler",
+  "settings.agentCapabilities.description":
+    "Bir yeteneği kapatarak bu bilgisayarda durdurun. Değişiklik bir sonraki turdan itibaren geçerli olur.",
+  "settings.agentCapabilities.crossProviderCheck.title": "İkinci görüş",
+  "settings.agentCapabilities.crossProviderCheck.description":
+    "İsteğin işaretlediği son yanıtı başka bir sağlayıcının kontrol etmesini sağlar.",
+  "settings.agentCapabilities.recurrenceNote.title": "Tekrarlayan hata notu",
+  "settings.agentCapabilities.recurrenceNote.description": "Aynı hata tekrar ettiğinde bir sonraki isteme not ekler.",
+  "settings.agentCapabilities.planVerifier.title": "Plan kontrolü",
+  "settings.agentCapabilities.planVerifier.description":
+    "İstek bitmeden önce bir planın tamamlanan adımlarının gerçekten tamamlandığını denetler.",
+  "settings.agentCapabilities.loadFailed": "Yetenekler okunamadı.",
   "settings.planStart.title": "İşi başlat",
   "settings.planStart.wait": "Başlat'a bastığımda",
   "settings.planStart.after": "{time} sonra",

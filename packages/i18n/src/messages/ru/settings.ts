@@ -105,6 +105,19 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "{setting}: задать всем агентам",
   "settings.agentDefaults.agentLabel": "{setting}: {agent}",
   "settings.agentDefaults.loadFailed": "Не удалось загрузить агентов.",
+  "settings.agentCapabilities.title": "Возможности",
+  "settings.agentCapabilities.description":
+    "Выключите возможность, чтобы остановить её на этом компьютере. Изменение действует со следующего хода.",
+  "settings.agentCapabilities.crossProviderCheck.title": "Второе мнение",
+  "settings.agentCapabilities.crossProviderCheck.description":
+    "Другой провайдер проверяет итоговый ответ, который отмечен в запросе.",
+  "settings.agentCapabilities.recurrenceNote.title": "Заметка о повторной ошибке",
+  "settings.agentCapabilities.recurrenceNote.description":
+    "Добавляет заметку в следующий промпт, когда одна и та же ошибка повторяется.",
+  "settings.agentCapabilities.planVerifier.title": "Проверка плана",
+  "settings.agentCapabilities.planVerifier.description":
+    "Проверяет, что выполненные шаги плана действительно выполнены, прежде чем запрос завершится.",
+  "settings.agentCapabilities.loadFailed": "Не удалось прочитать возможности.",
   "settings.planStart.title": "Начало работы",
   "settings.planStart.wait": "Когда я нажму «Начать»",
   "settings.planStart.after": "Через {time}",

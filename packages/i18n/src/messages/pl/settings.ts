@@ -103,6 +103,19 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "{setting}: ustaw dla wszystkich agentów",
   "settings.agentDefaults.agentLabel": "{setting}: {agent}",
   "settings.agentDefaults.loadFailed": "Nie udało się odczytać agentów.",
+  "settings.agentCapabilities.title": "Możliwości",
+  "settings.agentCapabilities.description":
+    "Wyłącz możliwość, aby zatrzymać ją na tym komputerze. Zmiana działa od następnej tury.",
+  "settings.agentCapabilities.crossProviderCheck.title": "Druga opinia",
+  "settings.agentCapabilities.crossProviderCheck.description":
+    "Poproś innego dostawcę o sprawdzenie końcowej odpowiedzi, którą oznaczyło żądanie.",
+  "settings.agentCapabilities.recurrenceNote.title": "Notatka o powtarzającym się błędzie",
+  "settings.agentCapabilities.recurrenceNote.description":
+    "Dodaje notatkę do następnego promptu, gdy ten sam błąd wraca.",
+  "settings.agentCapabilities.planVerifier.title": "Sprawdzenie planu",
+  "settings.agentCapabilities.planVerifier.description":
+    "Sprawdza, czy ukończone kroki planu są naprawdę ukończone, zanim żądanie się zakończy.",
+  "settings.agentCapabilities.loadFailed": "Nie udało się odczytać możliwości.",
   "settings.planStart.title": "Rozpoczęcie pracy",
   "settings.planStart.wait": "Gdy nacisnę Start",
   "settings.planStart.after": "Po {time}",

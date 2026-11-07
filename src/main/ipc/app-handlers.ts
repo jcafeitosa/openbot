@@ -22,6 +22,7 @@ import { version as developmentVersion } from "../../../package.json";
 import type { AgentService } from "../../backend/agent-service";
 import type { BrowserHost } from "../../backend/browser-host";
 import type { MailboxStore } from "../../backend/mailbox-store";
+import type { AgentCapabilitySwitchesStore } from "../agent-capability-switches-store";
 import type { AgentDefaultsPreferenceStore } from "../agent-defaults-preference-store";
 import type { AgentMemoryLimitSetting } from "../agent-memory-limit-preference-store";
 import type { AnalyticsPreferenceService } from "../analytics-preference-service";
@@ -42,6 +43,7 @@ import type { RemoteSessionReusePreferenceStore } from "../remote-session-reuse-
 import { readSetupState, writeSetupState } from "../setup-store";
 import type { UpdateService } from "../update-service";
 import {
+  parseAgentCapabilitySwitches,
   parseAgentDefaults,
   parseAnalyticsPreference,
   parseAppAppearancePreference,
@@ -130,6 +132,7 @@ export interface AppIpcDependencies {
   approvalAutomation: ApprovalAutomation;
   busyMessageMode: BusyMessageModePreferenceStore;
   agentDefaults: AgentDefaultsPreferenceStore;
+  agentCapabilitySwitches: AgentCapabilitySwitchesStore;
   agentMemoryLimit: AgentMemoryLimitSetting;
   remoteSessionReuse: RemoteSessionReusePreferenceStore;
   remoteNetworkRoute: RemoteNetworkRoutePreferenceStore;
@@ -170,6 +173,7 @@ export function appIpcHandlers({
   approvalAutomation,
   busyMessageMode,
   agentDefaults,
+  agentCapabilitySwitches,
   agentMemoryLimit,
   remoteSessionReuse,
   remoteNetworkRoute,
@@ -254,6 +258,11 @@ export function appIpcHandlers({
         service.agentDefaultsChanged(previous);
         return saved;
       }),
+      getAgentCapabilitySwitches: handler(() => agentCapabilitySwitches.get()),
+      // The agent service reads these at each use, so a change applies from the next turn.
+      setAgentCapabilitySwitches: payloadHandler(parseAgentCapabilitySwitches, (parsed) =>
+        runCauseEffect(agentCapabilitySwitches.set(parsed)),
+      ),
       getAgentMemoryLimitPreference: handler(() => agentMemoryLimit.get()),
       getRemoteSessionReusePreference: handler(() => remoteSessionReuse.get()),
       // Off removes the kept sessions at once. The sessions of this run then end when the app quits.

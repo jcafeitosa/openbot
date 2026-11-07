@@ -1,3 +1,5 @@
+import { isBoolean, isDynamicRecord } from "./runtime-values";
+
 /**
  * Three agent capabilities that a setting can switch off. The backend reads each switch at the point
  * of use, so a change applies from the next turn. A switch that is off makes its trigger do nothing:
@@ -18,3 +20,12 @@ export const DEFAULT_AGENT_CAPABILITY_SWITCHES: AgentCapabilitySwitches = {
   recurrenceNote: true,
   planVerifier: true,
 };
+
+export function isAgentCapabilitySwitches(value: unknown): value is AgentCapabilitySwitches {
+  return (
+    isDynamicRecord(value) &&
+    isBoolean(value.crossProviderCheck) &&
+    isBoolean(value.recurrenceNote) &&
+    isBoolean(value.planVerifier)
+  );
+}

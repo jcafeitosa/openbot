@@ -105,6 +105,19 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "{setting} für alle Agenten festlegen",
   "settings.agentDefaults.agentLabel": "{setting} für {agent}",
   "settings.agentDefaults.loadFailed": "Die Agenten konnten nicht gelesen werden.",
+  "settings.agentCapabilities.title": "Funktionen",
+  "settings.agentCapabilities.description":
+    "Schalte eine Funktion aus, um sie auf diesem Computer zu beenden. Änderungen gelten ab der nächsten Runde.",
+  "settings.agentCapabilities.crossProviderCheck.title": "Zweite Meinung",
+  "settings.agentCapabilities.crossProviderCheck.description":
+    "Ein anderer Anbieter prüft eine finale Antwort, die die Anfrage markiert.",
+  "settings.agentCapabilities.recurrenceNote.title": "Hinweis bei wiederholtem Fehler",
+  "settings.agentCapabilities.recurrenceNote.description":
+    "Fügt dem nächsten Prompt einen Hinweis hinzu, wenn derselbe Fehler immer wieder auftritt.",
+  "settings.agentCapabilities.planVerifier.title": "Plan-Prüfung",
+  "settings.agentCapabilities.planVerifier.description":
+    "Prüft, ob die erledigten Schritte eines Plans wirklich erledigt sind, bevor die Anfrage endet.",
+  "settings.agentCapabilities.loadFailed": "Die Funktionen konnten nicht gelesen werden.",
   "settings.planStart.title": "Arbeit starten",
   "settings.planStart.wait": "Wenn ich auf Start drücke",
   "settings.planStart.after": "Nach {time}",
