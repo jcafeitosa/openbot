@@ -1,4 +1,9 @@
-import type { AgentDefaultKey, AgentDefaults, ClientAgentSummary } from "@openbot/contracts/ipc";
+import type {
+  AgentCapabilitySwitches,
+  AgentDefaultKey,
+  AgentDefaults,
+  ClientAgentSummary,
+} from "@openbot/contracts/ipc";
 import type { AppTextKey } from "@openbot/i18n";
 import {
   Alert,
@@ -23,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
   SettingsSection,
+  Switch,
   SwitchField,
   Text,
 } from "@openbot/ui";
@@ -69,6 +75,25 @@ export const AGENT_DEFAULT_SETTINGS = [
 export function agentDefaultSettingTitle(setting: AgentDefaultSetting): AppTextKey {
   return AGENT_DEFAULT_SETTINGS.find((item) => item.key === setting)?.title ?? "settings.tab.agents.title";
 }
+
+/** The three capabilities of this computer, in page order, with the title and description that each shows. */
+export const AGENT_CAPABILITY_SETTINGS = [
+  {
+    key: "crossProviderCheck",
+    title: "settings.agentCapabilities.crossProviderCheck.title",
+    description: "settings.agentCapabilities.crossProviderCheck.description",
+  },
+  {
+    key: "recurrenceNote",
+    title: "settings.agentCapabilities.recurrenceNote.title",
+    description: "settings.agentCapabilities.recurrenceNote.description",
+  },
+  {
+    key: "planVerifier",
+    title: "settings.agentCapabilities.planVerifier.title",
+    description: "settings.agentCapabilities.planVerifier.description",
+  },
+] as const satisfies ReadonlyArray<{ key: keyof AgentCapabilitySwitches; title: AppTextKey; description: AppTextKey }>;
 
 /** The value that the agent stores, or "default" when it has none and follows the default. */
 export function agentDefaultChoice(agent: AgentDefaultsAgent, setting: AgentDefaultSetting): AgentDefaultChoice {
@@ -139,6 +164,12 @@ export interface SettingsAgentsTabProps {
   onAutomationLimitChange: (value: number) => void;
   /** Gives `choice` to each agent of `agentIds`. */
   onChoiceChange: (agentIds: readonly string[], setting: AgentDefaultSetting, choice: AgentDefaultChoice) => void;
+  /** The three capabilities of this computer, or null until they are read. */
+  capabilities: AgentCapabilitySwitches | null;
+  /** True when the capabilities could not be read. */
+  capabilitiesFailed: boolean;
+  /** Turns one capability of this computer on or off. */
+  onCapabilityChange: (capability: keyof AgentCapabilitySwitches, on: boolean) => void;
 }
 
 /**
@@ -353,10 +384,62 @@ export function SettingsAgentsTab(props: SettingsAgentsTabProps) {
     );
   };
 
+  const capabilities = () => (
+    <>
+      <Show when={props.capabilitiesFailed}>
+        <Alert tone="danger" role="alert" report={{ operation: "settings", source: "system", cause_code: "unknown" }}>
+          <AlertContent>
+            <AlertDescription>{t("settings.agentCapabilities.loadFailed")}</AlertDescription>
+          </AlertContent>
+        </Alert>
+      </Show>
+      <Show when={props.capabilities}>
+        {(value) => (
+          <SettingsSection
+            title={t("settings.agentCapabilities.title")}
+            description={t("settings.agentCapabilities.description")}
+          >
+            <ItemGroup class="settings-modal-card">
+              <For each={AGENT_CAPABILITY_SETTINGS}>
+                {(setting) => (
+                  <Item data-settings-row={setting.title} class="settings-modal-row">
+                    <ItemContent>
+                      <ItemTitle>{t(setting.title)}</ItemTitle>
+                      <ItemDescription>{t(setting.description)}</ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                      <Text variant="label-sm" tone="muted">
+                        {t(value()[setting.key] ? "settings.agentDefaults.on" : "settings.agentDefaults.off")}
+                      </Text>
+                      <Switch
+                        aria-label={t(setting.title)}
+                        checked={value()[setting.key]}
+                        onChange={(on) => props.onCapabilityChange(setting.key, on)}
+                      />
+                    </ItemActions>
+                  </Item>
+                )}
+              </For>
+            </ItemGroup>
+          </SettingsSection>
+        )}
+      </Show>
+    </>
+  );
+
   return (
     <>
       {loadError()}
-      <Show when={props.setting} fallback={list()} keyed>
+      <Show
+        when={props.setting}
+        fallback={
+          <>
+            {list()}
+            {capabilities()}
+          </>
+        }
+        keyed
+      >
         {(setting) => settingPage(setting)}
       </Show>
     </>

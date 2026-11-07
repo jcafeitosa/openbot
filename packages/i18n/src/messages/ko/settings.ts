@@ -102,6 +102,18 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "모든 에이전트에 {setting} 설정",
   "settings.agentDefaults.agentLabel": "{agent}의 {setting}",
   "settings.agentDefaults.loadFailed": "에이전트를 읽을 수 없어요.",
+  "settings.agentCapabilities.title": "기능",
+  "settings.agentCapabilities.description":
+    "기능을 끄면 이 컴퓨터에서 해당 기능이 멈춰요. 변경 사항은 다음 턴부터 적용돼요.",
+  "settings.agentCapabilities.crossProviderCheck.title": "두 번째 의견",
+  "settings.agentCapabilities.crossProviderCheck.description":
+    "요청에서 표시한 최종 답변을 다른 제공자가 검토하도록 해요.",
+  "settings.agentCapabilities.recurrenceNote.title": "반복 실패 메모",
+  "settings.agentCapabilities.recurrenceNote.description": "같은 실패가 계속 생기면 다음 프롬프트에 메모를 추가해요.",
+  "settings.agentCapabilities.planVerifier.title": "계획 확인",
+  "settings.agentCapabilities.planVerifier.description":
+    "요청이 끝나기 전에 계획에서 완료된 단계가 실제로 완료됐는지 확인해요.",
+  "settings.agentCapabilities.loadFailed": "기능을 읽을 수 없어요.",
   "settings.planStart.title": "작업 시작",
   "settings.planStart.wait": "시작을 누를 때",
   "settings.planStart.after": "{time} 후",

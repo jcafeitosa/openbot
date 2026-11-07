@@ -105,6 +105,19 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "Aplicar {setting} a todos los agentes",
   "settings.agentDefaults.agentLabel": "{setting} para {agent}",
   "settings.agentDefaults.loadFailed": "No se pudieron leer los agentes.",
+  "settings.agentCapabilities.title": "Capacidades",
+  "settings.agentCapabilities.description":
+    "Desactiva una capacidad para detenerla en este equipo. Un cambio se aplica desde el siguiente turno.",
+  "settings.agentCapabilities.crossProviderCheck.title": "Segunda opinión",
+  "settings.agentCapabilities.crossProviderCheck.description":
+    "Pide a otro proveedor que revise una respuesta final que la solicitud marca.",
+  "settings.agentCapabilities.recurrenceNote.title": "Nota de fallo repetido",
+  "settings.agentCapabilities.recurrenceNote.description":
+    "Añade una nota al siguiente prompt cuando el mismo fallo sigue ocurriendo.",
+  "settings.agentCapabilities.planVerifier.title": "Revisión del plan",
+  "settings.agentCapabilities.planVerifier.description":
+    "Comprueba que los pasos terminados de un plan estén realmente terminados antes de que acabe la solicitud.",
+  "settings.agentCapabilities.loadFailed": "No se pudieron leer las capacidades.",
   "settings.planStart.title": "Empezar el trabajo",
   "settings.planStart.wait": "Cuando pulse Iniciar",
   "settings.planStart.after": "Tras {time}",

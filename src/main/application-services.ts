@@ -141,7 +141,10 @@ import { SidebarLayoutStore } from "../backend/sidebar-layout-store";
 import { StorageUsageScanner, StorageUsageService } from "../backend/storage-usage";
 import { TeamChatStore } from "../backend/team-chat-store";
 import { AGENT_ACCESS_FILE, AgentAccessStore } from "./agent-access-store";
-import { createAgentCapabilitySwitchesStore } from "./agent-capability-switches-store";
+import {
+  type AgentCapabilitySwitchesStore,
+  createAgentCapabilitySwitchesStore,
+} from "./agent-capability-switches-store";
 import {
   type AgentDefaultsPreferenceStore,
   createAgentDefaultsPreferenceStore,
@@ -660,6 +663,7 @@ export interface ApplicationServices {
   notificationPreference: NotificationPreferenceStore;
   busyMessageMode: BusyMessageModePreferenceStore;
   agentDefaults: AgentDefaultsPreferenceStore;
+  agentCapabilitySwitches: AgentCapabilitySwitchesStore;
   agentMemoryLimit: AgentMemoryLimitSetting;
   memoryReview: MemoryReviewPreferenceStore;
   agentNotificationLevels: AgentNotificationLevelStore;
@@ -3808,6 +3812,7 @@ export async function createApplicationServices({
     notificationPreference,
     busyMessageMode,
     agentDefaults,
+    agentCapabilitySwitches,
     agentMemoryLimit: agentMemoryLimitSetting,
     memoryReview,
     agentNotificationLevels,

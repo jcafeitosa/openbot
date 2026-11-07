@@ -15,6 +15,7 @@ import {
   AGENT_INSTRUCTIONS_CHANGE_ITEM_TYPE,
   type AgentAccessChange,
   type AgentBrowserProfile,
+  type AgentCapabilitySwitches,
   type AgentDefaults,
   type AgentEvent,
   type AgentExclusionChange,
@@ -73,6 +74,7 @@ import {
   composedCustomModelId,
   createMcpServerId,
   DEFAULT_AGENT_ACCESS,
+  DEFAULT_AGENT_CAPABILITY_SWITCHES,
   DEFAULT_AGENT_DEFAULTS,
   DEFAULT_AGENT_MEMORY_LIMIT,
   DEFAULT_APP_APPEARANCE,
@@ -464,6 +466,7 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
   let approvalAutomation = clone<ApprovalAutomationPreference>(DEFAULT_APPROVAL_AUTOMATION_PREFERENCE);
   let busyMessageMode: BusyMessageModePreference = { mode: DEFAULT_BUSY_MESSAGE_MODE };
   let agentDefaults: AgentDefaults = { ...DEFAULT_AGENT_DEFAULTS };
+  let agentCapabilitySwitches: AgentCapabilitySwitches = { ...DEFAULT_AGENT_CAPABILITY_SWITCHES };
   let agentMemoryLimit: AgentMemoryLimitPreference = { limit: DEFAULT_AGENT_MEMORY_LIMIT };
   let memoryReview: MemoryReviewPreference = { interval: DEFAULT_MEMORY_REVIEW_INTERVAL };
   // The disk level is below the preview disk use (82%), so Storage shows a passed level.
@@ -1223,6 +1226,11 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
       agentDefaults = { ...next };
       emitAgentEvent({ type: "agents-changed", agents });
       return clone(agentDefaults);
+    },
+    getAgentCapabilitySwitches: async () => clone(agentCapabilitySwitches),
+    setAgentCapabilitySwitches: async (next) => {
+      agentCapabilitySwitches = { ...next };
+      return clone(agentCapabilitySwitches);
     },
     getAgentMemoryLimitPreference: async () => clone(agentMemoryLimit),
     onAgentMemoryLimitPreference: (listener) => {

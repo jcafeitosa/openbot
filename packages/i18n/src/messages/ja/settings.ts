@@ -104,6 +104,19 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "すべてのエージェントの {setting} を設定",
   "settings.agentDefaults.agentLabel": "{agent} の {setting}",
   "settings.agentDefaults.loadFailed": "エージェントを読み込めませんでした。",
+  "settings.agentCapabilities.title": "機能",
+  "settings.agentCapabilities.description":
+    "機能をオフにすると、このコンピューターでその機能が止まります。変更は次のターンから適用されます。",
+  "settings.agentCapabilities.crossProviderCheck.title": "セカンドオピニオン",
+  "settings.agentCapabilities.crossProviderCheck.description":
+    "リクエストが指定した最終回答を、別のプロバイダーに確認してもらいます。",
+  "settings.agentCapabilities.recurrenceNote.title": "繰り返し失敗時のメモ",
+  "settings.agentCapabilities.recurrenceNote.description":
+    "同じ失敗が繰り返される場合、次のプロンプトにメモを追加します。",
+  "settings.agentCapabilities.planVerifier.title": "計画の確認",
+  "settings.agentCapabilities.planVerifier.description":
+    "リクエストが終わる前に、計画の完了済みの手順が本当に完了しているかを確認します。",
+  "settings.agentCapabilities.loadFailed": "機能を読み込めませんでした。",
   "settings.planStart.title": "作業の開始",
   "settings.planStart.wait": "開始を押したとき",
   "settings.planStart.after": "{time}後",

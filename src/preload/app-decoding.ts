@@ -18,6 +18,7 @@ import { parseHostedSiteList, parseHostedSiteSummary } from "@openbot/contracts/
 import {
   type AccountSession,
   AGENT_DEFAULT_KEYS,
+  type AgentCapabilitySwitches,
   type AgentDefaults,
   type AgentMemoryLimitPreference,
   type AnalyticsPreference,
@@ -217,6 +218,15 @@ export function decodeAgentDefaults(value: unknown): AgentDefaults {
   if (!isAutomationRunsPerHour(defaults.automationRunsPerHour)) throw new Error("Invalid local script limit.");
   decoded.automationRunsPerHour = defaults.automationRunsPerHour;
   return decoded;
+}
+
+export function decodeAgentCapabilitySwitches(value: unknown): AgentCapabilitySwitches {
+  const switches = decodeRecord(value, "agent capability switches");
+  return {
+    crossProviderCheck: requiredBoolean(switches, "crossProviderCheck"),
+    recurrenceNote: requiredBoolean(switches, "recurrenceNote"),
+    planVerifier: requiredBoolean(switches, "planVerifier"),
+  };
 }
 
 export function decodeAgentMemoryLimitPreference(value: unknown): AgentMemoryLimitPreference {

@@ -1,4 +1,5 @@
 import {
+  type AgentCapabilitySwitches,
   type BackgroundProcess,
   type ClientAgentSummary,
   LOCAL_SERVER_ID,
@@ -27,6 +28,9 @@ interface AgentsSectionState {
   processes: BackgroundProcess[] | null;
   processesFailed: boolean;
   stopping: string[];
+  /** Null until the first answer, and while the capabilities cannot be read. */
+  capabilities: AgentCapabilitySwitches | null;
+  capabilitiesFailed: boolean;
 }
 
 export interface SettingsAgentsSection {
@@ -69,6 +73,8 @@ export function createSettingsAgentsSection(options: {
     processes: null,
     processesFailed: false,
     stopping: [],
+    capabilities: null,
+    capabilitiesFailed: false,
   });
   /** Bumped for each read, so an answer of an earlier read is dropped. */
   let generation = 0;
@@ -120,6 +126,22 @@ export function createSettingsAgentsSection(options: {
       });
   }
 
+  function loadCapabilities(): void {
+    settingsPort()
+      .getAgentCapabilitySwitches()
+      .then((capabilities) => {
+        setState((draft) => {
+          draft.capabilities = capabilities;
+          draft.capabilitiesFailed = false;
+        });
+      })
+      .catch(() => {
+        setState((draft) => {
+          draft.capabilitiesFailed = true;
+        });
+      });
+  }
+
   function stopProcess(id: string): void {
     setState((draft) => {
       draft.stopping.push(id);
@@ -151,6 +173,7 @@ export function createSettingsAgentsSection(options: {
     if (visible) {
       load();
       loadProcesses();
+      loadCapabilities();
     } else showList();
   });
 
@@ -173,6 +196,26 @@ export function createSettingsAgentsSection(options: {
           load();
         });
     }
+  }
+
+  function changeCapability(capability: keyof AgentCapabilitySwitches, on: boolean): void {
+    const current = state.capabilities;
+    if (!current) return;
+    const next: AgentCapabilitySwitches = { ...current, [capability]: on };
+    setState((draft) => {
+      draft.capabilities = next;
+    });
+    settingsPort()
+      .setAgentCapabilitySwitches(next)
+      .then((saved) => {
+        setState((draft) => {
+          draft.capabilities = saved;
+        });
+      })
+      .catch((error: unknown) => {
+        showAgentSaveFailure(error);
+        loadCapabilities();
+      });
   }
 
   return {
@@ -200,6 +243,9 @@ export function createSettingsAgentsSection(options: {
             options.onValueChange({ ...value, agentDefaults: { ...value.agentDefaults, automationRunsPerHour } });
           }}
           onChoiceChange={changeChoice}
+          capabilities={state.capabilities}
+          capabilitiesFailed={state.capabilitiesFailed}
+          onCapabilityChange={changeCapability}
         />
         <Show when={!state.setting && state.processes}>
           {(processes) => (
