@@ -36,7 +36,9 @@ const setSkillEnabledSchema = z
 const uninstallSkillSchema = z.object({ agentId: targetAgentId, skillId: installedSkillId }).strict();
 
 export interface LocalSkillTools {
-  create(input: CreateLocalSkillInput): Effect.Effect<MarketplaceSkillDetail, ToolOperationFailed>;
+  create(
+    input: CreateLocalSkillInput & { expectedSha256?: string },
+  ): Effect.Effect<MarketplaceSkillDetail, ToolOperationFailed>;
   revise(input: ReviseLocalSkillInput): Effect.Effect<MarketplaceSkillDetail, ToolOperationFailed>;
   list(): Effect.Effect<MarketplaceSkillDetail[], ToolOperationFailed>;
   get(

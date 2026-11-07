@@ -23,7 +23,9 @@ export function localSkillTools(skills: SkillMarketplaceService): LocalSkillTool
     uninstall: (input) => skills.uninstall(input).pipe(toToolOperationFailed),
     create: (input) =>
       Effect.gen(function* () {
-        const skill = yield* library.create(input.agentId, input.sourcePath).pipe(toToolOperationFailed);
+        const skill = yield* library
+          .create(input.agentId, input.sourcePath, input.expectedSha256)
+          .pipe(toToolOperationFailed);
         yield* skills.installLocal({ agentId: input.agentId, skillId: skill.id, revision: skill.version }).pipe(
           Effect.mapError(
             () =>

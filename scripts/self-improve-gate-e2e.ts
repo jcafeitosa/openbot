@@ -39,6 +39,8 @@ const DRAFT_NAME = "Triage Notes";
 const DRAFT_FOLDER = "draft";
 const SECRET_FOLDER = "secret-draft";
 const BIG_FOLDER = "big-draft";
+const CHANGED_FOLDER = "changed-draft";
+const SEAM_FOLDER = "seam-draft";
 
 // The Codex process and the stores read the home folder when their modules load, so the environment is set
 // first and the service modules are imported dynamically after it.
@@ -243,7 +245,19 @@ const connection = () => store.database.connection;
 
 // The skill library is the real one. Installing is faked, because the marketplace service needs the whole app; the
 // adapter that calls it is the real `localSkillTools`.
-const library = new LocalSkillLibrary(join(root, "local-skills"), () => agents.listAgents());
+// The hook runs once, right before a create reads the folder, so a test can change a file there and the archive holds
+// text that the person did not approve. It is the seam between the gate and the archive step.
+let beforeArchive: (() => Promise<void>) | null = null;
+class SeamLibrary extends LocalSkillLibrary {
+  override create(agentId: string, sourcePath: string, approvedSha256?: string) {
+    return Effect.promise(async () => {
+      const hook = beforeArchive;
+      beforeArchive = null;
+      await hook?.();
+    }).pipe(Effect.flatMap(() => super.create(agentId, sourcePath, approvedSha256)));
+  }
+}
+const library = new SeamLibrary(join(root, "local-skills"), () => agents.listAgents());
 const installs: { agentId: string; skillId: string; revision: number }[] = [];
 const skillsService = {
   requireLocalLibrary: () => library,
@@ -477,8 +491,8 @@ async function createAgent(name: string) {
 }
 
 /** Writes a skill folder with SKILL.md and one script. The script writes a marker file if anything runs it. */
-async function writeDraft(folder: string, extra: Record<string, string>) {
-  const dir = join(workspace, folder);
+async function writeDraft(folder: string, extra: Record<string, string>, base = workspace) {
+  const dir = join(base, folder);
   await mkdir(join(dir, "scripts"), { recursive: true });
   await writeFile(
     join(dir, "SKILL.md"),
@@ -498,6 +512,43 @@ try {
   await writeFile(join(workspace, "AGENTS.md"), OLD_TEXT, { mode: 0o600 });
   await runCauseEffect(agents.updateAgent({ agentId: alpha.id, quickAcknowledgement: true }));
   const history = { agentId: alpha.id, database: connection() };
+  // N. A new agent has too few recorded turns for the replay to judge its changes, so neither proposal is offered: no
+  // card is raised. The agent of the checks below gets a full history first, so its own changes can be judged.
+  seedOutcomes(alpha.id, STEADY);
+  const newcomer = await createAgent("Newcomer");
+  const newcomerEntry = agents.listAgents().find((entry) => entry.id === newcomer.id);
+  if (!newcomerEntry) throw new Error("The new agent is not listed.");
+  await mkdir(newcomerEntry.workspacePath, { recursive: true });
+  await runCauseEffect(agents.updateAgent({ agentId: newcomer.id, quickAcknowledgement: true }));
+  const newcomerChange = await proposeWithoutCard(
+    "a new agent proposes an instruction change",
+    newcomer.id,
+    "propose_instructions_change",
+    { text: NEW_TEXT },
+  );
+  pass(
+    "A new agent's instruction change is refused for insufficient evidence, with no approval card",
+    !newcomerChange.outcome.success &&
+      newcomerChange.asked === 0 &&
+      newcomerChange.outcome.text.includes("Insufficient evidence"),
+    { cards: newcomerChange.asked, text: newcomerChange.outcome.text },
+  );
+  await writeDraft(DRAFT_FOLDER, {}, newcomerEntry.workspacePath);
+  const newcomerDraft = await taskTurn(
+    "a skill draft from a new agent",
+    newcomer.id,
+    [{ tool: "propose_skill", args: { sourcePath: DRAFT_FOLDER } }],
+    { plan: "person", draft: null },
+  );
+  const newcomerDraftOutcome = newcomerDraft.outcomes[0];
+  pass(
+    "A new agent's skill draft is refused for insufficient evidence, with no approval card, and nothing is installed",
+    newcomerDraftOutcome?.success === false &&
+      newcomerDraft.reasons.length === 0 &&
+      installs.length === 0 &&
+      (newcomerDraftOutcome?.text.includes("Insufficient evidence") ?? false),
+    { cards: newcomerDraft.reasons.length, text: newcomerDraftOutcome?.text },
+  );
 
   // A. A proposal waits for the person: its card shows the diff, nothing is written while it waits, and a decline keeps it.
   const held = await proposeAndHold("propose an instruction change", alpha.id, "propose_instructions_change", {
@@ -823,6 +874,57 @@ try {
       (declinedOutcome?.text.includes('"approval_required"') ?? false) &&
       installs.length === 0,
     declinedOutcome?.text,
+  );
+
+  // E1b. A skill folder that changes while its card waits is refused at accept, and nothing is installed.
+  await writeDraft(CHANGED_FOLDER, {});
+  const changed = await taskTurn(
+    "a skill draft whose folder changes while its card waits",
+    alpha.id,
+    [{ tool: "propose_skill", args: { sourcePath: CHANGED_FOLDER } }],
+    {
+      plan: "person",
+      draft: "accept",
+      whileWaiting: async () => {
+        await writeFile(
+          join(workspace, CHANGED_FOLDER, "SKILL.md"),
+          `---\nname: ${DRAFT_NAME}\ndescription: Sorts notes by age.\n---\nSort the notes by age.\n`,
+        );
+      },
+    },
+  );
+  const changedOutcome = changed.outcomes[0];
+  pass(
+    "A skill draft whose folder changes after its card is shown is refused at accept, and nothing is installed",
+    changedOutcome?.success === false &&
+      (changedOutcome?.text.includes("changed while the draft waited") ?? false) &&
+      installs.length === 0 &&
+      (await runCauseEffect(library.list())).length === 0,
+    { installs: installs.length, text: changedOutcome?.text },
+  );
+
+  // E1c. The seam: a file changes after the person accepts and before the archive step. The archive then holds text that
+  // the person did not approve, so the draft is refused there, and nothing is published or installed.
+  await writeDraft(SEAM_FOLDER, {});
+  beforeArchive = () =>
+    writeFile(
+      join(workspace, SEAM_FOLDER, "SKILL.md"),
+      `---\nname: ${DRAFT_NAME}\ndescription: Sorts notes by age.\n---\nSort the notes by age.\n`,
+    );
+  const seam = await taskTurn(
+    "a skill draft that changes between accept and its archive",
+    alpha.id,
+    [{ tool: "propose_skill", args: { sourcePath: SEAM_FOLDER } }],
+    { plan: "person", draft: "accept" },
+  );
+  const seamOutcome = seam.outcomes[0];
+  pass(
+    "A skill draft that changes between the accept and its archive is refused, and nothing is installed or published",
+    seamOutcome?.success === false &&
+      (seamOutcome?.text.includes("changed while the draft waited") ?? false) &&
+      installs.length === 0 &&
+      (await runCauseEffect(library.list())).length === 0,
+    { installs: installs.length, text: seamOutcome?.text },
   );
 
   // E2. The same draft, after the person started its plan and accepts its card, is installed once, and its script is

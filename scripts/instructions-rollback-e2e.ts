@@ -290,6 +290,21 @@ const snapshotRows = (agentId: string) =>
 /** A count of the rows that a query selects for one agent. */
 const countFor = (sql: string, agentId: string): number => Number(connection().prepare(sql).get(agentId)?.count ?? 0);
 
+/** Gives the agent 20 completed turns, so that a proposal from it is offered to the person: the replay judges it. */
+function seedSteadyHistory(agentId: string): void {
+  connection().prepare("DELETE FROM turn_outcomes WHERE agent_id = ?").run(agentId);
+  for (let index = 0; index < 20; index += 1) {
+    connection()
+      .prepare(
+        `INSERT INTO turn_outcomes (agent_id, thread_id, turn_id, outcome, cause_code, tool_failures,
+           tool_failure_codes_json, approvals_accepted, approvals_declined, reactions_present, memory_changes,
+           skill_loads, created_at)
+         VALUES (?, 'seed-thread', ?, 'completed', NULL, 0, '{}', 0, 0, 0, 0, 0, ?)`,
+      )
+      .run(agentId, `${agentId}-seed-${index}`, new Date(Date.UTC(2020, 0, 1) + index * 1000).toISOString());
+  }
+}
+
 async function createAgent(name: string) {
   const agent = await runCauseEffect(
     agents.createAgent({
@@ -326,6 +341,9 @@ try {
     }),
   );
   const oldSha = instructionsTextSha256(OLD_TEXT);
+  // The replay judges a change only with 20 recorded turns, so the agents that propose rollbacks here get that history.
+  seedSteadyHistory(alpha.id);
+  seedSteadyHistory(gamma.id);
 
   // (a) A roster persist that omits an agent keeps that agent's instruction history.
   recordInstructionsSnapshot(connection(), { agentId: beta.id, filePath: "AGENTS.md", text: "# Beta rules\n" });
@@ -449,6 +467,12 @@ try {
   pass("(e) The removal card names the file", (removal.card.reason ?? "").includes("Remove AGENTS.md"), {
     reason: removal.card.reason,
   });
+  pass(
+    "(e) The removal card shows the text that the removal deletes",
+    (removal.card.reason ?? "").includes("--- AGENTS.md ---") &&
+      (removal.card.reason ?? "").includes("- Keep answers brief."),
+    { reason: removal.card.reason },
+  );
   await runCauseEffect(agents.respondToApproval({ requestId: removal.card.requestId, decision: "accept" }));
   const removed = await removal.outcome;
   const gone = await stat(join(gamma.workspacePath, "AGENTS.md")).then(
@@ -461,6 +485,29 @@ try {
     removed.text,
   );
   pass("(e) The removed text is kept, so the removal can be undone", snapshotRows(gamma.id)[0]?.text === CREATED_TEXT);
+
+  // (e2) A removal whose text is too big for the 8 KB card is refused with no card, and the file keeps its text.
+  const delta = await createAgent("Delta");
+  await mkdir(delta.workspacePath, { recursive: true });
+  const DELTA_TEXT = "Keep answers brief and clear.\n".repeat(400);
+  await Effect.runPromise(
+    saveAgentInstructionsFile(delta.workspacePath, DELTA_TEXT, "", { agentId: delta.id, database: connection() }),
+  );
+  const cardsBeforeBig = approvals.length;
+  const bigRemoval = await callFromChat(
+    "propose a removal of a text too big for one card",
+    delta.id,
+    "propose_instructions_rollback",
+    { sha256: ABSENT_INSTRUCTIONS_SHA256 },
+  );
+  pass(
+    "(e2) A removal of a text too big for the 8 KB card is refused with no card, and the file keeps its text",
+    !bigRemoval.success &&
+      approvals.length === cardsBeforeBig &&
+      bigRemoval.text.includes("too long for the person to review in one card") &&
+      (await readInstructions(delta.workspacePath)) === DELTA_TEXT,
+    { cards: approvals.length - cardsBeforeBig, text: bigRemoval.text },
+  );
 
   // (g) A removal keeps a file that changed after its card was shown: the restore is given the hash of the text the
   // card showed, and the file holds other text now.

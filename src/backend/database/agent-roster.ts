@@ -24,6 +24,26 @@ export interface AgentRosterOptions {
 }
 
 /**
+ * A roster write that would give a thread to a second agent. The thread keeps its owner and the write is refused,
+ * so one agent's conversation never shows under another agent.
+ */
+export class ThreadOwnerConflict extends Error {
+  readonly threadId: string;
+  readonly ownerAgentId: string;
+  readonly requestedAgentId: string;
+
+  constructor(input: { threadId: string; ownerAgentId: string; requestedAgentId: string }) {
+    super(
+      `Thread ${input.threadId} belongs to agent ${input.ownerAgentId}, so agent ${input.requestedAgentId} cannot take it.`,
+    );
+    this.name = "ThreadOwnerConflict";
+    this.threadId = input.threadId;
+    this.ownerAgentId = input.ownerAgentId;
+    this.requestedAgentId = input.requestedAgentId;
+  }
+}
+
+/**
  * The set of agents that exist and the thread row each one owns.
  *
  * Owns `projection_agents` and the `projection_threads` row implied by an agent having a thread,
@@ -289,12 +309,18 @@ export class AgentRoster {
 
   ensureThreadProjection(db: DatabaseSync, agent: AgentSummary, sequence: number): void {
     if (!agent.threadId) return;
+    const owner = databaseRow(
+      db.prepare("SELECT agent_id FROM projection_threads WHERE thread_id = ?").get(agent.threadId),
+    );
+    const ownerAgentId = owner ? requiredStringColumn(owner, "agent_id") : null;
+    if (ownerAgentId !== null && ownerAgentId !== agent.id) {
+      throw new ThreadOwnerConflict({ threadId: agent.threadId, ownerAgentId, requestedAgentId: agent.id });
+    }
     db.prepare(`
       INSERT INTO projection_threads
         (thread_id, agent_id, title, active_turn_id, created_at, updated_at, last_event_sequence)
       VALUES (?, ?, ?, NULL, ?, ?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET
-        agent_id = excluded.agent_id,
         title = excluded.title,
         updated_at = excluded.updated_at,
         last_event_sequence = MAX(projection_threads.last_event_sequence, excluded.last_event_sequence)
