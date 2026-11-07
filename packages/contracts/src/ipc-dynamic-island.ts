@@ -62,7 +62,7 @@ export const DEFAULT_DYNAMIC_ISLAND_PREFERENCE = {
   heightPercent: 100,
   serverVisibility: {},
   newServersVisible: true,
-  muted: true,
+  muted: false,
 } as const satisfies DynamicIslandPreference;
 
 /** Returns whether the island shows the items of a server. A muted server is hidden separately. */
