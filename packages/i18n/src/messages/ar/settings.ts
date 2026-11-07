@@ -191,6 +191,8 @@ export const messages = {
   "settings.notch.idle.description": "عرض شعار OpenBot والتحية عند عدم وجود حالة نشطة.",
   "settings.notch.displays.title": "العرض على شاشات إضافية",
   "settings.notch.displays.description": "عرض Dynamic Island على الشاشات الخارجية المتصلة.",
+  "settings.notch.quiet.title": "الوضع الهادئ",
+  "settings.notch.quiet.description": "يعرض فقط ما يحتاج إليك: الأسئلة والموافقات والإخفاقات. بدون استجابة لمسية.",
   "settings.notch.haptics.title": "الاستجابة اللمسية",
   "settings.notch.haptics.description": "استخدام لوحة التتبع Force Touch لتأكيد التفاعلات مع Dynamic Island.",
   "settings.notch.servers.title": "الخوادم",

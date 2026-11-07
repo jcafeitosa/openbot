@@ -19,7 +19,11 @@ export interface DynamicIslandPreference {
   serverVisibility: Record<string, boolean>;
   /** Whether a server with no choice of its own, such as a server the user adds later, shows its items. */
   newServersVisible: boolean;
-  /** When true, the island will not speak agent messages (mute toggle). */
+  /**
+   * Quiet mode. The island shows only what needs the user: a question, an approval, a takeover or a
+   * failure. Work in progress and new replies stay out of it, and it makes no haptic feedback. A
+   * file from before this choice has none, and reads as false.
+   */
   muted?: boolean;
 }
 
@@ -217,8 +221,23 @@ export function isDynamicIslandPreference(value: unknown): value is DynamicIslan
     isDynamicIslandSizePercent(value.widthPercent, DYNAMIC_ISLAND_SIZE_LIMITS.widthPercent) &&
     isDynamicIslandSizePercent(value.heightPercent, DYNAMIC_ISLAND_SIZE_LIMITS.heightPercent) &&
     isDynamicIslandServerVisibility(value.serverVisibility) &&
-    isBoolean(value.newServersVisible)
+    isBoolean(value.newServersVisible) &&
+    (value.muted === undefined || isBoolean(value.muted))
   );
+}
+
+/**
+ * What the island shows in quiet mode. Work in progress and replies become idle, because they need
+ * nothing from the user. A question, an approval, a takeover and a failure stay: the agent waits.
+ */
+export function dynamicIslandQuietPresentation(
+  presentation: DynamicIslandPresentation,
+  muted: boolean | undefined,
+): DynamicIslandPresentation {
+  if (muted !== true) return presentation;
+  return presentation.mode === "working" || presentation.mode === "message"
+    ? { serverId: presentation.serverId, mode: "idle" }
+    : presentation;
 }
 
 export function isDynamicIslandServerVisibility(value: unknown): value is Record<string, boolean> {

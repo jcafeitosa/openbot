@@ -8,6 +8,7 @@ import type {
 import {
   DEFAULT_DYNAMIC_ISLAND_PREFERENCE,
   dynamicIslandCompactHeight,
+  dynamicIslandQuietPresentation,
   IDLE_DYNAMIC_ISLAND_PRESENTATION,
   IPC_ENDPOINTS,
 } from "@openbot/contracts/ipc";
@@ -64,6 +65,9 @@ export interface DynamicIslandWindowControllerOptions {
 export class DynamicIslandWindowController {
   readonly #options: DynamicIslandWindowControllerOptions;
   #preference: DynamicIslandPreference = { ...DEFAULT_DYNAMIC_ISLAND_PREFERENCE };
+  /** The presentation as the renderer published it. The windows get it through quiet mode. */
+  #published = IDLE_DYNAMIC_ISLAND_PRESENTATION;
+  /** What the windows show now. */
   #presentation = IDLE_DYNAMIC_ISLAND_PRESENTATION;
   readonly #windows = new Map<number, BrowserWindow>();
   readonly #interactiveDisplays = new Set<number>();
@@ -119,6 +123,8 @@ export class DynamicIslandWindowController {
         );
         this.#preference = savedPreference;
         yield* this.reconcileWindow();
+        // Quiet mode changes what the windows show, with the same published presentation.
+        this.#showPublishedPresentation();
         this.publishPreference();
         return { ...savedPreference };
       }),
@@ -126,15 +132,22 @@ export class DynamicIslandWindowController {
   }
 
   performHaptic(): void {
-    if (!this.#preference.enabled || !this.#preference.hapticsEnabled) return;
+    if (!this.#preference.enabled || !this.#preference.hapticsEnabled || this.#preference.muted === true) return;
     this.#options.performHaptic();
   }
 
   publish(presentation: DynamicIslandPresentation): void {
-    if (isDeepStrictEqual(this.#presentation, presentation)) return;
-    this.#presentation = presentation;
+    this.#published = presentation;
+    this.#showPublishedPresentation();
+  }
+
+  /** Sends the published presentation, after quiet mode, to the windows when it differs from what they show. */
+  #showPublishedPresentation(): void {
+    const shown = dynamicIslandQuietPresentation(this.#published, this.#preference.muted);
+    if (isDeepStrictEqual(this.#presentation, shown)) return;
+    this.#presentation = shown;
     for (const window of this.#windows.values()) {
-      sendToRenderer(window, IPC_ENDPOINTS.dynamicIsland.presentation, presentation);
+      sendToRenderer(window, IPC_ENDPOINTS.dynamicIsland.presentation, shown);
     }
   }
 
