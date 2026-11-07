@@ -244,6 +244,7 @@ import { AgentWaits } from "./agent-waits/agent-waits";
 import { automationRunCommand } from "./automation-command";
 import { toChannelOperationError } from "./channel-effects";
 import { type ChannelImageFile, ChannelImages } from "./channel-images";
+import { ChannelMemoryStore } from "./channel-memory-store";
 import { ChannelRoutineScheduler } from "./channel-routine-scheduler";
 import { ChannelService } from "./channel-service";
 import type { BundledProviderExecutables } from "./cli";
@@ -258,7 +259,9 @@ import type { MailboxStore } from "./mailbox-store";
 import { toMcpOperationError } from "./mcp-effects";
 import type { McpSignInOpener } from "./mcp-oauth-provider";
 import { McpServerStore } from "./mcp-server-store";
+import { MemoryProposalStore } from "./memory-proposals/memory-proposals";
 import type { MessageDeleteAccess, MessageDeleteRefused } from "./message-delete";
+import { MessagingMemoryStore } from "./messaging/messaging-memory-store";
 import { isAnswer, MessagingThreads, toMessagingThreadFailed } from "./messaging/messaging-threads";
 import type { PasswordVault } from "./password-vault";
 import { canConfineProcesses } from "./process-confinement";
@@ -720,6 +723,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         requireKnownAgent: (agentId) => {
           this.#conversation.requireKnownAgent(agentId);
         },
+        routineForDelivery: (deliveryId) => this.#routines.runForDelivery(deliveryId)?.routineId ?? null,
       },
     });
     this.#fileWatches = new FileWatchTriggers({
@@ -1025,6 +1029,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     });
     const turnLedger = new TurnLedger({ database: store.database });
     this.#attention = new AttentionRegistry({
+      memoryProposals: new MemoryProposalStore({
+        database: store.database,
+        channelMemories: new ChannelMemoryStore(store.database),
+        messagingMemories: new MessagingMemoryStore(store.database),
+      }),
       conversation: this.#conversation,
       browser: this.#browser,
       hostedSites: this.#hostedSites,

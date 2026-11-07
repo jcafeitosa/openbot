@@ -164,6 +164,7 @@ export const messages = {
   "error.backend.interruptOtherWork": "该助手正在处理非你的消息发起的任务，只有用户或该任务的发送者才能停止它。",
   "error.backend.interruptStarting": "该助手仍在启动对话，请等对话开始后再试。",
   "error.backend.interruptNoSession": "由于服务商会话不可用，OpenBot 无法中断该助手。",
+  "error.backend.memoryPromotionTarget": "只能在频道或外部聊天中提升记忆。目标是你正在回复的聊天。",
   "error.backend.memoryTextRequired": "需要填写记忆内容。",
   "error.backend.memoryTextTooLong": "记忆内容过长。",
   "error.backend.memorySecretRefused": "此文本包含 OpenBot 保存的机密，因此未被记住。请只记住事实，不要包含该值。",

@@ -187,6 +187,8 @@ export const messages = {
     "このエージェントはまだターンを開始中です。ターンが始まってからもう一度お試しください。",
   "error.backend.interruptNoSession":
     "プロバイダーのセッションを使用できないため、OpenBot はこのエージェントを中断できません。",
+  "error.backend.memoryPromotionTarget":
+    "メモリを共有できるのは、チャンネルまたは外部チャットの中だけです。対象は返信しているチャットです。",
   "error.backend.memoryTextRequired": "メモリーのテキストが必要です。",
   "error.backend.memoryTextTooLong": "メモリーのテキストが長すぎます。",
   "error.backend.memorySecretRefused":

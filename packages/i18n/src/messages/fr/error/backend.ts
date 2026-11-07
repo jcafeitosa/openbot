@@ -191,6 +191,8 @@ export const messages = {
   "error.backend.interruptStarting": "Cet agent démarre encore un tour. Réessayez après le début du tour.",
   "error.backend.interruptNoSession":
     "OpenBot ne peut pas interrompre cet agent, car sa session de fournisseur est indisponible.",
+  "error.backend.memoryPromotionTarget":
+    "Ne promouvoir une mémoire que dans un canal ou un chat externe. La cible est le chat dans lequel vous répondez.",
   "error.backend.memoryTextRequired": "Le texte du souvenir est requis.",
   "error.backend.memoryTextTooLong": "Le texte du souvenir est trop long.",
   "error.backend.memorySecretRefused":

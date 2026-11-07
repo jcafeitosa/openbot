@@ -21,8 +21,25 @@ export type MemoryProposalScope = (typeof MEMORY_PROPOSAL_SCOPES)[number];
 export const MEMORY_PROPOSAL_STATUSES = ["pending", "approved", "rejected"] as const;
 export type MemoryProposalStatus = (typeof MEMORY_PROPOSAL_STATUSES)[number];
 
-/** The only decider a proposal accepts. An agent or a channel never decides one. */
-export const PERSON_DECIDER = "person";
+/**
+ * Who decides a proposal, as proof rather than a name. Only `mintPersonDecision` makes one, and the store
+ * accepts nothing else, so a string from an agent path or a script cannot approve or reject a proposal.
+ */
+export interface PersonDecision {
+  readonly decidedBy: "person";
+}
+
+const mintedDecisions = new WeakSet<object>();
+
+/**
+ * The capability of a person's decision. Only the card response path calls it, after it has checked that
+ * the responder is the person: the owner, the person at this computer, or a chat press of the person.
+ */
+export function mintPersonDecision(): PersonDecision {
+  const decision: PersonDecision = Object.freeze({ decidedBy: "person" });
+  mintedDecisions.add(decision);
+  return decision;
+}
 
 export interface MemoryProposalInput {
   sourceAgentId: string;
@@ -100,17 +117,18 @@ export class MemoryProposalStore {
    * Writes the text to the collective memory and marks the proposal approved, in one transaction. A full collective
    * memory, or a text that now holds a registered secret, refuses the approval and leaves the proposal pending.
    */
-  approve(proposalId: string, decidedBy: string): MemoryProposal {
-    return this.#decide(proposalId, decidedBy, "approved");
+  approve(proposalId: string, decision: PersonDecision): MemoryProposal {
+    return this.#decide(proposalId, decision, "approved");
   }
 
   /** Marks the proposal rejected. Nothing is written to the collective memory. */
-  reject(proposalId: string, decidedBy: string): MemoryProposal {
-    return this.#decide(proposalId, decidedBy, "rejected");
+  reject(proposalId: string, decision: PersonDecision): MemoryProposal {
+    return this.#decide(proposalId, decision, "rejected");
   }
 
-  #decide(proposalId: string, decidedBy: string, status: "approved" | "rejected"): MemoryProposal {
-    if (decidedBy !== PERSON_DECIDER) throw new Error("Only a person can decide a memory proposal.");
+  #decide(proposalId: string, decision: PersonDecision, status: "approved" | "rejected"): MemoryProposal {
+    if (typeof decision !== "object" || decision === null || !mintedDecisions.has(decision))
+      throw new Error("Only a person can decide a memory proposal.");
     return this.#transaction(() => {
       const proposal = this.#require(proposalId);
       if (proposal.status !== "pending") throw new Error(`The memory proposal is already ${proposal.status}.`);
@@ -119,7 +137,7 @@ export class MemoryProposalStore {
         .prepare(
           "UPDATE memory_proposals SET status = ?, decided_by = ?, decided_at = ? WHERE proposal_id = ? AND status = 'pending'",
         )
-        .run(status, decidedBy, new Date().toISOString(), proposalId);
+        .run(status, decision.decidedBy, new Date().toISOString(), proposalId);
       return this.#require(proposalId);
     });
   }

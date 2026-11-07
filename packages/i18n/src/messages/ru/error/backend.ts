@@ -179,6 +179,8 @@ export const messages = {
   "error.backend.interruptStarting": "Этот агент ещё начинает ход. Повторите попытку, когда ход начнётся.",
   "error.backend.interruptNoSession":
     "OpenBot не может прервать этого агента, потому что сессия его провайдера недоступна.",
+  "error.backend.memoryPromotionTarget":
+    "Продвигать память можно только в канале или внешнем чате. Цель — чат, в котором вы отвечаете.",
   "error.backend.memoryTextRequired": "Нужен текст записи памяти.",
   "error.backend.memoryTextTooLong": "Текст записи памяти слишком длинный.",
   "error.backend.memorySecretRefused":

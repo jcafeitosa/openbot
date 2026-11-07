@@ -16,6 +16,7 @@ import { createChannelToolSchema, listChannelsToolSchema, updateChannelToolSchem
 import { DATA_TOOL_DEFINITIONS } from "./agent/data-tools";
 import { HISTORY_TOOL_DEFINITIONS } from "./agent/history-tools";
 import { MCP_SERVER_TOOL_DEFINITIONS } from "./agent/mcp-tools";
+import { PROMOTE_MEMORY_TOOL, promoteMemoryToolSchema } from "./agent/memory-promotion";
 import { MEMORY_RECALL_TOOL_DEFINITIONS } from "./agent/memory-tool-inputs";
 import {
   createAgentToolSchema,
@@ -597,8 +598,14 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
   {
     name: AWAIT_EVENT_TOOL,
     description:
-      "Open a wait when the current request waits for something outside this turn that takes over about 15 minutes, such as a long build or a later check. OpenBot shows the wait to the user until you close it. The next run of one of your routines wakes the wait, or a local script event that names its waitId. The run that wakes it repeats the request and your note. Give routineId to let only that routine wake it. Then tell the user what you wait for and end your turn.",
+      "Open a wait when the current request waits for something outside this turn that takes over about 15 minutes, such as a long build or a later check. OpenBot shows the wait to the user until you close it; it closes by itself after 24 hours. The next run of one of your routines wakes the wait, or a local script event that names its waitId. The run that wakes it repeats the request and your note. Give routineId to let only that routine wake it. A wait opened in a routine run is woken only by runs of that routine. Then tell the user what you wait for and end your turn.",
     shape: awaitEventToolSchema.shape,
+  },
+  {
+    name: PROMOTE_MEMORY_TOOL,
+    description:
+      "In a channel or external chat turn, propose that one of your memories becomes the memory of that channel or chat. Give the memoryId of your memory. A person must approve the proposal in OpenBot before it is saved to the shared memory. Nothing is saved until then. The target is the channel or chat you answer in; you cannot choose it.",
+    shape: promoteMemoryToolSchema.shape,
   },
   {
     name: CLOSE_WAIT_TOOL,

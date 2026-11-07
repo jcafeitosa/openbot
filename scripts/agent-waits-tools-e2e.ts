@@ -88,6 +88,7 @@ const waits = new AgentWaits({
     requireKnownAgent: (agentId) => {
       conversation.requireKnownAgent(agentId);
     },
+    routineForDelivery: () => null,
   },
 });
 

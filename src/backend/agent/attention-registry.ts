@@ -49,6 +49,8 @@ import type { BrowserCardVault } from "../browser-tool-actions";
 import { type BrowserToolArguments, parseBrowserToolCall } from "../browser-tools";
 import { causeHelpers } from "../effect-boundary";
 import { LINK_CARD_ID_PREFIX, type LinkWallet } from "../link-wallet";
+import { type MemoryCardPromotion, MemoryProposalCards } from "../memory-proposals/memory-proposal-cards";
+import type { MemoryProposal, MemoryProposalStore } from "../memory-proposals/memory-proposals";
 import { type PasswordVault, type PasswordVaultError, websiteUrl } from "../password-vault";
 import {
   type AppServerRequest,
@@ -151,6 +153,8 @@ const AUTOMATIC_RESPONDER: PromptResponder = { privileged: true, automatic: true
  */
 export interface ApprovalResponder {
   owner: boolean;
+  /** A press in an external chat app. It counts as the person for a memory proposal card, and nothing else. */
+  chat?: boolean;
 }
 
 interface PendingApproval {
@@ -447,6 +451,8 @@ export interface AttentionRegistryOptions {
   noteVaultChange?(agentId: string, threadId: string, turnId: string, text: string): void;
   /** Where the answer of `request_api_key` is saved; null where nothing can save it. */
   apiKeys?: AgentApiKeys | null | undefined;
+  /** Stores the memory proposals that a promotion creates. Absent: no agent can promote a memory. */
+  memoryProposals?: MemoryProposalStore | undefined;
 }
 
 export type RuntimeAttention = Pick<
@@ -489,6 +495,7 @@ export class AttentionRegistry {
   readonly #agentName: (agentId: string) => string | undefined;
   readonly #noteVaultChange: (agentId: string, threadId: string, turnId: string, text: string) => void;
   readonly #apiKeys: AgentApiKeys | null;
+  readonly #memoryCards: MemoryProposalCards | null;
   readonly #prompts = new Map<RequestId, PendingPrompt>();
   readonly #approvals = new Map<RequestId, PendingApproval>();
   readonly #takeovers = new Map<RequestId, PendingBrowserTakeover>();
@@ -512,6 +519,20 @@ export class AttentionRegistry {
     this.#agentName = options.agentName ?? (() => undefined);
     this.#noteVaultChange = options.noteVaultChange ?? (() => undefined);
     this.#apiKeys = options.apiKeys ?? null;
+    this.#memoryCards = options.memoryProposals
+      ? new MemoryProposalCards({ store: options.memoryProposals, emit: (event) => this.#emit(event) })
+      : null;
+  }
+
+  /**
+   * Records an agent's promotion of one of its memories as a proposal, and shows the person its card. Nothing is
+   * written to the collective memory until the person approves the card.
+   */
+  proposeMemory(input: MemoryCardPromotion): MemoryProposal {
+    if (!this.#memoryCards) throw new Error("Memory proposals are not configured.");
+    const proposal = this.#memoryCards.promote(input);
+    this.#emitRuntimeSnapshot();
+    return proposal;
   }
 
   /** The agent that asks `requestId`: a prompt, an approval, a browser takeover or a browser secret. */
@@ -588,8 +609,10 @@ export class AttentionRegistry {
 
   /** The attention section of the runtime snapshot, budgeted prompts first and takeovers last. */
   runtimeAttention(): RuntimeAttention {
+    const memoryCards = this.#memoryCards?.approvals() ?? [];
     const attentionComplete =
-      this.#prompts.size + this.#approvals.size + this.#takeovers.size <= AGENT_RUNTIME_ATTENTION_LIMIT;
+      this.#prompts.size + this.#approvals.size + memoryCards.length + this.#takeovers.size <=
+      AGENT_RUNTIME_ATTENTION_LIMIT;
     let remainingAttention = AGENT_RUNTIME_ATTENTION_LIMIT;
     const pendingPrompts = [...this.#prompts.values()].slice(0, remainingAttention).map((pending) => ({
       requestId: pending.id,
@@ -599,7 +622,7 @@ export class AttentionRegistry {
       questions: pending.questions.map(compactRuntimeQuestion),
     }));
     remainingAttention -= pendingPrompts.length;
-    const pendingApprovals = [...this.#approvals.values()]
+    const pendingApprovals = [...this.#approvals.values(), ...memoryCards.map((approval) => ({ approval }))]
       .slice(0, remainingAttention)
       .map((pending) => compactRuntimeApproval(pending.approval));
     remainingAttention -= pendingApprovals.length;
@@ -807,6 +830,13 @@ export class AttentionRegistry {
     input: RespondToApprovalInput,
     responder?: ApprovalResponder,
   ) {
+    const cards = this.#memoryCards;
+    if (cards && typeof input.requestId === "string" && cards.has(input.requestId)) {
+      const requestId = input.requestId;
+      yield* attentionStep(() => cards.respond(requestId, input.decision, responder));
+      this.#emitRuntimeSnapshot();
+      return;
+    }
     const pending = yield* attentionStep(() => {
       const value = this.#approvals.get(input.requestId);
       if (!value) throw new InactiveAttentionRequest(sourceText("error.backend.approvalInactive"));

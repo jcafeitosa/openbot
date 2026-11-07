@@ -185,6 +185,8 @@ export const messages = {
     "Este agente aún está iniciando un turno. Inténtalo de nuevo cuando empiece el turno.",
   "error.backend.interruptNoSession":
     "OpenBot no puede interrumpir este agente porque su sesión del proveedor no está disponible.",
+  "error.backend.memoryPromotionTarget":
+    "Promueve una memoria solo en un canal o chat externo. El destino es el chat en el que respondes.",
   "error.backend.memoryTextRequired": "Se requiere el texto del recuerdo.",
   "error.backend.memoryTextTooLong": "El texto del recuerdo es demasiado largo.",
   "error.backend.memorySecretRefused":

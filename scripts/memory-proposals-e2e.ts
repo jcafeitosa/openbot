@@ -3,7 +3,7 @@
 // approve or reject; an approval writes exactly one collective row with the text and a pointer to the source memory;
 // a rejection writes nothing; a text with a registered secret is refused and never stored; and an approval into a full
 // channel memory is refused, leaving the proposal pending. The database is a migrated temporary file and no provider is
-// used. The store API is the surface: no router tool and no UI is involved. Run: `bun scripts/memory-proposals-e2e.ts`.
+// used. The store API is the surface: a decision is a minted capability, and a plain string is refused. Run: `bun scripts/memory-proposals-e2e.ts`.
 // Writes .openbot-build/memory-proposals-e2e/report.json.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -13,7 +13,12 @@ import { isDynamicRecord, isNumber, isString } from "@openbot/contracts/runtime-
 import { redactText, registerSecretValue } from "@openbot/logging";
 import { ChannelMemoryStore } from "../src/backend/channel-memory-store";
 import { runCauseEffect } from "../src/backend/effect-boundary";
-import { type MemoryProposal, MemoryProposalStore } from "../src/backend/memory-proposals/memory-proposals";
+import {
+  type MemoryProposal,
+  MemoryProposalStore,
+  mintPersonDecision,
+  type PersonDecision,
+} from "../src/backend/memory-proposals/memory-proposals";
 import { MessagingMemoryStore } from "../src/backend/messaging/messaging-memory-store";
 import { OpenBotDatabase } from "../src/backend/openbot-database";
 
@@ -136,13 +141,15 @@ try {
   });
 
   check("an approval by an agent is refused and writes nothing", () => {
-    assert.throws(() => queue.approve(first.proposalId, "agent"), /Only a person/);
+    // A look-alike decision that the mint did not make is refused, as a string or an object would be.
+    const lookAlike: PersonDecision = { decidedBy: "person" };
+    assert.throws(() => queue.approve(first.proposalId, lookAlike), /Only a person/);
     assert.equal(statusOf(first.proposalId), "pending");
     assert.equal(channelMemoryCount(), 0);
   });
 
   check("an approval by a person writes exactly one collective row with the text and its source", () => {
-    const approved = queue.approve(first.proposalId, "person");
+    const approved = queue.approve(first.proposalId, mintPersonDecision());
     assert.equal(approved.status, "approved");
     assert.equal(approved.decidedBy, "person");
     assert.equal(statusOf(first.proposalId), "approved");
@@ -152,7 +159,7 @@ try {
 
   check("a rejection by a person writes nothing to the collective memory", () => {
     const rejectable = proposeChannel(OTHER_TEXT);
-    const rejected = queue.reject(rejectable.proposalId, "person");
+    const rejected = queue.reject(rejectable.proposalId, mintPersonDecision());
     assert.equal(rejected.status, "rejected");
     assert.equal(statusOf(rejectable.proposalId), "rejected");
     assert.equal(channelMemoryCount(), 1, "only the approved row is in the collective memory");
@@ -173,7 +180,7 @@ try {
       targetId: CONNECTION,
       text: MESSAGING_TEXT,
     });
-    queue.approve(messaging.proposalId, "person");
+    queue.approve(messaging.proposalId, mintPersonDecision());
     assert.equal(messagingMemoryCount(), 1);
     assert.equal(channelMemoryCount(), 1, "the channel memory is unchanged");
   });
@@ -184,7 +191,7 @@ try {
     }
     assert.equal(channelMemoryCount(), CHANNEL_LIMIT);
     const full = proposeChannel(FULL_TEXT);
-    assert.throws(() => queue.approve(full.proposalId, "person"), /32|limit/i);
+    assert.throws(() => queue.approve(full.proposalId, mintPersonDecision()), /32|limit/i);
     assert.equal(statusOf(full.proposalId), "pending");
     assert.equal(channelMemoryCount(), CHANNEL_LIMIT, "nothing is written past the cap");
     return `collective rows=${channelMemoryCount()}`;

@@ -72,6 +72,7 @@ const waits = new AgentWaits({
     ownsRoutine: () => true,
     hasRoutine: () => true,
     requireKnownAgent: () => {},
+    routineForDelivery: () => null,
   },
 });
 
