@@ -3864,6 +3864,12 @@ describe("OpenBotDatabase", () => {
         return null;
       },
     );
+    database.connection
+      .prepare(
+        `INSERT INTO turn_outcomes (agent_id, turn_id, thread_id, outcome, created_at)
+         VALUES (?, 'turn-1', 'thread-1', 'completed', ?)`,
+      )
+      .run(agent.id, createdAt);
     database.recordPendingHostedSiteTerminalEvent({
       agentId: agent.id,
       threadId: "openbot-thread-chief",
@@ -3877,6 +3883,9 @@ describe("OpenBotDatabase", () => {
     });
 
     database.hardDeleteAgent("agents:delete", agent.id, agent.threadId, []);
+    expect(
+      database.connection.prepare("SELECT COUNT(*) AS count FROM turn_outcomes WHERE agent_id = ?").get(agent.id),
+    ).toMatchObject({ count: 0 });
 
     expect(database.listAgents()).toEqual([]);
     expect(database.connection.prepare("SELECT COUNT(*) AS count FROM projection_agent_memories").get()).toMatchObject({

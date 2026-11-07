@@ -190,6 +190,26 @@ try {
     return { closed: [expiring.id, second.id], woken: [plain.id] };
   });
 
+  await step("An expired wait is not counted or listed before a wake check closes its row", async () => {
+    const expired = open("agent-f", "Expired unseen", { expiresAt: new Date(clock.getTime() + HOUR_MS) });
+    const live = open("agent-f", "Still open", { expiresAt: new Date(clock.getTime() + 10 * HOUR_MS) });
+    clock = new Date(clock.getTime() + 2 * HOUR_MS);
+    assert.ok(waitStore.get("agent-f", expired.id), "The expired row stays until a wake check closes it.");
+    assert.equal(waitStore.count("agent-f"), 1, "The count leaves out the expired wait.");
+    assert.equal(waitStore.countByAgent().get("agent-f"), 1, "The per-agent count leaves out the expired wait.");
+    assert.deepEqual(
+      waitStore.list("agent-f").map((wait) => wait.id),
+      [live.id],
+      "The list leaves out the expired wait.",
+    );
+    assert.deepEqual(
+      waits.list("agent-f").waits.map((wait) => wait.id),
+      [live.id],
+      "The snapshot leaves out the expired wait.",
+    );
+    return { counted: 1, listed: [live.id] };
+  });
+
   await step("A named script event does not wake a wait whose expiry has passed", async () => {
     const expired = open("agent-c", "Expired by name", { expiresAt: new Date(clock.getTime() + HOUR_MS) });
     clock = new Date(clock.getTime() + 2 * HOUR_MS);

@@ -278,6 +278,7 @@ export class AgentRoster {
         db.prepare("DELETE FROM memory_consolidation_runs WHERE agent_id = ?").run(agentId);
         db.prepare("DELETE FROM memory_proposals WHERE source_agent_id = ?").run(agentId);
         db.prepare("DELETE FROM research_sources WHERE agent_id = ?").run(agentId);
+        db.prepare("DELETE FROM turn_outcomes WHERE agent_id = ?").run(agentId);
         // Person preferences are keyed by person, not agent, so a deleted agent keeps them on purpose.
         db.prepare("DELETE FROM projection_reactions WHERE agent_id = ?").run(agentId);
         db.prepare("DELETE FROM projection_deliveries WHERE recipient_agent_id = ?").run(agentId);

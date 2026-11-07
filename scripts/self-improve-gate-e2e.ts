@@ -8,7 +8,7 @@
 // .openbot-build/self-improve-gate-e2e/report.json.
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_PROVIDERS } from "@openbot/contracts/ipc";
@@ -36,6 +36,7 @@ const PLAN_MARK = "SELF-IMPROVE-PLAN";
 const DRAFT_NAME = "Triage Notes";
 const DRAFT_FOLDER = "draft";
 const SECRET_FOLDER = "secret-draft";
+const BIG_FOLDER = "big-draft";
 
 // The Codex process and the stores read the home folder when their modules load, so the environment is set
 // first and the service modules are imported dynamically after it.
@@ -548,6 +549,50 @@ try {
   );
   pass("A skill draft with a secret is not installed", installs.length === 0);
 
+  // F3. A skill folder reached through a link to a folder outside the workspace is refused before any card, and the
+  // text outside the workspace is never shown.
+  const OUTSIDE_MARK = "OUTSIDE-DRAFT-TEXT-7f3a";
+  const outsideRoot = join(root, "outside-draft");
+  await mkdir(join(outsideRoot, "skill"), { recursive: true });
+  await writeFile(join(outsideRoot, "skill", "SKILL.md"), `---\nname: Outside\n---\n${OUTSIDE_MARK}\n`);
+  await symlink(outsideRoot, join(workspace, "linked"));
+  const linked = await proposeWithoutCard(
+    "propose a skill through a link to an outside folder",
+    alpha.id,
+    "propose_skill",
+    { sourcePath: "linked/skill" },
+    true,
+  );
+  pass(
+    "A skill draft under a link to a folder outside the workspace is refused with no approval card",
+    !linked.outcome.success &&
+      linked.asked === 0 &&
+      linked.outcome.text.includes("must be a folder inside your workspace"),
+    { cards: linked.asked, text: linked.outcome.text },
+  );
+  pass(
+    "The text of a skill folder outside the workspace reaches no card or answer",
+    approvals.every((approval) => !(approval.reason ?? "").includes(OUTSIDE_MARK)) &&
+      !linked.outcome.text.includes(OUTSIDE_MARK),
+  );
+
+  // F4. A skill draft whose card would not fit in 8 KB is refused before any card.
+  await writeDraft(BIG_FOLDER, { "notes.md": "n".repeat(9 * 1024) });
+  const big = await proposeWithoutCard(
+    "propose an oversized skill",
+    alpha.id,
+    "propose_skill",
+    { sourcePath: BIG_FOLDER },
+    true,
+  );
+  pass(
+    "A skill draft too big for the 8 KB card is refused with no approval card",
+    !big.outcome.success &&
+      big.asked === 0 &&
+      big.outcome.text.includes("too long for the person to review in one card"),
+    { cards: big.asked, text: big.outcome.text },
+  );
+
   // E1. A skill draft is not installed without the person's approval.
   seedOutcomes(alpha.id, STEADY);
   const draftHeld = await proposeAndHold(
@@ -561,6 +606,11 @@ try {
     "The card for a skill draft names the skill and its files",
     (draftHeld.card.reason ?? "").includes(`New skill ${DRAFT_FOLDER}`) &&
       (draftHeld.card.reason ?? "").includes("SKILL.md"),
+    { reason: draftHeld.card.reason },
+  );
+  pass(
+    "The card for a skill draft shows the text of SKILL.md",
+    (draftHeld.card.reason ?? "").includes("Sort the notes by urgency, then reply with the top three."),
     { reason: draftHeld.card.reason },
   );
   pass("A skill draft is not installed while its card waits", installs.length === 0);

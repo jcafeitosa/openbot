@@ -44,6 +44,9 @@ export type AgentWaitPredicate = z.infer<typeof agentWaitPredicateSchema>;
 const PREDICATE_ALLOWS_ROUTINE = `(predicate_json IS NULL OR json_extract(predicate_json, '$.routineId') IS NULL
   OR json_extract(predicate_json, '$.routineId') = ?)`;
 
+/** A wait whose expiry has passed is no longer open, even before a routine run closes its row. */
+const NOT_EXPIRED = "(expires_at IS NULL OR expires_at > ?)";
+
 export interface AgentWaitStoreOptions {
   database: OpenBotDatabase;
   createId?: () => string;
@@ -76,8 +79,8 @@ export class AgentWaitStore {
   list(agentId: string): AgentWait[] {
     return databaseRows(
       this.#database.connection
-        .prepare("SELECT * FROM agent_waits WHERE agent_id = ? ORDER BY created_at, wait_id")
-        .all(agentId),
+        .prepare(`SELECT * FROM agent_waits WHERE agent_id = ? AND ${NOT_EXPIRED} ORDER BY created_at, wait_id`)
+        .all(agentId, this.#now().toISOString()),
     ).map(toWait);
   }
 
@@ -101,7 +104,7 @@ export class AgentWaitStore {
         `INSERT INTO agent_waits (wait_id, agent_id, request_delivery_id, request_text, note, routine_id, created_at,
            expires_at, predicate_json)
          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
-         WHERE (SELECT COUNT(*) FROM agent_waits WHERE agent_id = ?) < ?`,
+         WHERE (SELECT COUNT(*) FROM agent_waits WHERE agent_id = ? AND ${NOT_EXPIRED}) < ?`,
       )
       .run(
         waitId,
@@ -114,6 +117,7 @@ export class AgentWaitStore {
         expiresAt,
         predicateJson,
         input.agentId,
+        createdAt.toISOString(),
         INPUT_LIMITS.agentWaits,
       );
     if (inserted.changes === 0)
@@ -125,7 +129,9 @@ export class AgentWaitStore {
 
   count(agentId: string): number {
     const row = databaseRow(
-      this.#database.connection.prepare("SELECT COUNT(*) AS waits FROM agent_waits WHERE agent_id = ?").get(agentId),
+      this.#database.connection
+        .prepare(`SELECT COUNT(*) AS waits FROM agent_waits WHERE agent_id = ? AND ${NOT_EXPIRED}`)
+        .get(agentId, this.#now().toISOString()),
     );
     return row ? requiredNumberColumn(row, "waits") : 0;
   }
@@ -133,7 +139,9 @@ export class AgentWaitStore {
   /** The number of open waits of each agent that has one. */
   countByAgent(): Map<string, number> {
     const rows = databaseRows(
-      this.#database.connection.prepare("SELECT agent_id, COUNT(*) AS waits FROM agent_waits GROUP BY agent_id").all(),
+      this.#database.connection
+        .prepare(`SELECT agent_id, COUNT(*) AS waits FROM agent_waits WHERE ${NOT_EXPIRED} GROUP BY agent_id`)
+        .all(this.#now().toISOString()),
     );
     return new Map(rows.map((row) => [requiredStringColumn(row, "agent_id"), requiredNumberColumn(row, "waits")]));
   }

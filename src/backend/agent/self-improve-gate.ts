@@ -27,6 +27,8 @@ const DIFF_CELL_LIMIT = 1_000_000;
 /** The bytes and files of a skill draft that a person reviews in one card. */
 const DRAFT_BYTE_LIMIT = 512 * 1024;
 const DRAFT_FILE_LIMIT = 200;
+/** The bytes of the approval card for a skill draft: the file texts shown in it. A larger draft is refused. */
+const SKILL_CARD_BYTE_LIMIT = 8 * 1024;
 
 type SelfImproveDecision = "accept" | "decline" | "cancel";
 
@@ -162,11 +164,15 @@ async function readDraft(workspace: string, sourcePath: string): Promise<DraftRe
     const root = await realpath(workspace);
     const folder = resolve(root, sourcePath);
     if (!folder.startsWith(`${root}${sep}`)) return { refused: "folder" };
-    if (!(await lstat(folder)).isDirectory()) return { refused: "folder" };
-    if (!(await lstat(join(folder, "SKILL.md"))).isFile()) return { refused: "folder" };
+    // A link anywhere on the way, such as an intermediate folder that points outside the workspace, makes
+    // the real path differ from the lexical one. The real folder must sit inside the workspace as well.
+    const real = await realpath(folder);
+    if (real !== folder || !real.startsWith(`${root}${sep}`)) return { refused: "folder" };
+    if (!(await lstat(real)).isDirectory()) return { refused: "folder" };
+    if (!(await lstat(join(real, "SKILL.md"))).isFile()) return { refused: "folder" };
     const files: DraftFile[] = [];
     const budget = { bytes: 0 };
-    const outcome = await collectDraft(folder, folder, files, budget);
+    const outcome = await collectDraft(real, real, files, budget);
     if (outcome !== "ok") return { refused: outcome };
     return { files };
   } catch {
@@ -269,10 +275,15 @@ export class SelfImproveGate {
     if ("refused" in draft) return refused(draft.refused);
     if (draft.files.some((file) => holdsSecret(file.text))) return refused("secret");
     const name = input.sourcePath.split("/").at(-1) ?? input.sourcePath;
-    const reason = sourceText("status.agent.selfImproveSkillPreview", {
+    const header = sourceText("status.agent.selfImproveSkillPreview", {
       name,
       files: draft.files.map((file) => file.path).join(", "),
     });
+    // SKILL.md comes first, then the other files. Each text is redacted before the card shows it.
+    const ordered = [...draft.files].sort((a, b) => Number(b.path === "SKILL.md") - Number(a.path === "SKILL.md"));
+    const bodies = ordered.map((file) => `--- ${file.path} ---\n${redactText(file.text)}`).join("\n\n");
+    const reason = `${header}\n\n${bodies}`;
+    if (new TextEncoder().encode(reason).length > SKILL_CARD_BYTE_LIMIT) return refused("too-large");
     if (reason.length > INPUT_LIMITS.messageText) return refused("too-large");
     const decision = yield* input.approve(reason);
     if (decision !== "accept") return { status: "declined" as const };

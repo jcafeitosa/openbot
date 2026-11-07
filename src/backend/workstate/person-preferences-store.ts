@@ -6,13 +6,15 @@
 
 import { databaseRows, requiredStringColumn } from "../database/database-rows";
 import type { OpenBotDatabase } from "../openbot-database";
-import { storedWorkstateText } from "./workstate-text";
+import { storedWorkstateText, WorkstateTextRefused } from "./workstate-text";
 
 /** The person of this computer: the one OpenBot user whose messages set preferences. */
 export const LOCAL_PERSON_ID = "owner";
 
 export const PREFERENCE_KEY_LIMIT = 64;
 export const PREFERENCE_VALUE_LIMIT = 300;
+/** A line break or a control character would start a new line in the instructions, so a preference holds neither. */
+const LINE_BREAK_OR_CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 
 /** The newest-updated preferences that the developer instructions state, and the most characters they take. */
 const INSTRUCTION_PREFERENCES = 12;
@@ -31,8 +33,19 @@ export class PersonPreferencesStore {
     this.#database = database;
   }
 
-  /** Sets one preference of a person. A value with a registered secret is refused; the rest is stored after redaction. */
+  /**
+   * Sets one preference of a person. A key or value with a line break or a control character is refused, as is a
+   * value with a registered secret; the rest is stored after redaction.
+   */
   set(personId: string, key: string, value: string, now = new Date()): PersonPreference {
+    if (LINE_BREAK_OR_CONTROL.test(key))
+      throw new WorkstateTextRefused(
+        "The preference key holds a line break or a control character and was not stored.",
+      );
+    if (LINE_BREAK_OR_CONTROL.test(value))
+      throw new WorkstateTextRefused(
+        "The preference value holds a line break or a control character and was not stored.",
+      );
     const name = storedWorkstateText(key, PREFERENCE_KEY_LIMIT, 1, "The preference key");
     const stored = storedWorkstateText(value, PREFERENCE_VALUE_LIMIT, 1, "The preference value");
     const updatedAt = now.toISOString();
