@@ -17,6 +17,10 @@ const HISTORY_TABLES = {
   research_sources: [],
   memory_consolidation_runs: [],
   memory_proposals: [],
+  file_watch_triggers: [],
+  work_board_items: [],
+  person_preferences: [],
+  working_memory: [],
   agent_instructions_snapshots: [],
 };
 
@@ -75,7 +79,7 @@ function historyObjects(db: DatabaseSync) {
 }
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 67 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 71 });
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });

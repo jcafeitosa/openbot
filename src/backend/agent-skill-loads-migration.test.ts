@@ -17,6 +17,10 @@ const SKILL_TABLES = {
   research_sources: [],
   memory_consolidation_runs: [],
   memory_proposals: [],
+  file_watch_triggers: [],
+  work_board_items: [],
+  person_preferences: [],
+  working_memory: [],
   agent_usage_skill_loads: [],
   turn_outcomes: [],
   agent_instructions_snapshots: [],
@@ -78,7 +82,7 @@ function skillObjects(db: DatabaseSync) {
 }
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 67 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 71 });
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -150,9 +154,9 @@ describe("agent skill loads migration", () => {
     const db = databaseAt(57);
     seed(db, 57);
     const before = contents(db);
-    db.exec("INSERT INTO schema_migrations VALUES(68,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(72,'now')");
     expect(() => migrateOpenBotDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=68; DELETE FROM schema_migrations WHERE version=20");
+    db.exec("DELETE FROM schema_migrations WHERE version=72; DELETE FROM schema_migrations WHERE version=20");
     expect(() => migrateOpenBotDatabase(db)).toThrow("missing version 20");
     expect(contents(db)).toEqual(before);
     expect(skillObjects(db)).toEqual([]);

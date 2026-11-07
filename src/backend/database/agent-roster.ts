@@ -273,6 +273,12 @@ export class AgentRoster {
         ).run(agentId);
         db.prepare("UPDATE workflow_steps SET agent_id = NULL WHERE agent_id = ?").run(agentId);
         db.prepare("DELETE FROM agent_waits WHERE agent_id = ?").run(agentId);
+        db.prepare("DELETE FROM working_memory WHERE agent_id = ?").run(agentId);
+        db.prepare("DELETE FROM work_board_items WHERE author_agent_id = ?").run(agentId);
+        db.prepare("DELETE FROM memory_consolidation_runs WHERE agent_id = ?").run(agentId);
+        db.prepare("DELETE FROM memory_proposals WHERE source_agent_id = ?").run(agentId);
+        db.prepare("DELETE FROM research_sources WHERE agent_id = ?").run(agentId);
+        // Person preferences are keyed by person, not agent, so a deleted agent keeps them on purpose.
         db.prepare("DELETE FROM projection_reactions WHERE agent_id = ?").run(agentId);
         db.prepare("DELETE FROM projection_deliveries WHERE recipient_agent_id = ?").run(agentId);
         db.prepare("DELETE FROM projection_queue_state WHERE agent_id = ?").run(agentId);

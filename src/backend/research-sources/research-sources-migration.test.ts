@@ -58,8 +58,16 @@ describe("research sources migration", () => {
 
     migrateOpenBotDatabase(db);
 
-    expect(contents(db)).toEqual(before);
-    expect(db.prepare("SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1").get()?.version).toBe(64);
+    expect(contents(db)).toEqual({
+      ...before,
+      memory_consolidation_runs: [],
+      memory_proposals: [],
+      file_watch_triggers: [],
+      person_preferences: [],
+      work_board_items: [],
+      working_memory: [],
+    });
+    expect(db.prepare("SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1").get()?.version).toBe(71);
     expect(db.prepare("PRAGMA integrity_check").get()?.integrity_check).toBe("ok");
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
