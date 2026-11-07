@@ -6,7 +6,6 @@ import type {
 } from "@openbot/contracts/ipc";
 import { DEFAULT_DYNAMIC_ISLAND_PREFERENCE, IDLE_DYNAMIC_ISLAND_PRESENTATION } from "@openbot/contracts/ipc";
 import type { DynamicIslandNotchSize, DynamicIslandStateChangeReason, DynamicIslandViewState } from "@openbot/ui";
-import { Bell, BellOff, IconButton } from "@openbot/ui";
 import { OpenBotDynamicIsland } from "@openbot/ui/features/dynamic-island/OpenBotDynamicIsland";
 import { useText } from "@openbot/ui/text";
 import { errorReference, type UserErrorDetails } from "@openbot/user-errors";
@@ -238,9 +237,6 @@ export function DynamicIslandSurface() {
           onFocusOut={leaveFocusInteraction}
           onPointerDown={(event) => void requestKeyboard(event)}
         >
-          <IconButton label={t("island.mute.toggle", "Alternar som")} size="icon-xs" variant="ghost">
-            {preference().muted ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
-          </IconButton>
           <OpenBotDynamicIsland
             presentation={presentation()}
             state={viewState()}
