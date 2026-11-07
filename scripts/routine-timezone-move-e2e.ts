@@ -73,6 +73,7 @@ const scheduler = new RoutineScheduler({
     usageLimited: () => false,
     routineThread: () => null,
     routineDeleted: () => Effect.void,
+    routineChanged: () => {},
   },
 });
 const runStore = new AgentRoutineStore(database);

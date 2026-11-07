@@ -28,12 +28,12 @@ import { decodeVoid } from "../remote-host-decoding";
 import type { RemoteServerManager } from "../remote-server-manager";
 import {
   parseAgentId,
-  parseCreateRoutine,
   parseDeleteRoutine,
   parseListRoutineRuns,
+  parseLocalCreateRoutine,
+  parseLocalUpdateRoutine,
   parseRoutineCalendar,
   parseTestRoutine,
-  parseUpdateRoutine,
 } from "./agent-inputs";
 import type { IpcGroupHandlers } from "./define-ipc-group";
 import { scopedHandler } from "./scoped-handler";
@@ -54,18 +54,20 @@ export function routineIpcHandlers({
         remote: (agentId, serverId) =>
           runCauseEffect(remoteServers.request(serverId, TEAM_API_ROUTES.agent.routines(agentId), decodeRoutines)),
       }),
-      createRoutine: scopedHandler(parseCreateRoutine, {
+      createRoutine: scopedHandler(parseLocalCreateRoutine, {
         local: (parsed) => service.createRoutine(parsed),
+        // The file trigger's path stays on this machine: a remote server never receives it.
         remote: (parsed, serverId) =>
           runCauseEffect(
             remoteServers.request(serverId, TEAM_API_ROUTES.agent.routines(parsed.agentId), decodeRoutine, {
               method: "POST",
-              body: parsed,
+              body: { ...parsed, fileWatch: undefined },
             }),
           ),
       }),
-      updateRoutine: scopedHandler(parseUpdateRoutine, {
+      updateRoutine: scopedHandler(parseLocalUpdateRoutine, {
         local: (parsed) => service.updateRoutine(parsed),
+        // The file trigger's path stays on this machine: a remote server never receives it.
         remote: (parsed, serverId) =>
           runCauseEffect(
             remoteServers.request(
@@ -74,7 +76,7 @@ export function routineIpcHandlers({
               decodeRoutine,
               {
                 method: "PATCH",
-                body: parsed,
+                body: { ...parsed, fileWatch: undefined },
               },
             ),
           ),

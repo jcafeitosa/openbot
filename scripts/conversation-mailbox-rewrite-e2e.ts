@@ -159,6 +159,7 @@ async function startRuntime() {
       usageLimited: () => false,
       routineThread: () => null,
       routineDeleted: () => Effect.void,
+      routineChanged: () => {},
     },
   });
   const scope = Scope.makeUnsafe();

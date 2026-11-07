@@ -100,6 +100,7 @@ async function openFixture(root: string): Promise<Fixture> {
         usageLimited: () => false,
         routineThread: () => null,
         routineDeleted: () => Effect.void,
+        routineChanged: () => {},
       },
     });
     return {

@@ -145,6 +145,7 @@ async function openFixture(root: string): Promise<Fixture> {
         usageLimited: (agentId) => limited.has(agentId),
         routineThread: () => null,
         routineDeleted: () => Effect.void,
+        routineChanged: () => {},
       },
     });
     return {

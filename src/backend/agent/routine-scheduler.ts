@@ -110,6 +110,8 @@ export interface RoutineHooks {
   routineThread(agentId: string, routineId: string, routineName: string): { taskId: string; threadId: string } | null;
   /** Archives the side thread of a deleted routine. Its history stays, and the user can open it again. */
   routineDeleted(agentId: string, routineId: string): Effect.Effect<void>;
+  /** A routine was saved, paused, resumed or deleted: its file trigger follows it at once. */
+  routineChanged(agentId: string, routineId: string): void;
 }
 
 /** Enough for every message a busy host queues between restarts; each entry is a few bytes. */
@@ -340,6 +342,7 @@ export class RoutineScheduler implements RoutineDueSource {
             options.sideThreadId,
           );
     this.stateChanged(input.agentId);
+    this.#hooks.routineChanged(input.agentId, input.routineId);
     this.arm();
     return routine;
   }
@@ -376,6 +379,7 @@ export class RoutineScheduler implements RoutineDueSource {
           )
         : this.#routines.saveRecord(agentId, routineId, input);
     this.stateChanged(agentId);
+    this.#hooks.routineChanged(agentId, routine.id);
     this.arm();
     return routine;
   }
@@ -484,6 +488,7 @@ export class RoutineScheduler implements RoutineDueSource {
           if (this.#mailbox.nextQueued(input.agentId)) this.#hooks.scheduleDrain(input.agentId);
         }),
     );
+    this.#hooks.routineChanged(input.agentId, input.routineId);
     yield* this.#hooks.routineDeleted(input.agentId, input.routineId);
   }, Effect.uninterruptible);
 

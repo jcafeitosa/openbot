@@ -249,7 +249,8 @@ import { ChannelService } from "./channel-service";
 import type { BundledProviderExecutables } from "./cli";
 import type { ConversationMarkerExclusions } from "./conversation-read-store";
 import type { ProviderSession } from "./database/provider-sessions";
-import { reportOriginalFailure } from "./effect-boundary";
+import { reportOriginalFailure, runCauseEffect } from "./effect-boundary";
+import { FileWatchTriggers } from "./file-watch/file-watch-triggers";
 import type { HostMemory } from "./host-memory";
 import type { SignInRegion } from "./kimi-region";
 import type { LinkWallet } from "./link-wallet";
@@ -485,6 +486,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #messageDeletion: MessageDeletion;
   readonly #tables: AgentTables | null;
   readonly #routines: RoutineScheduler;
+  readonly #fileWatches: FileWatchTriggers;
   readonly #routineTimer: RoutineTimer;
   readonly #channelRoutines: ChannelRoutineScheduler;
   /** Agent and channel routines of every trigger kind, with their webhook routes. */
@@ -720,6 +722,19 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         },
       },
     });
+    this.#fileWatches = new FileWatchTriggers({
+      database: store.database,
+      workspaceRoot: (agentId) => this.#store.list().find((agent) => agent.id === agentId)?.workspacePath ?? null,
+      runnable: (agentId, routineId) =>
+        this.#routines.listRecordsFor(agentId).some((routine) => routine.id === routineId && routine.active),
+      fire: (agentId, routineId) => {
+        // A hidden agent keeps its routines, but they do not run until the user restores it.
+        if (this.#hiddenAgentIds().includes(agentId)) return;
+        runCauseEffect(this.runRoutineFromAutomation({ agentId, routineId, payload: "" })).catch((error: unknown) =>
+          this.#emitError("file_watch_run_failed", error, agentId),
+        );
+      },
+    });
     this.#routines = new RoutineScheduler({
       timer: this.#routineTimer,
       waits: this.#waits,
@@ -748,6 +763,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         isRunning: () => this.#initialized && !this.#stopping,
         usageLimited: (agentId) => !this.#usageLimits.mayDrain(agentId),
         routineThread: (agentId, routineId, routineName) => this.#tasks.routineThread(agentId, routineId, routineName),
+        routineChanged: (agentId, routineId) => this.#fileWatches.reconcile(agentId, routineId),
         routineDeleted: (agentId, routineId) => {
           const thread = this.#tasks.threadOfRoutine(agentId, routineId);
           if (thread?.closedAt !== null) return Effect.void;
@@ -2034,11 +2050,25 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   }
 
   createRoutine(input: CreateRoutineInput, options: RoutineMutationOptions = {}): Routine {
-    return this.#routines.create(input, options);
+    const { fileWatch, ...routine } = input;
+    // The path is checked before the routine is written, so a refused path leaves no routine behind.
+    if (fileWatch) this.#fileWatches.check(input.agentId, fileWatch);
+    const created = this.#routines.create(routine, options);
+    if (fileWatch) this.#fileWatches.set(input.agentId, created.id, fileWatch);
+    return created;
   }
 
   updateRoutine(input: UpdateRoutineInput, options: RoutineMutationOptions = {}): Routine {
-    return this.#routines.update(input, options);
+    const { fileWatch, ...routine } = input;
+    if (fileWatch) this.#fileWatches.check(input.agentId, fileWatch);
+    const updated = this.#routines.update(routine, options);
+    if (fileWatch !== undefined) this.#fileWatches.set(input.agentId, input.routineId, fileWatch);
+    return updated;
+  }
+
+  /** Whether the file trigger of this routine has an open watcher. */
+  isRoutineFileWatchOpen(routineId: string): boolean {
+    return this.#fileWatches.isWatching(routineId);
   }
 
   deleteRoutine(
@@ -3887,6 +3917,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   deleteAgent(agentId: string): Effect.Effect<void, AgentLifecycleFailed> {
     return Effect.sync(() => this.#planContinuation.cancel(agentId)).pipe(
       Effect.andThen(this.#removal.delete(agentId)),
+      Effect.andThen(Effect.sync(() => this.#fileWatches.closeForAgent(agentId))),
       Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "deleteAgent", cause: failure.cause })),
     );
   }
@@ -3934,6 +3965,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.channels.restoreDeliveryLinks();
       this.channels.removeDeletedMembers(new Set(this.#store.list().map((agent) => agent.id)));
     });
+    yield* lifecycleStep("restore file triggers", () => this.#fileWatches.restore());
     yield* this.#threads
       .reconcileProviderSessionFiles()
       .pipe(
@@ -4512,6 +4544,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#initialized = false;
     yield* this.#liveVoice.dispose();
     this.#routineTimer.dispose();
+    this.#fileWatches.close();
     yield* this.#memoryHold.dispose();
     this.#hostedSites.dispose();
     this.#compaction.dispose();
