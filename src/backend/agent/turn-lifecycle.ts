@@ -160,6 +160,11 @@ export interface TurnHooks {
   emitRuntimeSnapshot(): void;
   scheduleDrain(agentId: string): void;
   /**
+   * Runs after a turn's activeTurnId is cleared and before its outcome row is written. Production
+   * passes nothing; the e2e check holds the turn here to close a task inside that window.
+   */
+  turnFinalizing(agentId: string, turnId: string): Effect.Effect<void>;
+  /**
    * Takes a message from another agent into the recipient's running chat turn when the recipient's
    * busy-message mode is "steer". Otherwise the message waits in the queue.
    */
@@ -389,8 +394,10 @@ export class TurnLifecycle {
    * answer, and the drain must not then mark the turn active again. Past the cap, the oldest goes.
    */
   readonly #endedTurns = new Set<string>();
-  /** Turns whose normal end runs now. A Stop must not settle one of them as an orphan (#2214). */
-  readonly #completingTurns = new Set<string>();
+  /** Turns whose normal end runs now, with their thread. A Stop must not settle one of them as an orphan (#2214). */
+  readonly #completingTurns = new Map<string, string>();
+  /** Waits for the finalizing turns of a thread: woken when the last of them ends. */
+  readonly #finalizeWaiters = new Map<string, Set<Deferred.Deferred<void>>>();
   /**
    * The time of the last provider notification for each agent: a delta, a tool item, a usage
    * update. It is the only clock that moves while a turn works, and it is lost on restart.
@@ -592,6 +599,41 @@ export class TurnLifecycle {
   /** True while the normal end of this turn runs: it settles the turn itself. */
   isCompleting(turnId: string): boolean {
     return this.#completingTurns.has(turnId);
+  }
+
+  /** True while a turn of this thread runs its normal end, from before its activeTurnId clears to its outcome row. */
+  finalizing(threadId: string): boolean {
+    for (const turnThreadId of this.#completingTurns.values()) if (turnThreadId === threadId) return true;
+    return false;
+  }
+
+  /**
+   * Ends when no turn of this thread is finalizing. Returns at once when none is. A caller that needs
+   * the turn's outcome row and memory review written waits here, after the turn's activeTurnId cleared.
+   */
+  waitForFinalization(threadId: string): Effect.Effect<void> {
+    if (!this.finalizing(threadId)) return Effect.void;
+    const done = Deferred.makeUnsafe<void>();
+    const waiters = this.#finalizeWaiters.get(threadId) ?? new Set<Deferred.Deferred<void>>();
+    this.#finalizeWaiters.set(threadId, waiters.add(done));
+    return Deferred.await(done).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          waiters.delete(done);
+          if (waiters.size === 0 && this.#finalizeWaiters.get(threadId) === waiters)
+            this.#finalizeWaiters.delete(threadId);
+        }),
+      ),
+    );
+  }
+
+  #finishFinalizing(turnId: string): void {
+    const threadId = this.#completingTurns.get(turnId);
+    this.#completingTurns.delete(turnId);
+    if (threadId === undefined || this.finalizing(threadId)) return;
+    const waiters = this.#finalizeWaiters.get(threadId);
+    this.#finalizeWaiters.delete(threadId);
+    for (const done of waiters ?? []) Deferred.doneUnsafe(done, Effect.void);
   }
 
   /** The task of a provider thread, or null for the agent's own chat and its other threads. */
@@ -1173,7 +1215,8 @@ export class TurnLifecycle {
       const running = this.#runningTurns.get(turnId);
       this.#runningTurns.delete(turnId);
       this.#markEnded(turnId);
-      this.#completingTurns.add(turnId);
+      // Keyed as the task waits are: by the public thread id, the one that `closeTask` holds.
+      this.#completingTurns.set(turnId, this.#conversation.publicThreadId(agentId, threadId));
       // A turn that runs again below starts a new trace, so each path takes this one.
       const trace = this.#traces.take(turnId, new Date().toISOString());
       const noUpdateCalled = this.#noUpdateTurns.delete(turnId);
@@ -1239,6 +1282,7 @@ export class TurnLifecycle {
       this.#browser.endControl(this.#conversation.publicThreadId(agentId, threadId), turnId);
       const snapshot = this.#conversation.ensureSnapshot(agentId, threadId);
       snapshot.activeTurnId = null;
+      yield* this.#hooks.turnFinalizing(agentId, turnId);
       const deliveries = this.#mailbox.findDeliveriesByTurn(agentId, turnId);
       // A task turn ends as a turn of the agent's own chat does, in the task's own lane.
       const taskTurn = this.#conversation.isTaskThread(snapshot.threadId);
@@ -1617,8 +1661,8 @@ export class TurnLifecycle {
         ),
         Effect.ensuring(
           Effect.andThen(
-            Effect.sync(() => this.#completingTurns.delete(turnId)),
             this.#hooks.closeRoutineSession(threadId),
+            Effect.sync(() => this.#finishFinalizing(turnId)),
           ),
         ),
       ),

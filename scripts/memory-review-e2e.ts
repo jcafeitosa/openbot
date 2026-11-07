@@ -28,6 +28,9 @@
 //      does not forget a memory that it sees only redacted, and does not add the text of a saved memory again.
 //  15. Stopping the service during a slow review applies nothing and shows no error.
 //  16. An agent's remember with a memory id cannot overwrite a memory the user wrote or chose; both are refused.
+//  17. A task closed while its turn is finalizing (activeTurnId cleared, outcome row not yet written) waits for
+//      that turn; the turn's outcome and memory review are recorded. The seam is the service's `turnFinalizing`
+//      option, which parks one turn in that window. No sleep.
 // No provider, account or network is used. `bun run test:memory-review`.
 // Writes .openbot-build/memory-review-e2e/report.json.
 import assert from "node:assert/strict";
@@ -249,6 +252,8 @@ const store = new AgentStore(userData, home, database);
 const mailbox = new MailboxStore(userData, store.sharedRoot, store.database);
 /** The app setting, as main reads it at each use. */
 let reviewInterval = 20;
+/** Holds the next turn that finalizes, for check 17: the seam below parks it before its outcome row. */
+let finalizingHold: { turnId: string | null; reached: () => void; released: Promise<void> } | null = null;
 const service = new AgentService({
   store,
   mailbox,
@@ -257,6 +262,16 @@ const service = new AgentService({
   memoryReviewIdleMs: IDLE_MS,
   memoryReviewInterval: () => reviewInterval,
   offProviders: AGENT_PROVIDERS.filter((provider) => provider !== "codex"),
+  turnFinalizing: (_agentId, turnId) => {
+    const hold = finalizingHold;
+    if (!hold) return Effect.void;
+    finalizingHold = null;
+    hold.turnId = turnId;
+    return Effect.promise(async () => {
+      hold.reached();
+      await hold.released;
+    });
+  },
 });
 const events: AgentEvent[] = [];
 service.on("event", (event) => events.push(event));
@@ -282,6 +297,14 @@ async function createAgent(name: string, model?: string) {
   return agent;
 }
 
+/** How many turns of this thread the turn outcome ledger holds. */
+function threadTurnsRecorded(threadId: string): number {
+  const row = database.connection
+    .prepare("SELECT COUNT(*) AS count FROM turn_outcomes WHERE thread_id = ?")
+    .get(threadId);
+  return Number(row?.count ?? 0);
+}
+
 /** Sends a message, to the agent's own chat or to its side thread, and waits for its turn to end. */
 async function send(agentId: string, text: string, taskId?: string) {
   const receipt = await runCauseEffect(
@@ -294,6 +317,13 @@ async function send(agentId: string, text: string, taskId?: string) {
     return ended(value) ? value : null;
   });
   assert.equal(status, "completed", `"${text}" completes.`);
+  // The reply shows before its turn ends. The turn counts toward the review only once its outcome is recorded.
+  const turnId = mailbox.getDelivery(deliveryId)?.delivery.turnId;
+  assert.ok(turnId, "The message has a turn.");
+  await waitFor(
+    `the outcome of "${text}"`,
+    () => database.connection.prepare("SELECT 1 FROM turn_outcomes WHERE turn_id = ?").get(turnId) !== undefined,
+  );
 }
 
 /** Starts a side thread and waits for its first turn to end. */
@@ -302,6 +332,8 @@ async function startTask(agentId: string, text: string) {
   await waitFor(`"${text}" to end`, () =>
     service.readTask(agentId, task.id).messages.some((message) => message.text === "Done."),
   );
+  // The reply shows before its turn ends. The turn counts toward the review only once its outcome is recorded.
+  await waitFor(`the outcome of "${text}"`, () => threadTurnsRecorded(task.threadId) > 0);
   return task;
 }
 
@@ -704,6 +736,41 @@ try {
       "The user-controlled memory keeps its text.",
     );
     return { refusals: refusals.length };
+  });
+
+  await check("closing a task in its turn's finalization window keeps the turn's outcome and review", async () => {
+    const window = await createAgent("Window");
+    const text = "The user keeps a sourdough starter.";
+    control({ operations: [{ type: "add", text, inclusion: "searchable" }] });
+    const reached = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+    // The seam parks this turn after its activeTurnId clears and before its outcome row is written.
+    const hold: { turnId: string | null; reached: () => void; released: Promise<void> } = {
+      turnId: null,
+      reached: () => reached.resolve(),
+      released: released.promise,
+    };
+    finalizingHold = hold;
+    const task = await runCauseEffect(service.startTask({ agentId: window.id, text: "I keep a sourdough starter." }));
+    await reached.promise;
+    assert.ok(hold.turnId, "The turn is held.");
+    const closing = runCauseEffect(service.closeTask({ agentId: window.id, taskId: task.id }));
+    let closed = false;
+    void closing.then(() => {
+      closed = true;
+    });
+    await settle();
+    assert.equal(closed, false, "The close waits while the turn is finalizing.");
+    released.resolve();
+    await closing;
+    await waitFor(
+      "the outcome of the held turn",
+      () => database.connection.prepare("SELECT 1 FROM turn_outcomes WHERE turn_id = ?").get(hold.turnId) !== undefined,
+    );
+    await waitFor(`the review of "${text}"`, () =>
+      service.listMemories(window.id).some((memory) => memory.text === text),
+    );
+    return { turnId: hold.turnId, reviews: reviews().length };
   });
 
   await check("stopping the service during a slow review applies nothing", async () => {

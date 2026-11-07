@@ -149,7 +149,7 @@ import type { QueueEditRequest } from "@openbot/contracts/team-protocol/queue-ed
 import { sourceText } from "@openbot/i18n/source";
 import { createOpenBotLogger } from "@openbot/logging";
 import { classifyFailure } from "@openbot/telemetry";
-import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema, Scope, Semaphore } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Result, Schema, Scope, Semaphore } from "effect";
 import { AgentMemories } from "./agent/agent-memories";
 import { AgentRemoval, AgentRemovalFailed } from "./agent/agent-removal";
 import { AgentSettingsRefused } from "./agent/agent-settings-refused";
@@ -330,6 +330,11 @@ export interface AgentServiceOptions {
   contextCompactionTimeoutMs?: number;
   /** The pause with no turn before a conversation's memory review runs early. Tests make it short. */
   memoryReviewIdleMs?: number;
+  /**
+   * Holds a turn between its activeTurnId clearing and its outcome row, for the close-window e2e
+   * check. Production passes nothing.
+   */
+  turnFinalizing?: (agentId: string, turnId: string) => Effect.Effect<void>;
   preferredProvider?: AgentProvider;
   /** The model chosen beside `preferredProvider`, or `null` for that provider's own default. */
   preferredModel?: AgentModelId | null;
@@ -1635,6 +1640,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         closeRoutineSession: (externalThreadId) => this.#threads.closeRoutineThread(externalThreadId),
         conversationTurnEnded: (agentId, sideThreadId, counts, memoryCommitted) =>
           this.#memoryReview.turnEnded(agentId, sideThreadId, counts, memoryCommitted),
+        turnFinalizing: options.turnFinalizing ?? (() => Effect.void),
         // A switched-off check approves, as a check that cannot run does.
         verifyPlan: (agentId, input) =>
           this.#capabilitySwitches().planVerifier ? this.#verifyPlan(agentId, input) : Effect.succeed([]),
@@ -5030,16 +5036,26 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     input: AgentTaskInput,
   ): Effect.fn.Return<void, AgentLifecycleFailed> {
     // The provider ends a stopped turn a moment later, so the close waits for that end, for a time.
-    const running = yield* lifecycleStep("find task", () => {
-      const found = this.#tasks.require(input.agentId, input.taskId);
-      return this.#conversation.loadedExecutionSnapshot(found.threadId)?.activeTurnId
-        ? this.#tasks.turnEnd(found.taskId)
-        : null;
-    });
+    const found = yield* lifecycleStep("find task", () => this.#tasks.require(input.agentId, input.taskId));
+    const running = this.#conversation.loadedExecutionSnapshot(found.threadId)?.activeTurnId
+      ? this.#tasks.turnEnd(found.taskId)
+      : null;
     // Answers move out before the Stop, so none starts in the thread, and again after the wait.
     yield* this.#returnTaskAnswers(input);
     yield* this.stopTask(input);
     if (running) yield* running.pipe(Effect.timeoutOption(TASK_STOP_WAIT_MS));
+    // A turn clears its activeTurnId before its outcome row and memory review are written. The close
+    // waits for that too, and a wait that runs out fails the close rather than dropping the review.
+    const finalized = yield* this.#turn
+      .waitForFinalization(found.threadId)
+      .pipe(Effect.timeoutOption(TASK_STOP_WAIT_MS));
+    if (Option.isNone(finalized))
+      return yield* Effect.fail(
+        new AgentLifecycleFailed({
+          operation: "close task",
+          cause: new Error(sourceText("error.backend.threadStillRunning")),
+        }),
+      );
     yield* this.#returnTaskAnswers(input);
     const task = yield* lifecycleStep("find task", () => {
       const found = this.#tasks.require(input.agentId, input.taskId);
