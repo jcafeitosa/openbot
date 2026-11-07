@@ -62,7 +62,7 @@ describe("file-watch trigger migration", () => {
     expect(
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'file_watch_triggers'").get(),
     ).toEqual({ name: "file_watch_triggers" });
-    expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 71 });
+    expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 72 });
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
   });
@@ -124,6 +124,6 @@ describe("file-watch trigger migration", () => {
 
     expect(routineRows(db)).toHaveLength(1);
     expect(triggerCount(db)).toBe(0);
-    expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 71 });
+    expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 72 });
   });
 });
