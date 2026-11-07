@@ -173,6 +173,8 @@ export const messages = {
     "이 에이전트는 회원님의 메시지로 시작되지 않은 작업을 하고 있어요. 사용자 또는 해당 작업을 보낸 쪽만 중지할 수 있어요.",
   "error.backend.interruptStarting": "이 에이전트가 아직 턴을 시작하는 중이에요. 턴이 시작된 후 다시 시도해 주세요.",
   "error.backend.interruptNoSession": "제공자 세션을 사용할 수 없어서 OpenBot이 이 에이전트를 중단할 수 없어요.",
+  "error.backend.memoryPromotionTarget":
+    "메모리는 채널이나 외부 채팅에서만 공유 메모리로 올릴 수 있습니다. 대상은 응답 중인 채팅입니다.",
   "error.backend.memoryTextRequired": "메모리 내용이 필요해요.",
   "error.backend.memoryTextTooLong": "메모리 내용이 너무 길어요.",
   "error.backend.memorySecretRefused":

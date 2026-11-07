@@ -103,6 +103,7 @@ import {
   marketplaceAppStatus,
   searchSignIns,
 } from "./mcp-tools";
+import { MemoryPromotion } from "./memory-promotion";
 import {
   agentAccountSetup,
   listModelsPayload,
@@ -285,6 +286,7 @@ export class OpenBotToolRouter {
   readonly #hostedSites: HostedSiteCoordinator;
   readonly #routines: RoutineScheduler;
   readonly #memories: AgentMemories;
+  readonly #promotion: MemoryPromotion;
   readonly #waits: AgentWaits;
   readonly #tasks: AgentTasks;
   readonly #drain: DrainScheduler;
@@ -319,6 +321,12 @@ export class OpenBotToolRouter {
     this.#attachments = options.attachments;
     this.#channels = options.channels;
     this.#messaging = options.messaging;
+    this.#promotion = new MemoryPromotion({
+      memories: options.memories,
+      attention: options.attention,
+      channelForThread: (threadId) => options.channels.store.channelForThread(threadId),
+      connectionForThread: (threadId) => options.messaging.store.linkForThread(threadId)?.connectionId ?? null,
+    });
     this.#hostedSites = options.hostedSites;
     this.#routines = options.routines;
     this.#memories = options.memories;
@@ -1454,6 +1462,13 @@ export class OpenBotToolRouter {
     };
     const waitResult = this.#waits.handleTool(params, caller);
     if (waitResult) return waitResult;
+
+    const promotionResult = this.#promotion.handleTool(params, {
+      agentId: senderAgentId,
+      threadId: callerThreadId,
+      turnId: params.turnId,
+    });
+    if (promotionResult) return promotionResult;
 
     const taskResult = yield* this.#tasks.handleTool(params, caller);
     if (taskResult) return taskResult;

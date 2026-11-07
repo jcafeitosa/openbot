@@ -175,6 +175,8 @@ export const messages = defineMessages("error.backend", {
   "error.backend.interruptStarting": "This agent is still starting a turn. Try again after the turn starts.",
   "error.backend.interruptNoSession":
     "OpenBot cannot interrupt this agent because its provider session is unavailable.",
+  "error.backend.memoryPromotionTarget":
+    "Promote a memory only in a channel or external chat. The target is the chat you answer in.",
   "error.backend.memoryTextRequired": "Memory text is required.",
   "error.backend.memoryTextTooLong": "Memory text is too long.",
   "error.backend.memorySecretRefused":

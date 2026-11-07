@@ -176,6 +176,8 @@ export const messages = {
     "Bu ajan mesajınızın başlatmadığı bir görev üzerinde çalışıyor. Yalnızca kullanıcı veya o görevin göndereni görevi durdurabilir.",
   "error.backend.interruptStarting": "Bu ajan hâlâ bir tur başlatıyor. Tur başladıktan sonra tekrar deneyin.",
   "error.backend.interruptNoSession": "OpenBot sağlayıcı oturumu kullanılamadığı için bu ajanı kesintiye uğratamıyor.",
+  "error.backend.memoryPromotionTarget":
+    "Bir belleği yalnızca bir kanalda veya dış sohbette yükseltin. Hedef, yanıtladığınız sohbettir.",
   "error.backend.memoryTextRequired": "Bellek metni gereklidir.",
   "error.backend.memoryTextTooLong": "Bellek metni çok uzun.",
   "error.backend.memorySecretRefused":

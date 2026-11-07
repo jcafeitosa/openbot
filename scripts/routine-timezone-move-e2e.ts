@@ -56,7 +56,13 @@ const scheduler = new RoutineScheduler({
   waits: new AgentWaits({
     store: new AgentWaitStore({ database }),
     mailbox,
-    hooks: { emit: () => {}, ownsRoutine: () => true, hasRoutine: () => true, requireKnownAgent: () => {} },
+    hooks: {
+      emit: () => {},
+      ownsRoutine: () => true,
+      hasRoutine: () => true,
+      requireKnownAgent: () => {},
+      routineForDelivery: () => null,
+    },
   }),
   timezone: () => "UTC",
   hooks: {

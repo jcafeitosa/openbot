@@ -194,6 +194,8 @@ export const messages = {
     "Dieser Agent startet noch einen Durchlauf. Versuche es erneut, sobald der Durchlauf beginnt.",
   "error.backend.interruptNoSession":
     "OpenBot kann diesen Agenten nicht unterbrechen, da seine Anbietersitzung nicht verfügbar ist.",
+  "error.backend.memoryPromotionTarget":
+    "Eine Erinnerung nur in einem Kanal oder externen Chat übernehmen. Ziel ist der Chat, in dem du antwortest.",
   "error.backend.memoryTextRequired": "Ein Erinnerungstext ist erforderlich.",
   "error.backend.memoryTextTooLong": "Der Erinnerungstext ist zu lang.",
   "error.backend.memorySecretRefused":

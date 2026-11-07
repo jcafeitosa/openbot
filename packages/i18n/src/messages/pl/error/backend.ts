@@ -181,6 +181,8 @@ export const messages = {
   "error.backend.interruptStarting": "Ten agent wciąż rozpoczyna turę. Spróbuj ponownie, gdy tura się zacznie.",
   "error.backend.interruptNoSession":
     "OpenBot nie może przerwać tego agenta, ponieważ jego sesja dostawcy jest niedostępna.",
+  "error.backend.memoryPromotionTarget":
+    "Awansuj pamięć tylko w kanale lub zewnętrznym czacie. Celem jest czat, w którym odpowiadasz.",
   "error.backend.memoryTextRequired": "Tekst wspomnienia jest wymagany.",
   "error.backend.memoryTextTooLong": "Tekst wspomnienia jest za długi.",
   "error.backend.memorySecretRefused":

@@ -169,6 +169,7 @@ export const messages = {
     "يعمل هذا الوكيل على مهمة لم تبدأها رسالتك. يمكن للمستخدم أو لمرسل تلك المهمة فقط إيقافها.",
   "error.backend.interruptStarting": "لا يزال هذا الوكيل يبدأ دورًا. حاول مرة أخرى بعد بدء الدور.",
   "error.backend.interruptNoSession": "لا يمكن لـ OpenBot مقاطعة هذا الوكيل لأن جلسة المزوّد غير متاحة.",
+  "error.backend.memoryPromotionTarget": "انقل ذاكرة فقط في قناة أو محادثة خارجية. الهدف هو المحادثة التي تجيب فيها.",
   "error.backend.memoryTextRequired": "يلزم نص الذكرى.",
   "error.backend.memoryTextTooLong": "نص الذكرى طويل جدًا.",
   "error.backend.memorySecretRefused": "يحتوي هذا النص على سر يحتفظ به OpenBot، لذلك لم يُحفظ. احفظ الحقيقة دون القيمة.",

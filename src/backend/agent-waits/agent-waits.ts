@@ -14,6 +14,12 @@ export const LIST_WAITS_TOOL = "list_waits";
 /** Close to the limit, a new wait reminds the agent to close the waits it finished. */
 const NEAR_LIMIT_MARGIN = 3;
 
+/**
+ * How long a wait stays open when the agent does not close it: a wait that nothing wakes must not stay on the
+ * agent's list forever. Documented to the user; the store caps any wait at 7 days.
+ */
+export const AWAIT_EVENT_TTL_MS = 24 * 60 * 60 * 1000;
+
 const waitOwnerSchema = z
   .string()
   .trim()
@@ -41,12 +47,16 @@ export interface AgentWaitsHooks {
   hasRoutine(agentId: string): boolean;
   /** Throws when no local agent has this id. */
   requireKnownAgent(agentId: string): void;
+  /** The routine whose run this delivery is, or null when the delivery is not a routine run. */
+  routineForDelivery(deliveryId: string): string | null;
 }
 
 export interface AgentWaitsOptions {
   store: AgentWaitStore;
   mailbox: MailboxStore;
   hooks: AgentWaitsHooks;
+  /** The clock that a new wait's expiry is counted from. */
+  now?: () => Date;
 }
 
 /** Where a wait was opened, as the tool router knows it. */
@@ -68,11 +78,13 @@ export class AgentWaits {
   readonly #store: AgentWaitStore;
   readonly #mailbox: MailboxStore;
   readonly #hooks: AgentWaitsHooks;
+  readonly #now: () => Date;
 
   constructor(options: AgentWaitsOptions) {
     this.#store = options.store;
     this.#mailbox = options.mailbox;
     this.#hooks = options.hooks;
+    this.#now = options.now ?? (() => new Date());
   }
 
   list(agentId: string): AgentWaitsSnapshot {
@@ -147,6 +159,12 @@ export class AgentWaits {
       return openBotToolFailure(sourceText("error.backend.agentWaitRoutineGone"));
     if (!this.#hooks.hasRoutine(caller.agentId))
       return openBotToolFailure(sourceText("error.backend.agentWaitNoRoutine"));
+    // A wait opened in a routine run is woken only by runs of that routine. A wait that names a routine
+    // already is bound to it by its routine column, so the run's routine is taken only without one.
+    const callerRoutine = routineId
+      ? null
+      : (deliveries.map((context) => this.#hooks.routineForDelivery(context.delivery.id)).find(Boolean) ?? null);
+    const openedAt = this.#now();
     let wait: AgentWait;
     try {
       wait = this.#store.open({
@@ -155,6 +173,8 @@ export class AgentWaits {
         requestText: request.delivery.text,
         note,
         routineId: routineId ?? null,
+        expiresAt: new Date(openedAt.getTime() + AWAIT_EVENT_TTL_MS),
+        predicate: callerRoutine ? { routineId: callerRoutine } : null,
       });
     } catch (error) {
       if (!(error instanceof AgentWaitLimitError)) throw error;
@@ -178,6 +198,7 @@ export class AgentWaits {
       waitId: wait.id,
       openWaits,
       limit: INPUT_LIMITS.agentWaits,
+      expiresAt: new Date(openedAt.getTime() + AWAIT_EVENT_TTL_MS).toISOString(),
       ...(openWaits >= INPUT_LIMITS.agentWaits - NEAR_LIMIT_MARGIN
         ? {
             nearLimit: `You are close to the limit of open waits. Call openbot.${LIST_WAITS_TOOL} and close the waits whose request is done.`,

@@ -184,6 +184,8 @@ export const messages = {
   "error.backend.interruptStarting": "Deze agent start nog een beurt. Probeer het opnieuw als de beurt is gestart.",
   "error.backend.interruptNoSession":
     "OpenBot kan deze agent niet onderbreken, omdat de sessie bij de aanbieder niet beschikbaar is.",
+  "error.backend.memoryPromotionTarget":
+    "Maak een geheugen alleen in een kanaal of externe chat gedeeld. Het doel is de chat waarin je antwoordt.",
   "error.backend.memoryTextRequired": "Tekst voor de herinnering is verplicht.",
   "error.backend.memoryTextTooLong": "De tekst van de herinnering is te lang.",
   "error.backend.memorySecretRefused":
