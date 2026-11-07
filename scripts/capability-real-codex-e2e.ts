@@ -80,6 +80,9 @@ const REVIEW_MARK = "You keep the long-term memory of the agent in this profile"
 const REFLECTION_MARK = "You learn from one failed turn of the agent";
 const FAILING_COMMAND = "cat /openbot-e2e-missing/deploy.env";
 const FAILING_TEXT = `Run this exact shell command now with your shell tool, even if an earlier turn already ran it, then report its output in one line: ${FAILING_COMMAND}`;
+/** The recurrence request names the failing command and its exit status, so each turn's failed step is explicit. */
+const RECURRENCE_TEXT =
+  "Run exactly this command with your shell tool, even if an earlier turn already ran it, and report only its exit status in one line: ls /openbot-e2e-missing-path";
 const PLAN_REQUEST =
   "Complete this three-step plan and track the steps with your plan tool (update_plan), marking each step completed when it is done: (1) multiply 17 by 3; (2) name the capital of Japan; (3) name the chemical symbol of gold. In your final answer, give the evidence for each step on its own line, starting with the step number.";
 /** The seeded memory that both dry-run arms use, and the request of each arm. */
@@ -88,9 +91,9 @@ const DRY_RUN_ON =
   "Find the saved memory that says the deploy window is Tuesday, then forget it with your forget memory tool. Reply in one line.";
 const DRY_RUN_OFF = "Search your saved memories for the deploy window and reply in one line with what you find.";
 /** The exact arithmetic. The expected value is computed here with BigInt, never taken from the model. */
-const EXACT_A = 7362519n;
-const EXACT_B = 8130476n;
-const EXACT_C = 1234567n;
+const EXACT_A = 384729106583920174658302947105n;
+const EXACT_B = 920184736251908273645018927364n;
+const EXACT_C = 56473829100192837465n;
 const EXACT_EXPECTED = (EXACT_A * EXACT_B + EXACT_C).toString();
 /** The on arm has operators, which the guidance trigger reads. The off arm has the same numbers in words. */
 const EXACT_ON = `What is ${EXACT_A} * ${EXACT_B} + ${EXACT_C}? Give the exact integer only.`;
@@ -466,6 +469,12 @@ function ledgerRows(s: Session, agentId: string): LedgerRow[] {
     .map((row) => ({ outcome: String(row.outcome), toolFailureCodes: String(row.tool_failure_codes_json) }));
 }
 
+/** Whether a turn's ledger row records a failed tool step that exited nonzero. */
+function hasExitNonzero(toolFailureCodes: string): boolean {
+  const codes: Record<string, number> = JSON.parse(toolFailureCodes);
+  return (codes.exit_nonzero ?? 0) > 0;
+}
+
 /** The automatic memories of the agent: the lessons that a reflection saved. */
 function automaticLessons(s: Session, agentId: string): number {
   return s.service.listMemories(agentId).filter((memory) => memory.origin === "automatic").length;
@@ -520,7 +529,7 @@ async function recurrenceRun(s: Session, arm: Arm, run: number, out: Measured): 
   await waitFor("the first turn's outcome row", () => ledgerRows(s, agentId).length >= 1 || null);
   const before = ledgerRows(s, agentId).length;
   const mark = proxyRows(s).length;
-  const request = `${token} ${FAILING_TEXT}`;
+  const request = `${token} ${RECURRENCE_TEXT}`;
   for (let attempt = 1; attempt <= 3; attempt++) {
     await settle(s, await send(s, agentId, request));
     await waitFor(
@@ -529,11 +538,16 @@ async function recurrenceRun(s: Session, arm: Arm, run: number, out: Measured): 
     );
   }
   const failureRows = ledgerRows(s, agentId).slice(before);
+  const failedSteps = failureRows.map((row) => hasExitNonzero(row.toolFailureCodes));
+  const stepSkipped = failedSteps.includes(false);
   const failureThread = threadOf(proxyRows(s).slice(mark), token);
   out.outcomes = failureRows.map((row) => row.outcome);
   out.toolFailureCodes = failureRows.map((row) => row.toolFailureCodes);
   out.codexTurnStatuses = failureThread.filter((row) => row.dir === "turnCompleted").map((row) => row.status ?? null);
   out.failedOutcomes = failureRows.filter((row) => row.outcome === "failed").length;
+  out.failedStepPerTurn = failedSteps;
+  out.failedStepTurns = failedSteps.filter(Boolean).length;
+  out.stepSkipped = stepSkipped;
 
   const followMark = proxyRows(s).length;
   const followStatus = await settle(
@@ -548,7 +562,9 @@ async function recurrenceRun(s: Session, arm: Arm, run: number, out: Measured): 
   out.followUpStatus = followStatus;
   out.promptFound = promptFound;
   out.noteInPrompt = noteInPrompt;
-  return arm === "on" ? noteInPrompt : promptFound && !noteInPrompt;
+  out.detectorMiss = arm === "on" && !stepSkipped && !noteInPrompt;
+  // A run whose turn recorded no failed step is a skipped step, not judged: the on arm is not held to the note for it.
+  return arm === "on" ? noteInPrompt || stepSkipped : promptFound && !noteInPrompt;
 }
 
 /**
@@ -605,7 +621,7 @@ async function exactToolRun(s: Session, arm: Arm, run: number, out: Measured): P
 }
 
 /**
- * Memory reflection. One failing shell step, the same as the recurrence scenario. The arm on keeps the production
+ * Memory reflection. One failing shell step (FAILING_TEXT). The arm on keeps the production
  * review interval (20); the arm off sets it to 0. The run counts the reflection turns, the review turns and the
  * automatic lessons saved, after a fixed window in which a background reflection would start.
  */
@@ -748,7 +764,7 @@ function countsOf(capability: CapabilityId, runs: RunRecord[]): string {
     return `verifier calls ${sum("verifierCalls")}; extra turns ${sum("extraTurns")}; runs with a gap turn ${gapRuns}; second turn names gap ${count("secondTurnNamesGap")}`;
   }
   if (capability === "recurrence") {
-    return `note in next prompt ${count("noteInPrompt")}; prompt found ${count("promptFound")}; failed turns ${sum("failedOutcomes")}`;
+    return `note in next prompt ${count("noteInPrompt")}; prompt found ${count("promptFound")}; failed turns ${sum("failedOutcomes")}; turns with a recorded failed step ${sum("failedStepTurns")}/${runs.length * 3}; skipped-step runs ${count("stepSkipped")} (not judged); detector misses ${count("detectorMiss")}`;
   }
   if (capability === "dry-run") {
     return `approval cards ${sum("approvalCards")} (runs with a card ${runsWith("approvalCards")}); ran before answer ${count("ranBeforeAnswer")}; memory kept ${count("memoryKept")}; forget calls ${sum("forgetCalls")}; search calls ${sum("searchCalls")}; search found memory ${count("searchFoundMemory")}`;
@@ -813,15 +829,17 @@ function runParent(): void {
       isolation: "temporary HOME and CODEX_HOME; only auth.json is copied from the codex home",
       memoryReflection:
         "memoryReviewInterval 0 in every run except the memory-reflection on arm (production default 20)",
+      recurrenceRequest:
+        "no switch: the user message names ls /openbot-e2e-missing-path, asks for its exit status only, and is sent in each of the three turns in both arms",
       dryRunArms:
         "no switch: the arm is the request (irreversible forget versus reversible search); every card is declined",
       exactToolArms:
-        "no switch: the trigger is the request text (exactToolGuidance); the off arm writes the same numbers in words",
+        "no switch: the trigger is the request text (exactToolGuidance); the off arm writes the same numbers with the operators in words; compute_exact stays available in both arms, so this compares guidance, not the tool's existence",
     },
     expectations: {
       "plan-verifier on": "at least one verifier call",
       "plan-verifier off": "no verifier call and no extra turn",
-      "recurrence on": "the recurrence note is in the follow-up prompt",
+      "recurrence on": "the recurrence note is in the follow-up prompt, or a turn skipped its failed step (not judged)",
       "recurrence off": "the follow-up prompt is found and carries no note",
       "dry-run on": "one approval card; the memory is present while the card waits and after the decline",
       "dry-run off": "no approval card; the search call runs",
