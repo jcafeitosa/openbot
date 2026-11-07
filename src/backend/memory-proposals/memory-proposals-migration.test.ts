@@ -129,3 +129,43 @@ describe("memory proposals migration", () => {
     ]);
   });
 });
+
+/** A database at version 71, built by the real migrations, as an install on that version has it. */
+function databaseAt71(): DatabaseSync {
+  const db = new DatabaseSync(":memory:");
+  databases.push(db);
+  db.exec("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)");
+  db.exec(`CREATE TEMP TRIGGER stop_at_version BEFORE INSERT ON schema_migrations WHEN new.version > 71
+    BEGIN SELECT RAISE(ABORT, 'fixture stop'); END;`);
+  expect(() => migrateOpenBotDatabase(db)).toThrow("migration to version 72 failed");
+  db.exec("DROP TRIGGER stop_at_version");
+  return db;
+}
+
+describe("memory proposals thread and turn", () => {
+  it("adds the thread and turn to a version 71 database and keeps a pending proposal with neither", () => {
+    const db = databaseAt71();
+    insertProposal(db, { id: "proposal-1" });
+    migrateOpenBotDatabase(db);
+
+    expect(db.prepare("SELECT proposal_id, status, thread_id, turn_id FROM memory_proposals").all()).toEqual([
+      { proposal_id: "proposal-1", status: "pending", thread_id: null, turn_id: null },
+    ]);
+  });
+
+  it("stores the thread and turn of a proposal made after the upgrade", () => {
+    const db = databaseAt71();
+    migrateOpenBotDatabase(db);
+    db.prepare(`INSERT INTO memory_proposals
+      (proposal_id, source_agent_id, source_memory_id, target_scope, target_id, text, fingerprint, status, created_at, thread_id, turn_id)
+      VALUES ('proposal-2', 'chief', 'memory-1', 'channel', 'channel-1', 'Ship on Fridays.', 'fingerprint-2', 'pending',
+        '2026-01-02', 'thread-1', 'turn-1')`).run();
+
+    expect(
+      db.prepare("SELECT thread_id, turn_id FROM memory_proposals WHERE proposal_id = 'proposal-2'").get(),
+    ).toEqual({
+      thread_id: "thread-1",
+      turn_id: "turn-1",
+    });
+  });
+});

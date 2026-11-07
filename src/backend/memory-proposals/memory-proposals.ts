@@ -11,7 +11,13 @@ import type { DynamicRecord } from "@openbot/contracts/runtime-values";
 import { sourceText } from "@openbot/i18n/source";
 import { containsRegisteredSecret, redactText } from "@openbot/logging";
 import type { ChannelMemoryStore } from "../channel-memory-store";
-import { checkedColumn, databaseRow, optionalStringColumn, requiredStringColumn } from "../database/database-rows";
+import {
+  checkedColumn,
+  databaseRow,
+  databaseRows,
+  optionalStringColumn,
+  requiredStringColumn,
+} from "../database/database-rows";
 import type { MessagingMemoryStore } from "../messaging/messaging-memory-store";
 import type { OpenBotDatabase } from "../openbot-database";
 
@@ -47,6 +53,9 @@ export interface MemoryProposalInput {
   targetScope: MemoryProposalScope;
   targetId: string;
   text: string;
+  /** The thread the card of the proposal shows in, and the turn that proposed it. A card is rebuilt from these. */
+  threadId?: string;
+  turnId?: string;
 }
 
 export interface MemoryProposal {
@@ -61,6 +70,8 @@ export interface MemoryProposal {
   decidedBy: string | null;
   createdAt: string;
   decidedAt: string | null;
+  threadId: string | null;
+  turnId: string | null;
 }
 
 export interface MemoryProposalStoreOptions {
@@ -70,7 +81,7 @@ export interface MemoryProposalStoreOptions {
 }
 
 const PROPOSAL_COLUMNS = `proposal_id, source_agent_id, source_memory_id, target_scope, target_id, text, fingerprint,
-  status, decided_by, created_at, decided_at`;
+  status, decided_by, created_at, decided_at, thread_id, turn_id`;
 
 export class MemoryProposalStore {
   readonly #database: OpenBotDatabase;
@@ -88,17 +99,35 @@ export class MemoryProposalStore {
    * one still pending returns that pending proposal.
    */
   propose(input: MemoryProposalInput): MemoryProposal {
+    return this.record(input).proposal;
+  }
+
+  /**
+   * `propose`, and whether the caller must show the card. That is a new proposal with a thread and a turn, or a pending
+   * proposal that had no thread and gets one now. A pending proposal that already has a thread keeps its card.
+   */
+  record(input: MemoryProposalInput): { proposal: MemoryProposal; needsCard: boolean } {
     const text = proposalText(input.text);
     const fingerprint = textFingerprint(text);
+    const { threadId = null, turnId = null } = input;
     const pending = this.#pendingProposal(input.targetScope, input.targetId, fingerprint);
-    if (pending) return pending;
+    if (pending) {
+      if (pending.threadId !== null || threadId === null || turnId === null)
+        return { proposal: pending, needsCard: false };
+      this.#database.connection
+        .prepare(
+          "UPDATE memory_proposals SET thread_id = ?, turn_id = ? WHERE proposal_id = ? AND status = 'pending' AND thread_id IS NULL",
+        )
+        .run(threadId, turnId, pending.proposalId);
+      return { proposal: this.#require(pending.proposalId), needsCard: true };
+    }
     const proposalId = randomUUID();
     this.#database.connection
       .prepare(
         `INSERT INTO memory_proposals (
            proposal_id, source_agent_id, source_memory_id, target_scope, target_id, text, fingerprint,
-           status, decided_by, created_at, decided_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, NULL)`,
+           status, decided_by, created_at, decided_at, thread_id, turn_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, ?, ?)`,
       )
       .run(
         proposalId,
@@ -109,8 +138,10 @@ export class MemoryProposalStore {
         text,
         fingerprint,
         new Date().toISOString(),
+        threadId,
+        turnId,
       );
-    return this.#require(proposalId);
+    return { proposal: this.#require(proposalId), needsCard: threadId !== null && turnId !== null };
   }
 
   /**
@@ -195,6 +226,27 @@ export class MemoryProposalStore {
     );
     return row ? proposalFromRow(row) : null;
   }
+
+  /** The proposal with this id, when it still waits for a person. */
+  findPending(proposalId: string): MemoryProposal | null {
+    const row = databaseRow(
+      this.#database.connection
+        .prepare(`SELECT ${PROPOSAL_COLUMNS} FROM memory_proposals WHERE proposal_id = ? AND status = 'pending'`)
+        .get(proposalId),
+    );
+    return row ? proposalFromRow(row) : null;
+  }
+
+  /** Every proposal that waits for a person, oldest first. The cards of the attention list are built from them. */
+  pendingProposals(): MemoryProposal[] {
+    return databaseRows(
+      this.#database.connection
+        .prepare(
+          `SELECT ${PROPOSAL_COLUMNS} FROM memory_proposals WHERE status = 'pending' ORDER BY created_at, proposal_id`,
+        )
+        .all(),
+    ).map((row) => proposalFromRow(row));
+  }
 }
 
 /**
@@ -232,5 +284,7 @@ function proposalFromRow(row: DynamicRecord): MemoryProposal {
     decidedBy: optionalStringColumn(row, "decided_by"),
     createdAt: requiredStringColumn(row, "created_at"),
     decidedAt: optionalStringColumn(row, "decided_at"),
+    threadId: optionalStringColumn(row, "thread_id"),
+    turnId: optionalStringColumn(row, "turn_id"),
   };
 }

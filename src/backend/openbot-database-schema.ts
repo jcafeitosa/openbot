@@ -692,7 +692,7 @@ const RESEARCH_SOURCES_SCHEMA_SQL = `
 // index allows one pending proposal per target and fingerprint, so a repeated proposal returns the one still waiting.
 // Only creates a table and its indexes, so no foreign-key pause and no vacuum. No foreign key to the target: a target is a
 // channel or a messaging connection, and the approval writes through the store that checks it. IF NOT EXISTS throughout,
-// because this text is both migration 65 and the tail of the latest schema.
+// because this text is migration 65. The latest schema adds migration 72's columns at its end, as the migration does.
 const MEMORY_PROPOSALS_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS memory_proposals (
     proposal_id TEXT PRIMARY KEY,
@@ -712,6 +712,21 @@ const MEMORY_PROPOSALS_SCHEMA_SQL = `
   CREATE UNIQUE INDEX IF NOT EXISTS memory_proposals_pending_fingerprint
     ON memory_proposals(target_scope, target_id, fingerprint) WHERE status = 'pending';
 `;
+
+// Migration 72 gives a proposal the thread and the turn of the card it shows, in two nullable columns. Frozen with the
+// migration. ADD COLUMN appends them to the end of the table, so the latest schema declares them there too. A proposal
+// from before it keeps NULL in both, and it has no card that a restart can rebuild.
+const V72_MEMORY_PROPOSAL_COLUMNS_SQL = ["thread_id TEXT", "turn_id TEXT"] as const;
+const V65_MEMORY_PROPOSALS_END_SQL = `    decided_at TEXT
+  );`;
+const V72_MEMORY_PROPOSALS_END_SQL = `    decided_at TEXT,
+    ${V72_MEMORY_PROPOSAL_COLUMNS_SQL.join(",\n    ")}
+  );`;
+const LATEST_MEMORY_PROPOSALS_SCHEMA_SQL = substituteOnce(
+  MEMORY_PROPOSALS_SCHEMA_SQL,
+  V65_MEMORY_PROPOSALS_END_SQL,
+  V72_MEMORY_PROPOSALS_END_SQL,
+);
 
 // Migration 66 keeps one row per agent and local day for the daily consolidation of an agent's memory: the run's status,
 // the last turn it read, and the operations it applied with the text each one replaced, so that an undo can restore them.
@@ -828,7 +843,7 @@ const LATEST_SCHEMA_SQL =
   AGENT_MEMORY_REVISIONS_SCHEMA_SQL +
   AGENT_GOALS_SCHEMA_SQL +
   RESEARCH_SOURCES_SCHEMA_SQL +
-  MEMORY_PROPOSALS_SCHEMA_SQL +
+  LATEST_MEMORY_PROPOSALS_SCHEMA_SQL +
   MEMORY_CONSOLIDATION_RUNS_SCHEMA_SQL +
   FILE_WATCH_TRIGGERS_SCHEMA_SQL +
   WORK_BOARD_SCHEMA_SQL +
@@ -1259,6 +1274,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // starts empty and no existing row changes.
     up: (db) => db.exec(WORKING_MEMORY_SCHEMA_SQL),
   },
+  {
+    version: 72,
+    // Only adds two nullable columns, so no foreign-key pause and no vacuum. No proposal has a thread or a turn in them
+    // before this, so every pending proposal keeps its meaning, and only a proposal made after it gets a card on restart.
+    up: (db) => addMemoryProposalThreadColumns(db),
+  },
 ];
 
 const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? BASELINE_SCHEMA_VERSION;
@@ -1683,6 +1704,20 @@ function addAgentWaitTtlColumns(db: DatabaseSync): void {
     const name = column.slice(0, column.indexOf(" "));
     if (columns.some((existing) => isDynamicRecord(existing) && existing.name === name)) continue;
     db.exec(`ALTER TABLE agent_waits ADD COLUMN ${column}`);
+  }
+}
+
+// Migration 72 adds the thread and the turn to the memory proposal table. A replay over a database that the latest schema
+// built has the columns already, so each one is added only when it is missing.
+function addMemoryProposalThreadColumns(db: DatabaseSync): void {
+  const names = db
+    .prepare("PRAGMA table_info(memory_proposals)")
+    .all()
+    .flatMap((column) => (isDynamicRecord(column) && isString(column.name) ? [column.name] : []));
+  for (const column of V72_MEMORY_PROPOSAL_COLUMNS_SQL) {
+    const name = column.slice(0, column.indexOf(" "));
+    if (names.includes(name)) continue;
+    db.exec(`ALTER TABLE memory_proposals ADD COLUMN ${column}`);
   }
 }
 
