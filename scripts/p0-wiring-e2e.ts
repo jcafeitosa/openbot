@@ -54,7 +54,7 @@ const report: { passed: boolean; notes: string[]; steps: Step[] } = {
   notes: [
     "The default expiry (24 hours) and the routine predicate are set by AgentWaits.handleTool, not by the store.",
     "A promotion's card and its answer go through MemoryProposalCards, which the attention registry calls.",
-    "A card lives in memory with its turn's registry; a restart drops the card while the proposal stays pending.",
+    "A card is built from its pending proposal row, so a restart lists the same card again.",
   ],
   steps: [],
 };
