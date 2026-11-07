@@ -1746,6 +1746,7 @@ export class BrowserHost {
                     tab.contents.reload();
                     return true;
                   });
+                  return;
               }
             });
           // The deadline the engine carries is checked between its commands, which a renderer that

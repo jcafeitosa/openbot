@@ -52,6 +52,7 @@ export class DatabaseCore {
   readonly path: string;
   readonly #legacyBackupRoot: string;
   #db: DatabaseSync | null = null;
+  #connectionInitialized = false;
 
   constructor(options: DatabaseCoreOptions) {
     this.path = join(options.userDataPath, "openbot.db");
@@ -79,6 +80,7 @@ export class DatabaseCore {
           );
           this.#db = db;
           this.#migrate(closedCleanly);
+          this.#connectionInitialized = true;
         });
         yield* storedIO(() => chmod(this.path, 0o600));
       }),
@@ -103,6 +105,10 @@ export class DatabaseCore {
   get connection(): DatabaseSync {
     if (!this.#db) throw new Error("OpenBot database is not initialized.");
     return this.#db;
+  }
+
+  get connectionInitialized(): boolean {
+    return this.#connectionInitialized;
   }
 
   dispatch<T>(

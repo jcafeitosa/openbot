@@ -598,6 +598,8 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
               return Effect.succeed(settle(step, { status: "failed", error: outputError("uncertain") }));
             case "uncertain":
               return Effect.succeed(settle(step, { status: "failed", error: outputError("uncertain") }));
+            default:
+              throw new Error(`Unknown workflow output status: ${output.status}`);
           }
         };
 

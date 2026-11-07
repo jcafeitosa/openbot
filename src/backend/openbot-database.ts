@@ -12,6 +12,7 @@ import type {
   HostedSiteConversationEventStatus,
   SentMessageStats,
 } from "@openbot/contracts/ipc";
+import { Effect } from "effect";
 import { AgentHistoryQueries, type AgentHistorySelection } from "./database/agent-history-queries";
 import { type AgentModelChange, AgentRoster } from "./database/agent-roster";
 import { AgentUsage } from "./database/agent-usage";
@@ -96,14 +97,36 @@ export class OpenBotDatabase {
     this.#sessions = new ProviderSessions({ core: this.#core });
     this.#providerHistory = new ProviderHistoryStore({ core: this.#core });
     this.#summaries = new ThreadSummaries({ core: this.#core });
+    this.#initialized = this.#core.initialize().pipe(Effect.map(() => undefined));
+    this.#initializedPromise = Effect.runPromise(this.#initialized);
   }
+
+  /** Resolves once the database has been initialized. Handlers await this before accessing `connection`. */
+  get initialized(): Promise<void> {
+    return this.#initializedPromise;
+  }
+
+  /** Whether the database initialization has completed. */
+  get initializedSync(): boolean {
+    return this.#initializedResolved;
+  }
+
+  #initializedPromise!: Promise<void>;
+  #initializedResolved = false;
+  #initialized: Effect.Effect<void, unknown, never>;
 
   get path(): string {
     return this.#core.path;
   }
 
   initialize() {
-    return this.#core.initialize();
+    return this.#core.initialize().pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          this.#initializedResolved = true;
+        }),
+      ),
+    );
   }
 
   close(): void {
@@ -111,6 +134,9 @@ export class OpenBotDatabase {
   }
 
   get connection(): DatabaseSync {
+    if (!this.#core.connectionInitialized) {
+      throw new Error("OpenBot database is not initialized. Await store.initialize() before handling requests.");
+    }
     return this.#core.connection;
   }
 

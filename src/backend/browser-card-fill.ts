@@ -162,6 +162,8 @@ export function cardFieldText(
         : year;
     case "expiry":
       return expiryText(month, year, description);
+    default:
+      throw new Error(`Unknown browser card field: ${field}`);
   }
 }
 

@@ -78,6 +78,7 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import { selfHostedApiOrigin } from "@openbot/contracts/invite-links";
 import type {
+  AgentEvent,
   AgentStatus,
   AppVariant,
   BrowserDisplayState,
@@ -2048,10 +2049,14 @@ export async function createApplicationServices({
     updateAgent: (input) => service.updateAgent(input),
     clearAgentContext: (agentId) => service.clearAgentContext(agentId),
   });
-  service.on("event", (event) => {
+  const automationAgentListener = (event: AgentEvent) => {
     if (event.type === "agents-changed") Effect.runFork(automation.requestSync());
+  };
+  service.on("event", automationAgentListener);
+  teardown.push(TEARDOWN_ORDER.automation, "the automation server", () => {
+    service.off("event", automationAgentListener);
+    return Effect.runPromise(automation.stop());
   });
-  teardown.push(TEARDOWN_ORDER.automation, "the automation server", () => Effect.runPromise(automation.stop()));
   // An agent routine's answer handed on from agent to agent; see `routine-flows.ts`.
   const routineFlowRuntime = await Effect.runPromise(
     createRoutineFlows({
@@ -2197,10 +2202,14 @@ export async function createApplicationServices({
       },
     }),
   );
-  service.on("event", (event) => {
+  const routineEventsListener = (event: AgentEvent) => {
     Effect.runFork(routineFlowRuntime.notice(event));
     Effect.runFork(routineResultRuntime.notice(event));
     Effect.runFork(workflowRuntime.notice(event));
+  };
+  service.on("event", routineEventsListener);
+  teardown.push(TEARDOWN_ORDER.routineResults, "routine events listener", () => {
+    service.off("event", routineEventsListener);
   });
   teardown.push(TEARDOWN_ORDER.routineResults, "the routine results", () =>
     Effect.runPromise(routineResultRuntime.close()),
@@ -2287,8 +2296,12 @@ export async function createApplicationServices({
     ),
   );
   // The poll rests while no turn runs, so each turn wakes it.
-  service.on("event", (event) => {
+  const turnStartedListener = (event: AgentEvent) => {
     if (event.type === "turn-started") startComputerUseHighlight();
+  };
+  service.on("event", turnStartedListener);
+  teardown.push(TEARDOWN_ORDER.computerUseHighlight, "turn-started listener", () => {
+    service.off("event", turnStartedListener);
   });
   /*
    * Where the decision put the download: onboarding, which is the screen this start is about to
@@ -2340,8 +2353,12 @@ export async function createApplicationServices({
     hermesInstaller.setProvider(status.providers?.find((provider) => provider.id === "hermes"));
   };
   trackSystemCliVersions(service.getStatus());
-  service.on("event", (event) => {
+  const statusListener = (event: AgentEvent) => {
     if (event.type === "status") trackSystemCliVersions(event.status);
+  };
+  service.on("event", statusListener);
+  teardown.push(TEARDOWN_ORDER.providerRuntimes, "status listener", () => {
+    service.off("event", statusListener);
   });
   providerRuntimes.on("status", forwardProviderRuntimeStatus);
   // After the status forward, so the offer a check finds reaches the renderer.
@@ -2383,8 +2400,12 @@ export async function createApplicationServices({
   const storageUsage = new StorageUsageService(new StorageUsageScanner(storageSources), storageSources);
   teardown.push(TEARDOWN_ORDER.storageUsage, "storage scans", () => Effect.runPromise(storageUsage.dispose()));
   // A deleted or renamed agent changes every scope, so no surface keeps its old answer.
-  service.on("event", (event) => {
+  const agentsChangedListener = (event: AgentEvent) => {
     if (event.type === "agents-changed") storageUsage.invalidate();
+  };
+  service.on("event", agentsChangedListener);
+  teardown.push(TEARDOWN_ORDER.storageUsage, "agents-changed listener", () => {
+    service.off("event", agentsChangedListener);
   });
   // A grant changed on this computer must reach the phones and web clients that show it.
   approvalAutomation.subscribe(() => service.notifyAgentsChanged());
@@ -3065,7 +3086,13 @@ export async function createApplicationServices({
   teardown.push(TEARDOWN_ORDER.resourceMonitor, "the resource monitor", () =>
     Effect.runPromise(resourceMonitor.close()),
   );
-  service.on("event", (event) => resourceMonitor.observeAgentEvent(event));
+  const resourceMonitorListener = (event: AgentEvent) => {
+    resourceMonitor.observeAgentEvent(event);
+  };
+  service.on("event", resourceMonitorListener);
+  teardown.push(TEARDOWN_ORDER.resourceMonitor, "resource monitor listener", () => {
+    service.off("event", resourceMonitorListener);
+  });
   const analytics = new HostAnalytics({
     ...(failureReports ? { reports: failureReports } : {}),
     enabled: analyticsEnabled,

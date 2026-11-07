@@ -499,6 +499,8 @@ function applyWorkflowOps(
         if (edges.length === before) refuse(`Op ${n}: no edge from ${op.from} to ${op.to}.`);
         return;
       }
+      default:
+        throw new Error(`Unknown workflow operation: ${op.op}`);
     }
   });
   // A workflow with no steps before this call, or a tidy, gets a full layout; a change to others only places its new nodes.

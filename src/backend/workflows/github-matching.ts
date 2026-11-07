@@ -92,6 +92,8 @@ export function githubObjectKey(
     case "close":
     case "reopen":
       return change.kind;
+    default:
+      throw new Error("Unknown GitHub change kind.");
   }
 }
 

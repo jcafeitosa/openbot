@@ -307,7 +307,7 @@ export type { TestMcpServerOptions } from "./agent/mcp-gateway";
 export type { RoutineMutationOptions } from "./agent/routine-scheduler";
 export type { ResolvedSharedFile } from "./workspace-paths";
 
-interface AgentServiceEvents {
+export interface AgentServiceEvents {
   failure: [failure: FailureSignal];
   /** With `memberId`, the event is only for the connections of that member, such as a read mark change. */
   event: [event: AgentEvent, memberId?: string];
