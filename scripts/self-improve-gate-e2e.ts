@@ -2,7 +2,9 @@
 // or a skill draft (`propose_skill`) through its tools. A proposal waits for the person's answer on an owner-only card;
 // an accepted instruction change is written only when a replay of the recorded turns shows no rise in failed turns; a
 // local responder cannot answer the card; a secret in the change is refused before any card; and a skill draft is
-// installed once after approval, with its scripts never run. Runs the real agent service, tool router, attention
+// installed once, from a task whose plan the person started with its card in the same turn, after the person accepts
+// the draft's card, with its scripts never run. A plan that the host starts when its wait runs out approves nothing.
+// Runs the real agent service, tool router, attention
 // registry, turn ledger, instruction history and local skill library on a temporary profile with a fake Codex
 // app-server, and answers each approval card as the person. `bun scripts/self-improve-gate-e2e.ts`. Writes
 // .openbot-build/self-improve-gate-e2e/report.json.
@@ -75,6 +77,19 @@ let threads = 0;
 let turns = 0;
 /** Tool request id -> the turn that waits for its result. */
 const waiting = new Map();
+let tools = 0;
+/** Makes the next call of a turn, then waits for its result. */
+const callNext = (threadId, turnId, calls) => {
+  const [match, ...rest] = calls;
+  const { __tool, ...args } = JSON.parse(Buffer.from(match[1], "base64").toString("utf8"));
+  const id = "tool-" + (++tools);
+  waiting.set(id, { threadId, turnId, tool: __tool, rest });
+  write({
+    id,
+    method: "item/tool/call",
+    params: { threadId, turnId, callId: "call-" + id, namespace: "openbot", tool: __tool, arguments: args },
+  });
+};
 process.stdout.on("error", (error) => {
   if (error.code === "EPIPE") process.exit(0);
   throw error;
@@ -111,16 +126,8 @@ const answer = (message) => {
         write({ method: "turn/plan/updated", params: { threadId: params.threadId, turnId, explanation: "Two steps.", plan: [{ step: "Read the notes", status: "completed" }, { step: "Write the draft", status: "completed" }] } });
       }
       const matches = text.includes(${JSON.stringify(CALL_MARK)}) ? [...text.matchAll(/<<ARGS([A-Za-z0-9+/=]*)ARGS>>/g)] : [];
-      const match = matches.at(-1);
-      if (!match) return setTimeout(() => finish(params.threadId, turnId), 20);
-      const { __tool, ...args } = JSON.parse(Buffer.from(match[1], "base64").toString("utf8"));
-      const id = "tool-" + turnId;
-      waiting.set(id, { threadId: params.threadId, turnId, tool: __tool });
-      return write({
-        id,
-        method: "item/tool/call",
-        params: { threadId: params.threadId, turnId, callId: "call-" + turnId, namespace: "openbot", tool: __tool, arguments: args },
-      });
+      if (matches.length === 0) return setTimeout(() => finish(params.threadId, turnId), 20);
+      return callNext(params.threadId, turnId, matches);
     }
     case "turn/interrupt": {
       write({ id: message.id, result: {} });
@@ -144,7 +151,8 @@ process.stdin.on("data", (chunk) => {
         const turn = waiting.get(message.id);
         waiting.delete(message.id);
         log({ turnId: turn.turnId, tool: turn.tool, result: message.result ?? null, error: message.error ?? null });
-        finish(turn.threadId, turn.turnId);
+        if (turn.rest.length > 0) callNext(turn.threadId, turn.turnId, turn.rest);
+        else finish(turn.threadId, turn.turnId);
       }
     }
     newline = buffer.indexOf("\\n");
@@ -152,10 +160,8 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
-interface CallArguments {
-  text?: string;
-  sourcePath?: string;
-}
+/** The arguments of one call. The fake sends them to the tool as JSON, so any shape is possible. */
+type CallArguments = object;
 
 interface ToolLog {
   turnId: string;
@@ -264,34 +270,41 @@ const agents = new AgentService({
 
 /** The approval cards that the service shows, in order. */
 const approvals: { requestId: string | number; reason: string | null }[] = [];
+/** The plan cards that the service shows, in order: the prompts that `acknowledge_request` raises. */
+const prompts: { requestId: string | number; questionId: string | undefined }[] = [];
 agents.on("event", (event) => {
   if (event.type === "approval") approvals.push({ requestId: event.approval.requestId, reason: event.approval.reason });
+  if (event.type === "prompt") prompts.push({ requestId: event.requestId, questionId: event.questions[0]?.id });
 });
 
-/** Reads the tool result that the fake logged after the given index. */
-async function logged(name: string, before: number): Promise<CallOutcome> {
-  const entry = await waitFor(`${name} tool result`, () => toolLogs()[before]);
-  const text = entry.result?.contentItems.map((item) => item.text).join("\n") ?? JSON.stringify(entry.error);
-  const success = entry.result?.success === true;
-  report.calls.push({ name, success, text });
-  return { success, text };
+/** The outcome of one logged tool call. */
+function outcomeOf(entry: ToolLog): CallOutcome {
+  return {
+    success: entry.result?.success === true,
+    text: entry.result?.contentItems.map((item) => item.text).join("\n") ?? JSON.stringify(entry.error),
+  };
 }
 
-/**
- * Sends a message to the agent's chat that makes the fake call `tool` with `args`. `plan` adds the finished plan
- * that a skill draft needs.
- */
-async function callFromChat(
-  name: string,
-  agentId: string,
-  tool: string,
-  args: CallArguments,
-  plan = false,
-): Promise<CallOutcome> {
+/** Reads the tool result that the fake logged at the given index, and records it. */
+async function logged(name: string, before: number): Promise<CallOutcome> {
+  const outcome = outcomeOf(await waitFor(`${name} tool result`, () => toolLogs()[before]));
+  report.calls.push({ name, ...outcome });
+  return outcome;
+}
+
+/** The message that makes the fake call each tool in order. `plan` adds the finished plan that a skill draft needs. */
+function callText(calls: { tool: string; args: CallArguments }[], plan = false): string {
+  const encoded = calls.map(({ tool, args }) => {
+    const payload = Buffer.from(JSON.stringify({ __tool: tool, ...args })).toString("base64");
+    return `${CALL_MARK} <<ARGS${payload}ARGS>>`;
+  });
+  return `${plan ? `${PLAN_MARK} ` : ""}${encoded.join(" ")}`;
+}
+
+/** Sends a message to the agent's chat that makes the fake call `tool` with `args`. */
+async function callFromChat(name: string, agentId: string, tool: string, args: CallArguments): Promise<CallOutcome> {
   const before = toolLogs().length;
-  const encoded = Buffer.from(JSON.stringify({ __tool: tool, ...args })).toString("base64");
-  const text = `${plan ? `${PLAN_MARK} ` : ""}${CALL_MARK} <<ARGS${encoded}ARGS>>`;
-  await runCauseEffect(agents.sendMessage({ agentId, text }));
+  await runCauseEffect(agents.sendMessage({ agentId, text: callText([{ tool, args }]) }));
   const outcome = await logged(name, before);
   await waitFor("the chat turn to end", () =>
     agents
@@ -301,22 +314,83 @@ async function callFromChat(
   return outcome;
 }
 
-/**
- * Starts a proposal and waits for its approval card, without answering. The caller answers the card, or checks that
- * nothing was asked.
- */
-async function proposeAndHold(name: string, agentId: string, tool: string, args: CallArguments, plan = false) {
+/** Starts a proposal and waits for its approval card, without answering. The caller answers the card. */
+async function proposeAndHold(name: string, agentId: string, tool: string, args: CallArguments) {
   const before = approvals.length;
-  const outcome = callFromChat(name, agentId, tool, args, plan);
+  const outcome = callFromChat(name, agentId, tool, args);
   const card = await waitFor(`${name} approval`, () => approvals[before]);
   return { card, outcome, asked: () => approvals.length - before };
 }
 
-/** Starts a proposal with no plan, or no approval, and returns its outcome with the cards it raised. */
-async function proposeWithoutCard(name: string, agentId: string, tool: string, args: CallArguments, plan = false) {
+/** Starts a proposal, waits for its turn to end, and returns its outcome with the cards it raised. */
+async function proposeWithoutCard(name: string, agentId: string, tool: string, args: CallArguments) {
   const before = approvals.length;
-  const outcome = await callFromChat(name, agentId, tool, args, plan);
+  const outcome = await callFromChat(name, agentId, tool, args);
   return { outcome, asked: approvals.length - before };
+}
+
+/** The plan that `acknowledge_request` shows at the start of each task turn of this check. */
+const PLAN_CARD_ARGS = {
+  message: "On it. This is my plan for the draft.",
+  steps: [
+    { label: "First", step: "Read the notes." },
+    { label: "Then", step: "Write the draft." },
+  ],
+  startLabel: "Start the work",
+  cancelLabel: "Cancel",
+};
+
+/**
+ * What the person does with the plan card of a task turn: `person` presses its start button, `timer` leaves it to
+ * the host's wait, and `none` shows no plan card at all.
+ */
+type PlanCard = "person" | "timer" | "none";
+
+/**
+ * Starts a task whose first turn holds a finished two-step plan, then makes `calls` in order. `draft` answers the
+ * approval card of a skill draft with `accept` or `decline`, or is null when the turn should raise no card.
+ * `whileWaiting` runs once that card is up, before it is answered. Returns the outcome of each call and the reason
+ * of each approval card the turn raised.
+ */
+async function taskTurn(
+  name: string,
+  agentId: string,
+  calls: { tool: string; args: CallArguments }[],
+  options: { plan: PlanCard; draft: "accept" | "decline" | null; whileWaiting?: () => Promise<void> },
+): Promise<{ outcomes: CallOutcome[]; reasons: (string | null)[] }> {
+  const logBefore = toolLogs().length;
+  const approvalsBefore = approvals.length;
+  const promptsBefore = prompts.length;
+  const planCalls = options.plan === "none" ? [] : [{ tool: "acknowledge_request", args: PLAN_CARD_ARGS }];
+  await runCauseEffect(agents.startTask({ agentId, text: callText([...planCalls, ...calls], true) }));
+  if (options.plan === "person") {
+    const card = await waitFor(`${name} plan card`, () => prompts[promptsBefore]);
+    await runCauseEffect(
+      agents.respondToPrompt({
+        requestId: card.requestId,
+        answers: { [card.questionId ?? ""]: [PLAN_CARD_ARGS.startLabel] },
+      }),
+    );
+  }
+  if (options.draft !== null) {
+    const card = await waitFor(`${name} approval`, () => approvals[approvalsBefore]);
+    await options.whileWaiting?.();
+    await runCauseEffect(agents.respondToApproval({ requestId: card.requestId, decision: options.draft }));
+  }
+  const expected = logBefore + planCalls.length + calls.length;
+  await waitFor(`${name} tool results`, () => toolLogs().length >= expected);
+  await waitFor(`${name} turn`, () =>
+    agents
+      .listQueue(agentId)
+      .deliveries.every((delivery) => !["queued", "starting", "running"].includes(delivery.status)),
+  );
+  const outcomes = toolLogs()
+    .slice(logBefore + planCalls.length)
+    .map(outcomeOf);
+  for (const [index, outcome] of outcomes.entries()) {
+    report.calls.push({ name: `${name}: ${calls[index]?.tool ?? "?"}`, ...outcome });
+  }
+  return { outcomes, reasons: approvals.slice(approvalsBefore).map((card) => card.reason) };
 }
 
 /** The instruction file of the agent's workspace. */
@@ -404,6 +478,7 @@ try {
   workspace = agent.workspacePath;
   await mkdir(workspace, { recursive: true });
   await writeFile(join(workspace, "AGENTS.md"), OLD_TEXT, { mode: 0o600 });
+  await runCauseEffect(agents.updateAgent({ agentId: alpha.id, quickAcknowledgement: true }));
   const history = { agentId: alpha.id, database: connection() };
 
   // A. A proposal waits for the person: its card shows the diff, nothing is written while it waits, and a decline keeps it.
@@ -533,19 +608,71 @@ try {
     { cards: noPlan.asked, text: noPlan.outcome.text },
   );
 
-  // F2. A skill folder with a secret is refused before any card, and installs nothing.
-  await writeDraft(SECRET_FOLDER, { "notes.md": `Use ${SECRET} to reach the staging site.\n` });
-  const secretDraft = await proposeWithoutCard(
-    "propose a skill with a secret",
+  // P. A skill draft needs the person's approval of the plan it comes from. The plan is finished in every case, so the
+  // check reaches the approval: a plan that nobody started is refused with no card, and so is a plan that the host
+  // started when its wait ran out. An agent's claim in its arguments is refused too.
+  const unapproved = await taskTurn(
+    "a skill draft from a plan nobody started",
     alpha.id,
-    "propose_skill",
-    { sourcePath: SECRET_FOLDER },
-    true,
+    [{ tool: "propose_skill", args: { sourcePath: DRAFT_FOLDER } }],
+    { plan: "none", draft: null },
   );
+  const unapprovedOutcome = unapproved.outcomes[0];
+  pass(
+    "A skill draft from a finished plan that the person did not start is refused with no approval card",
+    unapprovedOutcome?.success === false &&
+      unapproved.reasons.length === 0 &&
+      (unapprovedOutcome?.text.includes("needs the person's approval") ?? false),
+    { cards: unapproved.reasons.length, text: unapprovedOutcome?.text },
+  );
+  pass("A skill draft without the person's approval is not installed", installs.length === 0);
+
+  const timed = await taskTurn(
+    "a skill draft after a plan the host started",
+    alpha.id,
+    [{ tool: "propose_skill", args: { sourcePath: DRAFT_FOLDER } }],
+    { plan: "timer", draft: null },
+  );
+  const timedOutcome = timed.outcomes[0];
+  pass(
+    "A plan that the host started at the end of its wait does not approve a skill draft",
+    timedOutcome?.success === false &&
+      timed.reasons.length === 0 &&
+      (timedOutcome?.text.includes("needs the person's approval") ?? false),
+    { cards: timed.reasons.length, text: timedOutcome?.text },
+  );
+  pass("A skill draft after the host's start is not installed", installs.length === 0);
+
+  const claimed = await taskTurn(
+    "a skill draft that claims the plan is approved",
+    alpha.id,
+    [{ tool: "propose_skill", args: { sourcePath: DRAFT_FOLDER, planApproved: true } }],
+    { plan: "none", draft: null },
+  );
+  const claimedOutcome = claimed.outcomes[0];
+  pass(
+    "The agent cannot record the plan approval itself: a claim in its arguments is refused with no card",
+    claimedOutcome?.success === false && claimed.reasons.length === 0,
+    { cards: claimed.reasons.length, text: claimedOutcome?.text },
+  );
+  pass("A claimed plan approval installs nothing", installs.length === 0);
+
+  // F2. A skill folder with a secret is refused before any card, and installs nothing. Its plan is one the person
+  // started, so the check reaches the folder.
+  await writeDraft(SECRET_FOLDER, { "notes.md": `Use ${SECRET} to reach the staging site.\n` });
+  const secretDraft = await taskTurn(
+    "a skill draft with a secret",
+    alpha.id,
+    [{ tool: "propose_skill", args: { sourcePath: SECRET_FOLDER } }],
+    { plan: "person", draft: null },
+  );
+  const secretOutcome = secretDraft.outcomes[0];
   pass(
     "A skill draft with a secret is refused with no approval card",
-    !secretDraft.outcome.success && secretDraft.asked === 0 && secretDraft.outcome.text.includes("holds a secret"),
-    { cards: secretDraft.asked, text: secretDraft.outcome.text },
+    secretOutcome?.success === false &&
+      secretDraft.reasons.length === 0 &&
+      (secretOutcome?.text.includes("holds a secret") ?? false),
+    { cards: secretDraft.reasons.length, text: secretOutcome?.text },
   );
   pass("A skill draft with a secret is not installed", installs.length === 0);
 
@@ -556,87 +683,95 @@ try {
   await mkdir(join(outsideRoot, "skill"), { recursive: true });
   await writeFile(join(outsideRoot, "skill", "SKILL.md"), `---\nname: Outside\n---\n${OUTSIDE_MARK}\n`);
   await symlink(outsideRoot, join(workspace, "linked"));
-  const linked = await proposeWithoutCard(
-    "propose a skill through a link to an outside folder",
+  const linked = await taskTurn(
+    "a skill draft through a link to an outside folder",
     alpha.id,
-    "propose_skill",
-    { sourcePath: "linked/skill" },
-    true,
+    [{ tool: "propose_skill", args: { sourcePath: "linked/skill" } }],
+    { plan: "person", draft: null },
   );
+  const linkedOutcome = linked.outcomes[0];
   pass(
     "A skill draft under a link to a folder outside the workspace is refused with no approval card",
-    !linked.outcome.success &&
-      linked.asked === 0 &&
-      linked.outcome.text.includes("must be a folder inside your workspace"),
-    { cards: linked.asked, text: linked.outcome.text },
+    linkedOutcome?.success === false &&
+      linked.reasons.length === 0 &&
+      (linkedOutcome?.text.includes("must be a folder inside your workspace") ?? false),
+    { cards: linked.reasons.length, text: linkedOutcome?.text },
   );
   pass(
     "The text of a skill folder outside the workspace reaches no card or answer",
     approvals.every((approval) => !(approval.reason ?? "").includes(OUTSIDE_MARK)) &&
-      !linked.outcome.text.includes(OUTSIDE_MARK),
+      !(linkedOutcome?.text.includes(OUTSIDE_MARK) ?? false),
   );
 
   // F4. A skill draft whose card would not fit in 8 KB is refused before any card.
   await writeDraft(BIG_FOLDER, { "notes.md": "n".repeat(9 * 1024) });
-  const big = await proposeWithoutCard(
-    "propose an oversized skill",
+  const big = await taskTurn(
+    "an oversized skill draft",
     alpha.id,
-    "propose_skill",
-    { sourcePath: BIG_FOLDER },
-    true,
+    [{ tool: "propose_skill", args: { sourcePath: BIG_FOLDER } }],
+    { plan: "person", draft: null },
   );
+  const bigOutcome = big.outcomes[0];
   pass(
     "A skill draft too big for the 8 KB card is refused with no approval card",
-    !big.outcome.success &&
-      big.asked === 0 &&
-      big.outcome.text.includes("too long for the person to review in one card"),
-    { cards: big.asked, text: big.outcome.text },
+    bigOutcome?.success === false &&
+      big.reasons.length === 0 &&
+      (bigOutcome?.text.includes("too long for the person to review in one card") ?? false),
+    { cards: big.reasons.length, text: bigOutcome?.text },
   );
 
-  // E1. A skill draft is not installed without the person's approval.
+  // E1. A skill draft that the person started the plan of is not installed unless the person accepts its card.
   seedOutcomes(alpha.id, STEADY);
-  const draftHeld = await proposeAndHold(
-    "propose a skill draft",
+  const draftDeclined = await taskTurn(
+    "a skill draft that the person declines",
     alpha.id,
-    "propose_skill",
-    { sourcePath: DRAFT_FOLDER },
-    true,
+    [{ tool: "propose_skill", args: { sourcePath: DRAFT_FOLDER } }],
+    {
+      plan: "person",
+      draft: "decline",
+      whileWaiting: async () => {
+        const reason = approvals.at(-1)?.reason ?? "";
+        pass(
+          "The card for a skill draft names the skill and its files",
+          reason.includes(`New skill ${DRAFT_FOLDER}`) && reason.includes("SKILL.md"),
+          { reason },
+        );
+        pass(
+          "The card for a skill draft shows the text of SKILL.md",
+          reason.includes("Sort the notes by urgency, then reply with the top three."),
+          { reason },
+        );
+        pass("A skill draft is not installed while its card waits", installs.length === 0);
+        pass(
+          "A skill draft is not published while its card waits",
+          (await runCauseEffect(library.list())).length === 0,
+        );
+      },
+    },
   );
-  pass(
-    "The card for a skill draft names the skill and its files",
-    (draftHeld.card.reason ?? "").includes(`New skill ${DRAFT_FOLDER}`) &&
-      (draftHeld.card.reason ?? "").includes("SKILL.md"),
-    { reason: draftHeld.card.reason },
-  );
-  pass(
-    "The card for a skill draft shows the text of SKILL.md",
-    (draftHeld.card.reason ?? "").includes("Sort the notes by urgency, then reply with the top three."),
-    { reason: draftHeld.card.reason },
-  );
-  pass("A skill draft is not installed while its card waits", installs.length === 0);
-  pass("A skill draft is not published while its card waits", (await runCauseEffect(library.list())).length === 0);
-  await runCauseEffect(agents.respondToApproval({ requestId: draftHeld.card.requestId, decision: "decline" }));
-  const draftDeclined = await draftHeld.outcome;
+  const declinedOutcome = draftDeclined.outcomes[0];
   pass(
     "A declined skill draft is not installed",
-    !draftDeclined.success && draftDeclined.text.includes('"approval_required"') && installs.length === 0,
-    draftDeclined.text,
+    declinedOutcome?.success === false &&
+      (declinedOutcome?.text.includes('"approval_required"') ?? false) &&
+      installs.length === 0,
+    declinedOutcome?.text,
   );
 
-  // E2. An accepted skill draft is installed once, and its script is never run.
-  const draftApproved = await proposeAndHold(
-    "propose a skill draft to accept",
+  // E2. The same draft, after the person started its plan and accepts its card, is installed once, and its script is
+  // never run.
+  seedOutcomes(alpha.id, STEADY);
+  const accepted = await taskTurn(
+    "a skill draft that the person accepts",
     alpha.id,
-    "propose_skill",
-    { sourcePath: DRAFT_FOLDER },
-    true,
+    [{ tool: "propose_skill", args: { sourcePath: DRAFT_FOLDER } }],
+    { plan: "person", draft: "accept" },
   );
-  await runCauseEffect(agents.respondToApproval({ requestId: draftApproved.card.requestId, decision: "accept" }));
-  const installed = await draftApproved.outcome;
+  const installed = accepted.outcomes[0];
   pass(
     "An accepted skill draft is installed for the agent once",
-    installed.success && installed.text.includes('"status":"installed"') && installs.length === 1,
-    { installs: installs.length, text: installed.text },
+    installed?.success === true && (installed.text.includes('"status":"installed"') ?? false) && installs.length === 1,
+    { installs: installs.length, text: installed?.text },
   );
   pass(
     "The installed skill is the one published in the local library",

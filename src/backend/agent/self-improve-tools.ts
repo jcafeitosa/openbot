@@ -51,7 +51,7 @@ export const SELF_IMPROVE_TOOL_DEFINITIONS = [
   {
     name: "propose_skill",
     description:
-      "Propose a skill from a folder inside your workspace that holds SKILL.md, after a task whose plan has at least two steps and all of them completed in this turn. A person must approve it in OpenBot, and it installs for you only after approval. Never run the folder's scripts.",
+      "Propose a skill from a folder inside your workspace that holds SKILL.md, after a task whose plan has at least two steps, all of them completed in this turn, and whose plan the person started with its card in this same turn. A person must approve it in OpenBot, and it installs for you only after approval. Never run the folder's scripts.",
     shape: proposeSkillSchema.shape,
   },
 ];
@@ -72,6 +72,8 @@ const REFUSAL_MESSAGES: Record<SelfImproveRefusal, string> = {
   replay:
     "Recent turns show more failed turns than before, so OpenBot did not apply the change. Tell the user what you wanted to change.",
   plan: "A skill draft needs a finished task: a plan of at least two steps, all completed in this turn.",
+  unapproved:
+    "A skill draft needs the person's approval of your plan: the person must press start on your plan card in a task, in this turn. Ask the person to approve the plan first.",
   folder: "The skill folder must be a folder inside your workspace with a SKILL.md file, and it must hold no links.",
   missing:
     "OpenBot kept no earlier text of your instruction file with this hash, so nothing was restored. Use a previousSha256 from an applied change, or the absent-file hash from the tool description.",
