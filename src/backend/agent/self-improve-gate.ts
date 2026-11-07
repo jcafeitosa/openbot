@@ -43,6 +43,7 @@ export type SelfImproveRefusal =
   | "outside"
   | "replay"
   | "plan"
+  | "unapproved"
   | "folder";
 
 export type SelfImproveResult =
@@ -66,6 +67,8 @@ interface SkillProposal {
   sourcePath: string;
   /** The plan of the turn that proposes the draft, or null when that turn has none. */
   plan: ConversationPlan | null;
+  /** Whether the person started this plan with its card, in a task, in this same turn. */
+  planApproved: boolean;
   approve: SelfImproveApproval;
   skills: LocalSkillTools;
 }
@@ -234,8 +237,8 @@ export class SelfImproveGate {
     );
 
   /**
-   * Proposes a skill draft from a folder of the workspace. Installs it for the agent only when the turn
-   * has a finished plan, the person accepts the card, and the replay shows no regression.
+   * Proposes a skill draft from a folder of the workspace. Installs it for the agent only when the turn has a
+   * finished plan that the person started in a task, the person accepts the card, and the replay shows no regression.
    */
   readonly proposeSkill = (input: SkillProposal) => this.#skill(input);
 
@@ -271,6 +274,7 @@ export class SelfImproveGate {
 
   readonly #skill = Effect.fn("SelfImproveGate.skill")(function* (this: SelfImproveGate, input: SkillProposal) {
     if (!planCompleted(input.plan)) return refused("plan");
+    if (!input.planApproved) return refused("unapproved");
     const draft = yield* Effect.promise(() => readDraft(input.workspace, input.sourcePath));
     if ("refused" in draft) return refused(draft.refused);
     if (draft.files.some((file) => holdsSecret(file.text))) return refused("secret");

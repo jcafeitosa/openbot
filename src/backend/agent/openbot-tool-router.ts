@@ -1022,6 +1022,25 @@ export class OpenBotToolRouter {
   }
 
   /**
+   * Whether the person started the plan of this turn: the turn runs in a task, and the plan card of
+   * `acknowledge_request` in that turn was answered with its start button. A start that the host gave when
+   * the card's wait ran out is not the person's, so `autoAnswer.done` never counts.
+   */
+  #planApproved(agentId: string, threadId: string, turnId: string): boolean {
+    if (this.#tasks.taskForThread(threadId) === null) return false;
+    return this.#conversation
+      .ensureSnapshot(agentId, threadId)
+      .messages.some(
+        (message) =>
+          message.turnId === turnId &&
+          message.uiBlock?.spec.type === "confirm" &&
+          message.uiBlock.state.status === "answered" &&
+          message.uiBlock.state.response?.actionId === ACKNOWLEDGE_REQUEST_ACTIONS.start &&
+          message.uiBlock.state.autoAnswer?.done !== true,
+      );
+  }
+
+  /**
    * `propose_instructions_change` and `propose_skill`. The approval card is owner-only: only the owner's
    * answer decides it, so neither a local script nor an agent can approve its own change.
    */
@@ -1071,6 +1090,7 @@ export class OpenBotToolRouter {
         workspace,
         sourcePath: parsed.data.sourcePath,
         plan: this.#turnPlan(agentId, threadId, params.turnId),
+        planApproved: this.#planApproved(agentId, threadId, params.turnId),
         approve,
         skills: this.#localSkillTools(),
       }),
