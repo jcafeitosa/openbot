@@ -6,7 +6,7 @@ import type { OpenBotToolResponse } from "./routine-tools";
 import { openBotToolFailure, openBotToolResult } from "./routine-tools";
 
 /** A protected folder. The names are the folders macOS guards. Full Disk Access is not one of them. */
-export const macFolders = ["desktop", "documents", "downloads"] as const;
+const macFolders = ["desktop", "documents", "downloads"] as const;
 export type MacFolder = (typeof macFolders)[number];
 
 export const allowMacFolderShape = {
